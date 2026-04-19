@@ -1,0 +1,20 @@
+# Normalize line endings on commit; check out native to each platform.
+* text=auto
+
+# Force LF for shell scripts and YAML/SQL/configs that may be read on Linux containers.
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.sql       text eol=lf
+Dockerfile  text eol=lf
+
+# Force CRLF for Windows-only scripts.
+*.ps1       text eol=crlf
+*.bat       text eol=crlf
+
+# Treat as binary so git doesn't try to diff/normalize.
+*.png       binary
+*.jpg       binary
+*.pdf       binary
+*.ico       binary
+*.lock      binary
