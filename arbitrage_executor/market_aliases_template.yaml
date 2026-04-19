@@ -1,0 +1,81 @@
+# Fill-in template: how FanDuel labels markets in aria-label strings.
+#
+# Goal:
+# - Map our internal `market_key` (e.g., player_rebounds) to the words FanDuel actually uses.
+# - Support both table styles:
+#   - primary table: typically includes "Over"/"Under" and the numeric line
+#   - alt table: typically starts with "To Record N+ ..."
+#
+# Placeholders you can use:
+# - {player_name}
+# - {line}          (e.g., 7.5)
+# - {direction}     ("over" | "under")
+# - {direction_label} ("Over" | "Under")
+# - {price_str}     (decimal odds formatted to 2dp, e.g., 1.88)
+# - {n_plus}        (int for alt ladders, e.g., 4)
+#
+# Matching philosophy (recommended):
+# - Prefer `tokens_all` for strict matching.
+# - Use `tokens_any` when FanDuel wording varies.
+# - If your market is a combo (points+rebounds), list both tokens in `tokens_all`.
+
+fanduel:
+  markets:
+    # Replace/add keys with your internal market_key values.
+    player_rebounds:
+      tokens_all:
+        - Rebounds
+      tokens_any: []
+      primary_table:
+        # The prop button aria-label usually includes:
+        # "{player_name}", "{direction_label}", "{line}", and your tokens.
+        required_contains:
+          - "{player_name}"
+          - "{direction_label}"
+          - "{line}"
+        optional_contains: []
+      alt_table:
+        # Alt-table ladder often looks like:
+        # "To Record {n_plus}+ Rebounds, {player_name}, {price_str}"
+        required_contains:
+          - "To Record {n_plus}+"
+          - "{player_name}"
+          - "{price_str}"
+        optional_contains: []
+
+    player_points_rebounds:
+      tokens_all:
+        - Points
+        - Rebounds
+      tokens_any: []
+      primary_table:
+        required_contains:
+          - "{player_name}"
+          - "{direction_label}"
+          - "{line}"
+        optional_contains: []
+      alt_table:
+        required_contains:
+          - "To Record {n_plus}+"
+          - "{player_name}"
+          - "{price_str}"
+        optional_contains: []
+
+    player_points_rebounds_assists:
+      tokens_all:
+        - Points
+        - Rebounds
+        - Assists
+      tokens_any: []
+      primary_table:
+        required_contains:
+          - "{player_name}"
+          - "{direction_label}"
+          - "{line}"
+        optional_contains: []
+      alt_table:
+        required_contains:
+          - "To Record {n_plus}+"
+          - "{player_name}"
+          - "{price_str}"
+        optional_contains: []

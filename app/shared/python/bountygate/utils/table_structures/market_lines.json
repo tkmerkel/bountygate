@@ -1,0 +1,58 @@
+[
+ {
+  "column_name": "fetched_at_utc",
+  "data_type": "timestamp with time zone",
+  "character_maximum_length": null,
+  "is_nullable": "NO",
+  "column_default": "now()"
+ },
+ {
+  "column_name": "betting_market_id",
+  "data_type": "uuid",
+  "character_maximum_length": null,
+  "is_nullable": "NO",
+  "column_default": null
+ },
+ {
+  "column_name": "sportsbook_id",
+  "data_type": "uuid",
+  "character_maximum_length": null,
+  "is_nullable": "NO",
+  "column_default": null
+ },
+ {
+  "column_name": "line_value",
+  "data_type": "numeric",
+  "character_maximum_length": null,
+  "is_nullable": "YES",
+  "column_default": null
+ },
+ {
+  "column_name": "price_decimal",
+  "data_type": "numeric",
+  "character_maximum_length": null,
+  "is_nullable": "YES",
+  "column_default": null
+ },
+ {
+  "column_name": "price_american",
+  "data_type": "smallint",
+  "character_maximum_length": null,
+  "is_nullable": "YES",
+  "column_default": null
+ },
+ {
+  "column_name": "id",
+  "data_type": "bigint",
+  "character_maximum_length": null,
+  "is_nullable": "NO",
+  "column_default": "nextval('market_lines_id_seq'::regclass)"
+ },
+ {
+  "column_name": "outcome_name",
+  "data_type": "character varying",
+  "character_maximum_length": 50,
+  "is_nullable": "NO",
+  "column_default": null
+ }
+]

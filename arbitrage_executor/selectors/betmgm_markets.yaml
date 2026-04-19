@@ -1,0 +1,486 @@
+# BETMGM Market Selector Configuration
+# Last updated: 2026-01-26 10:06:39
+
+player_points:
+  accordion_name: Player points O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player points O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: P.J. Washington
+  test_line: 14.5
+  validated_at: '2026-01-22T12:39:24.673621'
+player_assists:
+  accordion_name: Player assists O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player assists O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Rudy Gobert
+  test_line: 1.5
+  validated_at: '2026-01-22T13:17:27.231320'
+player_rebounds:
+  accordion_name: Player rebounds O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player rebounds O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Collin Sexton
+  test_line: 1.5
+  validated_at: '2026-01-22T13:07:30.682828'
+player_rebounds_assists:
+  accordion_name: Player rebounds + assists
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player rebounds + assists")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Anthony Edwards
+  test_line: 9.5
+  validated_at: '2026-01-22T13:27:53.850195'
+player_receptions:
+  accordion_name: Receptions made
+  accordion_selector: button[dsaccordiontoggle]:has-text("Receptions made")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Mack Hollins
+  test_line: 2.5
+  validated_at: '2026-01-24T15:22:00.501281'
+player_points_assists:
+  accordion_name: Player points + assists
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player points + assists")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Anthony Black
+  test_line: 20.5
+  validated_at: '2026-01-24T16:51:19.043464'
+player_threes:
+  accordion_name: Player three-pointers O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player three-pointers O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: De'Andre Hunter
+  test_line: 1.5
+  validated_at: '2026-01-26T09:03:19.770577'
+player_blocks:
+  accordion_name: Player blocks
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player blocks")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Derrick White
+  test_line: 1.5
+  validated_at: '2026-01-26T10:06:39.051091'
+player_points_rebounds:
+  accordion_name: Player points + rebounds
+  accordion_selector: button[dsaccordiontoggle]:text-is("Player points + rebounds")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: true
+  test_player: Pascal Siakam
+  test_line: 30.5
+  validated_at: '2026-01-26T11:44:34.684658'
+
+# ============================================================================
+# MLB STANDARD O/U MARKETS (best-guess accordion names — verify interactively)
+# ============================================================================
+
+batter_hits:
+  accordion_name: Player hits O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player hits O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_singles:
+  accordion_name: Player singles O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player singles O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_doubles:
+  accordion_name: Player doubles O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player doubles O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_triples:
+  accordion_name: Player triples O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player triples O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_home_runs:
+  accordion_name: Player home runs O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player home runs O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_total_bases:
+  accordion_name: Player total bases O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player total bases O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_rbis:
+  accordion_name: Player RBIs O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player RBIs O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_runs:
+  accordion_name: Player runs O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player runs O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_stolen_bases:
+  accordion_name: Batter stolen bases O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Batter stolen bases O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_strikeouts:
+  accordion_name: Batter strikeouts O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Batter strikeouts O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_walks:
+  accordion_name: Player walks O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player walks O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+batter_hits_runs_rbis:
+  accordion_name: Player hits + runs + RBIs
+  accordion_selector: button[dsaccordiontoggle]:has-text("Player hits + runs + RBIs")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+pitcher_strikeouts:
+  accordion_name: Pitcher strikeouts O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Pitcher strikeouts O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+pitcher_hits_allowed:
+  accordion_name: Pitcher hits allowed O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Pitcher hits allowed O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+pitcher_walks:
+  accordion_name: Pitcher walks O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Pitcher walks O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+pitcher_outs:
+  accordion_name: Pitcher outs O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Pitcher outs O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+pitcher_earned_runs:
+  accordion_name: Pitcher earned runs O/U
+  accordion_selector: button[dsaccordiontoggle]:has-text("Pitcher earned runs O/U")
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: player_container_then_line
+  search_validated: false
+
+# ============================================================================
+# ALTERNATE MARKETS
+# These use separate accordion sections with threshold tabs (e.g., "5+", "7+")
+# Accordion names are different from O/U markets (e.g., "Assists" vs "Player assists O/U")
+# ============================================================================
+
+player_points_alternate:
+  accordion_name: Points
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Points")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_points
+
+player_assists_alternate:
+  accordion_name: Assists
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Assists")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_assists
+
+player_rebounds_alternate:
+  accordion_name: Rebounds
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Rebounds")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_rebounds
+
+player_threes_alternate:
+  accordion_name: Three-pointers
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Three-pointers")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_threes
+
+player_blocks_alternate:
+  accordion_name: Blocks
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Blocks")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_blocks
+
+player_steals_alternate:
+  accordion_name: Steals
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Steals")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: player_steals
+
+# ============================================================================
+# MLB ALTERNATE MARKETS
+# Accordion names are best guesses — correct during interactive mapping
+# ============================================================================
+
+batter_hits_alternate:
+  accordion_name: Hits
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Hits")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_hits
+
+batter_singles_alternate:
+  accordion_name: Singles
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Singles")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_singles
+
+batter_doubles_alternate:
+  accordion_name: Doubles
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Doubles")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_doubles
+
+batter_triples_alternate:
+  accordion_name: Triples
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Triples")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_triples
+
+batter_home_runs_alternate:
+  accordion_name: Home Runs
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Home Runs")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_home_runs
+
+batter_total_bases_alternate:
+  accordion_name: Total Bases
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Total Bases")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_total_bases
+
+batter_rbis_alternate:
+  accordion_name: RBIs
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("RBIs")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_rbis
+
+batter_runs_alternate:
+  accordion_name: Runs
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Runs")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_runs
+
+batter_stolen_bases_alternate:
+  accordion_name: Stolen Bases
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Stolen Bases")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_stolen_bases
+
+batter_strikeouts_alternate:
+  accordion_name: Strikeouts
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Strikeouts")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_strikeouts
+
+batter_walks_alternate:
+  accordion_name: Walks
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Walks")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: batter_walks
+
+pitcher_strikeouts_alternate:
+  accordion_name: Pitcher Strikeouts
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Pitcher Strikeouts")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: pitcher_strikeouts
+
+pitcher_hits_allowed_alternate:
+  accordion_name: Hits Allowed
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Hits Allowed")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: pitcher_hits_allowed
+
+pitcher_walks_alternate:
+  accordion_name: Pitcher Walks
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Pitcher Walks")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: pitcher_walks
+
+pitcher_outs_alternate:
+  accordion_name: Pitcher Outs
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Pitcher Outs")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: pitcher_outs
+
+pitcher_earned_runs_alternate:
+  accordion_name: Earned Runs
+  accordion_selector: 'button[dsaccordiontoggle]:has-text("Earned Runs")'
+  tab_selector_pattern: 'button:has-text("{threshold}+")'
+  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
+  bet_element_type: ms-event-pick
+  search_strategy: alternate_tab_then_player
+  is_alternate: true
+  has_threshold_tabs: true
+  base_market: pitcher_earned_runs

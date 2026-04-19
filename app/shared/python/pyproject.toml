@@ -1,0 +1,20 @@
+[project]
+name = "bountygate-shared"
+version = "0.1.0"
+description = "Shared Python utilities for the BountyGate platform"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "requests>=2.31",
+    "SQLAlchemy>=1.4",
+    "psycopg2-binary>=2.9",
+    "scikit-learn>=1.4",
+]
+
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]

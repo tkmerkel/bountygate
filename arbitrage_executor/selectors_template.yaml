@@ -1,0 +1,190 @@
+## Template for selectors.yaml
+## This shows the expected structure for the selector mappings
+
+generated_at: "2026-01-11T16:45:00"
+
+fanduel:
+  base_url: "https://mo.sportsbook.fanduel.com/"
+
+  selectors:
+    # NAVIGATION & SEARCH
+    search_input:
+      element_name: "Player Search Input"
+      css_selector: "input[placeholder*='Search']"
+      xpath: "//input[@placeholder='Search']"
+      data_attributes: []
+      aria_label: "Search"
+      id: ""
+      classes: ["search-input"]
+      parent_context: "Top navigation bar"
+      notes: "Primary search box for finding players"
+
+    search_results_container:
+      element_name: "Search Results Container"
+      css_selector: ".search-results"
+      xpath: "//div[@class='search-results']"
+      notes: "Container holding all search results"
+
+    player_result_link:
+      element_name: "Player Result Link"
+      css_selector: ".player-result a"
+      xpath: "//div[@class='player-result']//a"
+      notes: "Click to navigate to player props"
+
+    # BET SLIP
+    bet_slip_container:
+      element_name: "Bet Slip Container"
+      css_selector: "div[data-test-id='bet-slip']"
+      parent_context: "Right side panel"
+      notes: "Main container for bet slip"
+
+    clear_all_button:
+      element_name: "Clear All Bets Button"
+      css_selector: "button[aria-label='Clear All']"
+      xpath: "//button[contains(text(), 'Clear All')]"
+      notes: "Clears all bets from slip"
+
+    wager_input:
+      element_name: "Wager Amount Input"
+      css_selector: "input[type='text'][placeholder*='Wager']"
+      xpath: "//input[@type='text' and contains(@placeholder, 'Wager')]"
+      notes: "Input field for bet amount"
+
+    place_bet_button:
+      element_name: "Place Bet Button"
+      css_selector: "button[data-test-id='place-bet']"
+      xpath: "//button[contains(text(), 'Place Bet')]"
+      aria_label: "Place Bet"
+      notes: "Primary bet placement button"
+
+    bet_confirmation_banner:
+      element_name: "Bet Confirmation Banner"
+      css_selector: ".success-banner"
+      xpath: "//div[contains(@class, 'success') and contains(text(), 'placed')]"
+      notes: "Green banner showing 'Straight bet placed!'"
+
+    confirmation_done_button:
+      element_name: "Confirmation Done Button"
+      css_selector: "button[aria-label='Done']"
+      xpath: "//button[text()='Done']"
+      notes: "Closes confirmation dialog"
+
+    # PROP BET LISTINGS
+    prop_bet_card:
+      element_name: "Prop Bet Card/Button"
+      css_selector: "button[data-test-id='prop-bet']"
+      xpath: "//button[@data-test-id='prop-bet']"
+      notes: "Clickable card showing odds and line"
+
+    over_under_indicator:
+      element_name: "Over/Under Indicator"
+      css_selector: ".ou-indicator"
+      notes: "Shows 'O' or 'U' prefix on bet"
+
+    line_value:
+      element_name: "Line Value"
+      css_selector: ".line-value"
+      notes: "The numeric line (e.g., 5.5)"
+
+    odds_value:
+      element_name: "Odds Value"
+      css_selector: ".odds-value"
+      notes: "American odds (e.g., +110)"
+
+    # LOCATION DIALOG
+    location_dialog:
+      element_name: "Location Restriction Dialog"
+      css_selector: "div[role='dialog'][aria-label*='location']"
+      notes: "Modal shown for location restrictions"
+
+    location_close_button:
+      element_name: "Close Location Dialog"
+      css_selector: "button[aria-label='Clear dialog']"
+      xpath: "//div[@role='dialog']//button[@aria-label='Clear dialog']"
+      notes: "Closes location dialog without downloading"
+
+betmgm:
+  base_url: "https://www.mo.betmgm.com/en/sports"
+
+  selectors:
+    # NAVIGATION & SEARCH
+    search_input:
+      element_name: "Search Input"
+      css_selector: "input[type='search']"
+      placeholder: "Search"
+      notes: "Main search box"
+
+    team_result_link:
+      element_name: "Team Result Link"
+      css_selector: "a[href*='/sports/']"
+      notes: "Links to game pages"
+
+    # FILTERING
+    player_props_market_param:
+      element_name: "Player Props URL Filter"
+      value: "?market=Players"
+      notes: "Add to URL to filter for player props"
+
+    accordion_button:
+      element_name: "Market Accordion Button"
+      css_selector: "button[aria-label*='Accordion']"
+      xpath: "//button[contains(@aria-label, 'Accordion')]"
+      notes: "Opens market sections like Points, Assists"
+
+    show_more_button:
+      element_name: "Show More Props Button"
+      css_selector: "button:has-text('Show More')"
+      xpath: "//button[text()='Show More']"
+      notes: "Expands props within a market"
+
+    # BET SLIP
+    bet_slip_container:
+      element_name: "Bet Slip Container"
+      css_selector: "div[data-test='bet-slip']"
+      notes: "Right side panel"
+
+    clear_all_button:
+      element_name: "Clear All Button"
+      css_selector: "button:has-text('Clear All')"
+      notes: "Removes all bets"
+
+    wager_input:
+      element_name: "Stake Input"
+      css_selector: "input[type='text'][placeholder='Stake']"
+      placeholder: "Stake"
+      notes: "Where you enter bet amount"
+
+    place_bet_button:
+      element_name: "Place Bet Button"
+      css_selector: "button:has-text('Place Bet')"
+      notes: "Submits the bet"
+
+    bet_confirmation:
+      element_name: "Bet Confirmation Message"
+      css_selector: ".confirmation-message"
+      notes: "Shows 'Wager Accepted'"
+
+    location_dialog:
+      element_name: "Location Dialog"
+      css_selector: "div[role='dialog']"
+      notes: "Appears after clicking Place Bet"
+
+    location_close_button:
+      element_name: "Close Location Dialog"
+      css_selector: "button[aria-label='Close']"
+      notes: "X button, NOT Continue/Download"
+
+    # PROP BET LISTINGS
+    prop_bet_box:
+      element_name: "Prop Bet Box"
+      css_selector: "div.bet-box"
+      notes: "Box showing O/U, line, and odds"
+
+    over_under_text:
+      element_name: "Over/Under Text"
+      css_selector: ".ou-text"
+      notes: "O or U indicator"
+
+  notes: |
+    BetMGM uses accordion sections for markets. Must expand relevant section first.
+    Player props require ?market=Players URL parameter.

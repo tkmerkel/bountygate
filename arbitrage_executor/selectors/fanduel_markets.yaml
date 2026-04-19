@@ -1,0 +1,404 @@
+# FANDUEL Market Selector Configuration
+# Last updated: 2026-01-26 11:44:34
+
+player_assists:
+  display_names:
+  - Assists
+  - Player Assists
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Rudy Gobert"][aria-label*="Assists"][aria-label*="1.5"]'
+  search_strategy: aria_label_match
+  test_player: Rudy Gobert
+  test_line: 1.5
+  validated_at: '2026-01-22T13:20:56.886236'
+player_points:
+  display_names:
+  - Points
+  - Player Points
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Svi Mykhailiuk"][aria-label*="Points"][aria-label*="7.5"]'
+  search_strategy: aria_label_match
+  test_player: Svi Mykhailiuk
+  test_line: 7.5
+  validated_at: '2026-01-22T13:22:32.409618'
+player_rebounds_assists:
+  display_names:
+  - Reb + Ast
+  - Rebounds + Assists
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Anthony Edwards"][aria-label*="Reb + Ast"][aria-label*="9.5"]'
+  search_strategy: aria_label_match
+  test_player: Anthony Edwards
+  test_line: 9.5
+  validated_at: '2026-01-22T13:24:30.806357'
+player_rush_attempts:
+  display_names:
+  - Rush Attempts
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="RJ Harvey"][aria-label*="Rush Attempts"][aria-label*="11.5"]'
+  search_strategy: aria_label_match
+  test_player: RJ Harvey
+  test_line: 11.5
+  validated_at: '2026-01-24T16:01:07.428791'
+player_rebounds:
+  display_names:
+  - Rebounds
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Evan Mobley"][aria-label*="Rebounds"][aria-label*="8.5"]'
+  search_strategy: aria_label_match
+  test_player: Evan Mobley
+  test_line: 8.5
+  validated_at: '2026-01-24T16:28:33.684199'
+player_points_assists:
+  display_names:
+  - Pts + Ast
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Anthony Black"][aria-label*="Pts + Ast"][aria-label*="20.5"]'
+  search_strategy: aria_label_match
+  test_player: Anthony Black
+  test_line: 20.5
+  validated_at: '2026-01-24T16:50:33.966353'
+player_threes:
+  display_names:
+  - Made Threes
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="De''Andre Hunter"][aria-label*="Made Threes"][aria-label*="1.5"]'
+  search_strategy: aria_label_match
+  test_player: De'Andre Hunter
+  test_line: 1.5
+  validated_at: '2026-01-26T09:01:50.700046'
+player_blocks:
+  display_names:
+  - Blocks
+  - Player Blocks
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Derrick White"][aria-label*="Blocks"][aria-label*="1.5"]'
+  search_strategy: aria_label_match
+  test_player: Derrick White
+  test_line: 1.5
+  validated_at: '2026-01-26T10:05:34.831844'
+player_points_rebounds:
+  display_names:
+  - Pts + Reb
+  - Points + Rebounds
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Pascal Siakam"][aria-label*="Pts + Reb"][aria-label*="30.5"]'
+  search_strategy: aria_label_match
+  test_player: Pascal Siakam
+  test_line: 30.5
+  validated_at: '2026-01-26T11:44:34.684658'
+
+# ============================================================================
+# MLB STANDARD O/U MARKETS (best-guess display names — verify interactively)
+# ============================================================================
+
+batter_hits:
+  display_names:
+  - Hits
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_singles:
+  display_names:
+  - Singles
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_doubles:
+  display_names:
+  - Doubles
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_triples:
+  display_names:
+  - Triples
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_home_runs:
+  display_names:
+  - Home Runs
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_total_bases:
+  display_names:
+  - Total Bases
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_rbis:
+  display_names:
+  - RBIs
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_runs:
+  display_names:
+  - Runs
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_stolen_bases:
+  display_names:
+  - Stolen Bases
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_strikeouts:
+  display_names:
+  - Strikeouts
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_walks:
+  display_names:
+  - Walks
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+batter_hits_runs_rbis:
+  display_names:
+  - Hits + Runs + RBIs
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+pitcher_strikeouts:
+  display_names:
+  - Pitching Strikeouts
+  - Strikeouts
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+pitcher_hits_allowed:
+  display_names:
+  - Hits Allowed
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+pitcher_walks:
+  display_names:
+  - Pitching Walks
+  - Walks Allowed
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+pitcher_outs:
+  display_names:
+  - Pitching Outs
+  - Outs Recorded
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+pitcher_earned_runs:
+  display_names:
+  - Earned Runs
+  selector_type: aria_label
+  search_strategy: aria_label_match
+  search_validated: false
+
+# ============================================================================
+# ALTERNATE MARKETS
+# These use threshold format (e.g., "4+ Points") instead of "Over 4.5 Points"
+# ============================================================================
+
+player_points_alternate:
+  display_names:
+  - Points
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_points
+
+player_assists_alternate:
+  display_names:
+  - Assists
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_assists
+
+player_rebounds_alternate:
+  display_names:
+  - Rebounds
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_rebounds
+
+player_threes_alternate:
+  display_names:
+  - Made Threes
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_threes
+
+player_blocks_alternate:
+  display_names:
+  - Blocks
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_blocks
+
+player_steals_alternate:
+  display_names:
+  - Steals
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: player_steals
+
+# ============================================================================
+# MLB ALTERNATE MARKETS
+# These use threshold format (e.g., "2+ Hits") or "To Hit A Single" for threshold=1
+# ============================================================================
+
+batter_hits_alternate:
+  display_names:
+  - Hits
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_hits
+
+batter_singles_alternate:
+  display_names:
+  - Singles
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_singles
+
+batter_doubles_alternate:
+  display_names:
+  - Doubles
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_doubles
+
+batter_triples_alternate:
+  display_names:
+  - Triples
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_triples
+
+batter_home_runs_alternate:
+  display_names:
+  - Home Runs
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_home_runs
+
+batter_total_bases_alternate:
+  display_names:
+  - Total Bases
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_total_bases
+
+batter_rbis_alternate:
+  display_names:
+  - RBIs
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_rbis
+
+batter_runs_alternate:
+  display_names:
+  - Runs
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_runs
+
+batter_stolen_bases_alternate:
+  display_names:
+  - Stolen Bases
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_stolen_bases
+
+batter_strikeouts_alternate:
+  display_names:
+  - Strikeouts
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_strikeouts
+
+batter_walks_alternate:
+  display_names:
+  - Walks
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: batter_walks
+
+pitcher_strikeouts_alternate:
+  display_names:
+  - Pitching Strikeouts
+  - Strikeouts
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: pitcher_strikeouts
+
+pitcher_hits_allowed_alternate:
+  display_names:
+  - Hits Allowed
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: pitcher_hits_allowed
+
+pitcher_walks_alternate:
+  display_names:
+  - Pitching Walks
+  - Walks Allowed
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: pitcher_walks
+
+pitcher_outs_alternate:
+  display_names:
+  - Pitching Outs
+  - Outs Recorded
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: pitcher_outs
+
+pitcher_earned_runs_alternate:
+  display_names:
+  - Earned Runs
+  selector_type: aria_label
+  search_strategy: alternate_threshold_match
+  is_alternate: true
+  base_market: pitcher_earned_runs

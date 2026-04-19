@@ -1,0 +1,21 @@
+sport_key,alias,canonical_name,source_bookmaker,abbreviation,team_id,notes
+basketball_ncaab,Ole Miss Rebels,Ole Miss Rebels,underdog,,,from unmapped sample
+basketball_ncaab,Kansas Jayhawks,Kansas Jayhawks,manual,KU,,seeded manually
+basketball_ncaab,Notre Dame Fighting Irish,Notre Dame Fighting Irish,manual,ND,,seeded manually
+basketball_ncaab,Oregon Ducks,Oregon Ducks,manual,ORE,,seeded manually
+basketball_ncaab,Kentucky Wildcats,Kentucky Wildcats,manual,UK,,seeded manually
+basketball_ncaab,Pittsburgh Panthers,Pittsburgh Panthers,manual,PITT,,seeded manually
+basketball_ncaab,Syracuse Orange,Syracuse Orange,manual,SYR,,seeded manually
+basketball_ncaab,Rutgers Scarlet Knights,Rutgers Scarlet Knights,manual,RUTG,,seeded manually
+basketball_ncaab,Duke Blue Devils,Duke Blue Devils,manual,DUKE,,seeded manually
+basketball_ncaab,Michigan St Spartans,Michigan State Spartans,manual,MSU,,seeded manually
+basketball_ncaab,Miami Hurricanes,Miami Hurricanes,manual,MIA,,seeded manually
+basketball_ncaab,UConn Huskies,Connecticut Huskies,manual,UCONN,,seeded manually
+basketball_ncaab,Missouri Tigers,Missouri Tigers,manual,MIZZ,,seeded manually
+basketball_ncaab,USC Trojans,USC Trojans,manual,USC,,seeded manually
+basketball_ncaab,North Carolina Tar Heels,North Carolina Tar Heels,manual,UNC,,seeded manually
+basketball_ncaab,Texas A&M Aggies,Texas A&M Aggies,manual,TAMU,,seeded manually
+basketball_ncaab,Tennessee Volunteers,Tennessee Volunteers,manual,TENN,,seeded manually
+basketball_ncaab,Purdue Boilermakers,Purdue Boilermakers,manual,PUR,,seeded manually
+basketball_ncaab,Florida Gators,Florida Gators,manual,UF,,seeded manually
+basketball_ncaab,Iowa Hawkeyes,Iowa Hawkeyes,manual,IOWA,,seeded manually

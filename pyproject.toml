@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "bountygate"
+version = "0.1.0"
+description = "Monorepo for the BountyGate odds intelligence platform"
+authors = ["You <you@example.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"

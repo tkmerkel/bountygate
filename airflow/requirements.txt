@@ -1,0 +1,23 @@
+# Apache Airflow and core dependencies
+apache-airflow==3.0.6
+apache-airflow-providers-microsoft-azure
+apache-airflow-providers-fab
+apache-airflow-providers-standard
+
+# Database drivers
+psycopg2-binary
+
+# Data processing
+pandas
+numpy
+openpyxl
+gspread
+gspread-dataframe
+
+# HTTP and API clients
+requests
+requests_toolbelt
+
+# Utilities
+rich
+python-dateutil
