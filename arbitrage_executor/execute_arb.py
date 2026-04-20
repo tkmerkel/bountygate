@@ -19,6 +19,16 @@ from db_connection import mark_opportunity_executed
 from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 
 
+class OrphanedBetError(Exception):
+    """Raised when BetMGM was placed but the FanDuel hedge failed.
+
+    Carrying this signal up to the worker lets it halt the polling loop
+    instead of moving on to the next opportunity while one bet is unhedged.
+    The accompanying Discord CRITICAL alert (sent before raising) tells the
+    user exactly what was placed so they can manually hedge.
+    """
+
+
 def calculate_roi(price1: float, price2: float) -> float:
     """Calculate ROI from two decimal odds.
 
@@ -110,6 +120,13 @@ class ArbExecutor:
     def __init__(self, opportunity: Dict):
         self.opportunity = opportunity
         self.opp_hash = _opportunity_hash(opportunity)
+
+        # Track the asymmetric-risk window: BetMGM placed but FanDuel hedge
+        # not yet confirmed. If we exit with betmgm_placed=True and
+        # fanduel_hedged=False, that's an orphaned bet — page the human.
+        self.betmgm_placed = False
+        self.fanduel_hedged = False
+        self.betmgm_bet_details: Optional[Dict] = None
 
         # Create audit directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -329,6 +346,18 @@ class ArbExecutor:
 
                     print(f"\n✓ BetMGM bet ACCEPTED: ${actual_mgm_stake:.2f} @ {mgm_price}")
 
+                    # Mark the asymmetric-risk window OPEN. From here until the
+                    # FanDuel hedge confirms, any failure is an orphaned bet.
+                    self.betmgm_placed = True
+                    self.betmgm_bet_details = {
+                        "stake": round(actual_mgm_stake, 2),
+                        "price": mgm_price,
+                        "side": mgm_direction,
+                        "market": mgm_market_key,
+                        "line": self.opportunity.get(f"{mgm_direction}_line"),
+                        "player": self.opportunity.get("player_name"),
+                    }
+
                 except BetPlacerError as e:
                     print(f"❌ Phase 2 failed: {e}")
                     ExecutionLogger.log_execution_failure("BetMGM bet placement failed", self.opportunity, "betmgm", e)
@@ -353,24 +382,26 @@ class ArbExecutor:
                     fd_status, fd_msg = placer_fd.place_bet()
 
                     if fd_status != "ACCEPTED":
-                        print(f"❌ HEDGE FAILURE! FanDuel bet {fd_status}: {fd_msg}")
-                        print(f"⚠️ MANUAL INTERVENTION REQUIRED: BetMGM bet placed but FanDuel hedge failed!")
-                        ExecutionLogger.log_execution_failure(
-                            f"FanDuel hedge {fd_status}: {fd_msg} (BetMGM bet placed!)",
-                            self.opportunity, "fanduel"
+                        self._raise_orphaned(
+                            reason=f"ORPHANED BET: FanDuel hedge {fd_status}: {fd_msg}",
+                            planned_hedge_stake=fd_hedge_stake,
+                            planned_hedge_price=fd_price,
+                            fd_direction=fd_direction,
+                            fd_market_key=fd_market_key,
                         )
-                        return False
 
                     print(f"\n✓ FanDuel hedge ACCEPTED: ${fd_hedge_stake:.2f} @ {fd_price}")
+                    self.fanduel_hedged = True
 
                 except BetPlacerError as e:
-                    print(f"❌ HEDGE FAILURE! Phase 3 failed: {e}")
-                    print(f"⚠️ MANUAL INTERVENTION REQUIRED: BetMGM bet placed but FanDuel hedge failed!")
-                    ExecutionLogger.log_execution_failure(
-                        f"FanDuel hedge failed: {e} (BetMGM bet placed!)",
-                        self.opportunity, "fanduel", e
+                    self._raise_orphaned(
+                        reason=f"ORPHANED BET: FanDuel hedge raised {type(e).__name__}: {e}",
+                        planned_hedge_stake=fd_hedge_stake,
+                        planned_hedge_price=fd_price,
+                        fd_direction=fd_direction,
+                        fd_market_key=fd_market_key,
+                        underlying_error=e,
                     )
-                    return False
 
                 # === SUCCESS ===
                 print(f"\n{'='*60}")
@@ -413,10 +444,71 @@ class ArbExecutor:
 
                 return True
 
+        except OrphanedBetError:
+            # Already alerted via log_critical inside _raise_orphaned. Bubble
+            # up so the worker halts the polling loop.
+            raise
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
+            # If we crashed inside the asymmetric-risk window, escalate to
+            # CRITICAL so the user knows there's potentially an unhedged bet.
+            if self.betmgm_placed and not self.fanduel_hedged:
+                self._raise_orphaned(
+                    reason=f"ORPHANED BET: unexpected exception after BetMGM placement: {type(e).__name__}: {e}",
+                    underlying_error=e,
+                )
             ExecutionLogger.log_execution_failure(f"Unexpected error: {e}", self.opportunity, error=e)
             return False
+
+    def _raise_orphaned(
+        self,
+        *,
+        reason: str,
+        planned_hedge_stake: Optional[float] = None,
+        planned_hedge_price: Optional[float] = None,
+        fd_direction: Optional[str] = None,
+        fd_market_key: Optional[str] = None,
+        underlying_error: Optional[Exception] = None,
+    ) -> None:
+        """Emit a CRITICAL Discord alert with everything the user needs to
+        manually hedge the orphaned BetMGM bet, then raise OrphanedBetError.
+        """
+        bet = self.betmgm_bet_details or {}
+        details: Dict = {
+            "betmgm_placed_stake": bet.get("stake"),
+            "betmgm_placed_price": bet.get("price"),
+            "betmgm_side": bet.get("side"),
+            "betmgm_market": bet.get("market"),
+            "betmgm_line": bet.get("line"),
+            "audit_dir": self.audit_dir,
+        }
+        if planned_hedge_stake is not None:
+            details["fanduel_planned_hedge_stake"] = round(planned_hedge_stake, 2)
+        if planned_hedge_price is not None:
+            details["fanduel_planned_hedge_price"] = planned_hedge_price
+        if fd_direction is not None:
+            details["fanduel_side"] = fd_direction
+        if fd_market_key is not None:
+            details["fanduel_market"] = fd_market_key
+        if underlying_error is not None:
+            details["error"] = f"{type(underlying_error).__name__}: {underlying_error}"
+
+        action = (
+            "Open FanDuel and manually place "
+            f"${details.get('fanduel_planned_hedge_stake', '?')} on "
+            f"{details.get('fanduel_side', '?')} {details.get('fanduel_market', '?')} "
+            f"@ ~{details.get('fanduel_planned_hedge_price', '?')} to hedge the "
+            f"BetMGM bet (${details.get('betmgm_placed_stake', '?')} on "
+            f"{details.get('betmgm_side', '?')} {details.get('betmgm_market', '?')})."
+        )
+
+        ExecutionLogger.log_critical(
+            reason=reason,
+            opportunity=self.opportunity,
+            action_required=action,
+            details=details,
+        )
+        raise OrphanedBetError(reason)
 
 
 def main() -> bool:

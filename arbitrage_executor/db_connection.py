@@ -200,6 +200,22 @@ def ensure_execution_queue_table(table_name: str = EXECUTION_QUEUE_TABLE) -> Non
         engine.dispose()
 
 
+def pending_task_count(table_name: str = EXECUTION_QUEUE_TABLE) -> int:
+    """Return the count of PENDING tasks in the execution queue."""
+    engine = create_engine(DATABASE_URL)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(f"SELECT COUNT(*) FROM {table_name} WHERE status = 'PENDING'")
+            ).fetchone()
+            return int(row[0]) if row else 0
+    except Exception as e:
+        print(f"Error counting pending tasks: {e}")
+        return 0
+    finally:
+        engine.dispose()
+
+
 def claim_pending_task(table_name: str = EXECUTION_QUEUE_TABLE) -> int | None:
     """Atomically claim the oldest PENDING task. Returns task id or None."""
     ensure_execution_queue_table(table_name)

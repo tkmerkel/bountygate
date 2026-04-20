@@ -81,6 +81,10 @@ x-airflow-common:
     # Airflow 3 Simple Auth Manager (dev only)
     # AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
     # AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: "/opt/airflow/config/simple_auth_passwords.json"
+  env_file:
+    # Load DATABASE_URL, BG_DISCORD_WEBHOOK_URL, etc. from the repo-root .env
+    # so the shared db_connection / discord_notify modules can read them.
+    - ../.env
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs

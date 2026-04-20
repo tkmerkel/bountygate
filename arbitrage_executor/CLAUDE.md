@@ -38,8 +38,8 @@ Chrome must be running with `--remote-debugging-port=9223` and logged into both 
 | `selector_finder.py` | YAML selector loader |
 | `db_connection.py` | Executor-only DB helpers (fetch + executed/queue tracking). Broader admin/ETL helpers live in `app/shared/python/bountygate/utils/db_connection.py` |
 | `chrome_helpers.py` | Chrome/CDP launch — shared by `execute_arb.py` and `map_selectors.py`. Do not modify launch behavior |
-| `execution_logger.py` | Logs successes/failures/unmapped markets |
-| `task_worker.py` | Polling worker for remote-triggered execution |
+| `execution_logger.py` | Logs successes/failures/unmapped markets; pages Discord on WARNING/CRITICAL |
+| `task_worker.py` | Polling worker for remote-triggered execution; halts on orphaned bet; posts Discord heartbeat |
 | `map_selectors.py` | Utility to map new market selectors |
 | `selectors/*.yaml` | Per-bookmaker market selector configs |
 
@@ -55,3 +55,27 @@ Chrome must be running with `--remote-debugging-port=9223` and logged into both 
 - Audit logs saved per execution in `audit_logs/{timestamp}_{player}_{market}/`
 - Logs in `logs/` directory (execution_failures.log, unmapped_markets.log, worker.log)
 - Market selectors are YAML-driven, per bookmaker, per market type
+
+## Operator runbook (Discord alerts)
+
+The bot pages a Discord webhook (env var `BG_DISCORD_WEBHOOK_URL`, set in repo-root `.env`) for every notable event. Phone notifications are how the user knows what's happening when running unattended.
+
+### Severity levels
+
+| Prefix | Meaning | What to do |
+|--------|---------|------------|
+| `🚨 CRITICAL` | **Orphaned bet possible.** BetMGM was placed but the FanDuel hedge failed. The worker has already halted itself. | Open the message — it lists the BetMGM bet (stake/side/price/market) and the planned FanDuel hedge. Open FanDuel manually and place the hedge yourself. Then clear the FAILED row from `bot_execution_queue` and restart the worker. |
+| `⚠️ WARNING` | A specific opportunity was skipped. No money at risk. Common causes: selectors missing for a market, ROI dropped below threshold mid-execution, BetMGM rejected the bet. | Read the message. If selectors are missing, run `python map_selectors.py --site <site> --market <market>`. If it's ROI/limit related, no action needed — the next opportunity will be tried. |
+| `ℹ️ INFO` | Heartbeat or a notable non-error event (worker started, opportunity batch from Airflow). | Glance at the counts. If `attempted` is 0 for a long stretch and `queue` is also 0, the analytics pipeline isn't producing opportunities — check Airflow. |
+
+### Heartbeat cadence
+
+`task_worker.py` posts an `ℹ️` heartbeat every `HEARTBEAT_INTERVAL_MINUTES` (env var, default `30`). The message includes attempts, placements, no-opportunity outcomes, errors, and current `bot_execution_queue` PENDING depth. Set the env var to a smaller value (e.g. `5`) when supervising; raise back to `30` for unattended runs.
+
+### After a CRITICAL halt — restart procedure
+
+1. Manually resolve the unhedged BetMGM bet on FanDuel (or close the BetMGM bet — your call based on the alert message).
+2. Confirm zero unhedged exposure on both books.
+3. Mark the FAILED queue row resolved: `UPDATE bot_execution_queue SET status = 'COMPLETED' WHERE id = <task_id>;` (or DELETE if you prefer — Airflow inserts new tasks anyway).
+4. Investigate why the hedge failed (check `logs/execution_failures.log` and the audit dir referenced in the Discord message). Common causes: FanDuel UI changed (re-run `map_selectors.py`), Chrome lost connection, FanDuel suspended the market.
+5. Restart: `python task_worker.py`. The "Worker started" Discord message confirms it's back up.

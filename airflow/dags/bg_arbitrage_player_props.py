@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
-import os
 from typing import List
 
 import pandas as pd
-import requests
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowSkipException
 from airflow.sdk import Asset
 
 from bountygate.utils.db_connection import fetch_data, insert_data, execute_raw_sql
+from bountygate.utils.discord_notify import notify_opportunities
 
 
 STAGE_TABLE_ODDS = "bg_unified_lines_stage_odds"
@@ -27,8 +25,6 @@ odds_player_props_staged_asset = Asset("odds_player_props_staged")
 # Completion asset for downstream DAGs.
 player_props_arbitrage_complete_asset = Asset("bg_arbitrage_player_props_complete")
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1336061346088751104/G630NXDcVY6ZqejMM-pyIZVDgazNAUKG0rAiDWZ3oBi-2TkR2qoGkte-1fX0HaKyT5_Q"
-DISCORD_WEBHOOK_ENV_VAR = "BG_DISCORD_WEBHOOK_URL"
 HIGH_VALUE_ROI_THRESHOLD = 0.0075
 BOT_EXECUTION_TASK_COUNT = 2
 
@@ -37,106 +33,6 @@ MARKET_BLACKLIST = [
 	"pitcher_strikeouts",
 	"pitcher_strikeouts_alternate"
 ]
-
-
-def _send_discord_message(message: str) -> None:
-	url = DISCORD_WEBHOOK_URL
-	if not url:
-		return
-
-	content = (message or "").strip()
-	if not content:
-		return
-
-	# Discord webhook content limit is 2000 chars; stay safely under.
-	content = content[:1900]
-
-	payload = {"content": content}
-	headers = {"Content-Type": "application/json"}
-
-	try:
-		response = requests.post(url, data=json.dumps(payload), headers=headers, timeout=10)
-		if response.status_code != 204:
-			print(
-				f"Discord webhook send failed: status={response.status_code} body={response.text}"
-			)
-	except Exception as exc:
-		print(f"Discord webhook send raised: {exc}")
-
-
-def _format_discord_opportunities_message(df: pd.DataFrame, *, label: str) -> str:
-	if df is None or df.empty:
-		return ""
-
-	working = df.copy()
-	working["roi"] = pd.to_numeric(working.get("roi"), errors="coerce")
-	working.sort_values(by=["roi"], ascending=False, inplace=True)
-
-	lines: List[str] = []
-	lines.append(f"====== +++++++++++++++ ======")
-	lines.append(f"====== {datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} ======")
-	lines.append(f"New high-value opportunity ({label})")
-	lines.append(f"Count: {int(len(working))}")
-
-	max_rows = 8
-	for idx, row in working.head(max_rows).reset_index(drop=True).iterrows():
-		roi = row.get("roi")
-		roi_pct = f"{float(roi) * 100:.2f}%" if pd.notna(roi) else ""
-		hours = row.get("hours_until_commence")
-		hours_str = f"{float(hours):.2f}h" if pd.notna(hours) else ""
-		commence = row.get("commence_time")
-		commence_str = (
-			pd.to_datetime(commence, errors="coerce", utc=True).strftime("%Y-%m-%d %H:%MZ")
-			if pd.notna(commence)
-			else ""
-		)
-
-		sport = str(row.get("sport_title") or row.get("sport_key") or "").strip()
-		away = str(row.get("away_team") or "").strip()
-		home = str(row.get("home_team") or "").strip()
-		matchup = f"{away} @ {home}".strip(" @")
-
-		player = str(row.get("player_name") or "").strip()
-		market = str(row.get("market_key") or "").strip()
-		line_value = row.get("under_line") if "under_line" in working.columns else row.get("line")
-		line_str = (
-			f"{float(line_value):g}" if pd.notna(pd.to_numeric(line_value, errors="coerce")) else ""
-		)
-
-		under_book = str(row.get("under_bookmaker_key") or "").strip()
-		over_book = str(row.get("over_bookmaker_key") or "").strip()
-		under_price = row.get("under_price")
-		over_price = row.get("over_price")
-		under_price_str = f"{float(under_price):.4g}" if pd.notna(under_price) else ""
-		over_price_str = f"{float(over_price):.4g}" if pd.notna(over_price) else ""
-
-		arb_ev = row.get("arb_ev")
-		total_wager = row.get("total_wager")
-		ev_str = f"EV ${float(arb_ev):.2f} on ${float(total_wager):.2f}" if pd.notna(arb_ev) and pd.notna(total_wager) else ""
-
-		header_bits = " | ".join([bit for bit in [sport, matchup, commence_str, hours_str] if bit])
-		prop_bits = " ".join([bit for bit in [player, market, line_str] if bit]).strip()
-		price_bits = " | ".join(
-			[bit for bit in [
-				f"U {under_book} {under_price_str}".strip(),
-				f"O {over_book} {over_price_str}".strip(),
-			] if bit]
-		)
-		metric_bits = " | ".join([bit for bit in [f"ROI {roi_pct}" if roi_pct else "", ev_str] if bit])
-
-		lines.append(f"{idx + 1}) {header_bits}")
-		if prop_bits:
-			lines.append(prop_bits)
-		if price_bits:
-			lines.append(price_bits)
-		if metric_bits:
-			lines.append(metric_bits)
-		lines.append("")
-
-	if len(working) > max_rows:
-		lines.append(f"(+{len(working) - max_rows} more)")
-
-	return "\n".join(lines).strip()
 
 
 def _build_opportunity_key(df: pd.DataFrame) -> pd.Series:
@@ -566,9 +462,7 @@ def _append_history_and_alert(df: pd.DataFrame, history_table: str) -> int:
 		pd.to_numeric(new_rows.get("roi"), errors="coerce") > HIGH_VALUE_ROI_THRESHOLD
 	].copy()
 	if not high_value.empty:
-		_send_discord_message(
-			_format_discord_opportunities_message(high_value, label=history_table)
-		)
+		notify_opportunities(high_value, label=history_table)
 	return int(len(new_rows))
 
 

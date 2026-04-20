@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy import create_engine, text
 
-from app.shared.python.bountygate.utils import db_connection as dbc
+from bountygate.utils import db_connection as dbc
 
 odds_url = 'https://api.the-odds-api.com'
 odds_apiKey = '9bc17b9e4d48606c2d72a95b7a7ac77a'

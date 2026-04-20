@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from app.shared.python.bountygate.utils.etl_assets import resolve_market_key
+from bountygate.utils.etl_assets import resolve_market_key
 
 LOGGER = logging.getLogger(__name__)
 UNDERDOG_LINES_URL = "https://api.underdogfantasy.com/beta/v6/over_under_lines"
