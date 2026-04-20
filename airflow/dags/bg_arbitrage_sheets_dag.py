@@ -130,15 +130,6 @@ def build_transposed_frame(df: pd.DataFrame) -> pd.DataFrame:
     return transposed
 
 
-@dag(
-    dag_id="bg_arbitrage_sheets",
-    description="Update Google Sheet with player-prop arbitrage opportunities",
-    schedule=[player_props_arbitrage_complete_asset],
-    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
-    catchup=False,
-    max_active_runs=1,
-    tags=["sheets", "arbitrage", "player-props"],
-)
 def _fetch_opportunity_frame(query: str) -> pd.DataFrame:
     df = fetch_data(query)
     if df is None or df.empty:
@@ -149,6 +140,15 @@ def _fetch_opportunity_frame(query: str) -> pd.DataFrame:
     return df
 
 
+@dag(
+    dag_id="bg_arbitrage_sheets",
+    description="Update Google Sheet with player-prop arbitrage opportunities",
+    schedule=[player_props_arbitrage_complete_asset],
+    start_date=datetime(2025, 1, 1, tzinfo=timezone.utc),
+    catchup=False,
+    max_active_runs=1,
+    tags=["sheets", "arbitrage", "player-props"],
+)
 def bg_arbitrage_sheets_pipeline() -> None:
     # DataFrames are not pushed through XCom — Airflow 3's serializer rejects them.
     # Both queries + uploads happen inside a single task; only the summary dict
