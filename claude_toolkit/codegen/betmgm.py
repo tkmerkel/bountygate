@@ -186,12 +186,23 @@ def save_from_trace(trace_path: str, *, overwrite: bool = False) -> tuple[str, d
 
     Returns (market_key, config, written).
     """
+    import os
     from arbitrage_executor.selector_finder import SelectorManager
 
     header, records = load_trace(trace_path)
     market_key, cfg = trace_to_config(header, records)
-    existing = SelectorManager.get_market("betmgm", market_key)
-    if existing and not overwrite:
-        return market_key, cfg, False
-    ok = SelectorManager.save_market_config("betmgm", market_key, cfg)
+
+    repo_root = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    executor_dir = os.path.join(repo_root, "arbitrage_executor")
+    prev_cwd = os.getcwd()
+    try:
+        os.chdir(executor_dir)
+        existing = SelectorManager.get_market("betmgm", market_key)
+        if existing and not overwrite:
+            return market_key, cfg, False
+        ok = SelectorManager.save_market_config("betmgm", market_key, cfg)
+    finally:
+        os.chdir(prev_cwd)
     return market_key, cfg, ok
