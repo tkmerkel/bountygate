@@ -1,0 +1,5 @@
+{"format_version":1,"started_at":1737567500.0,"book":"betmgm","market":"player_points_alternate","session_id":"fixture000004","notes":"alternate market fixture"}
+{"seq":0,"ts":1737567501.0,"kind":"navigate","book":"betmgm","market":"player_points_alternate","phase":"nav","url":"https://www.mo.betmgm.com/en/sports?popup=betfinder","terminal":false}
+{"seq":1,"ts":1737567502.0,"kind":"click","book":"betmgm","market":"player_points_alternate","phase":"select_market","selector":"button[dsaccordiontoggle]:has-text(\"Points\")","text":"Points","elapsed_ms":1000,"terminal":false}
+{"seq":2,"ts":1737567503.0,"kind":"click","book":"betmgm","market":"player_points_alternate","phase":"select_market","selector":"button:has-text(\"20+\")","text":"20+","elapsed_ms":1000,"terminal":false}
+{"seq":3,"ts":1737567504.0,"kind":"click","book":"betmgm","market":"player_points_alternate","phase":"select_bet","selector":"ms-event-pick","text":"Stephen Curry","element_signature":{"tag":"ms-event-pick","text":"Stephen Curry","data_attrs":{},"css_classes":[]},"elapsed_ms":1000,"terminal":false}

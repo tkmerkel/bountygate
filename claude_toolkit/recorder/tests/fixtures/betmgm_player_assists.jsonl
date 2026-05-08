@@ -1,0 +1,7 @@
+{"format_version":1,"started_at":1737563847.231320,"book":"betmgm","market":"player_assists","session_id":"fixture000002","notes":"hand-authored fixture for round-trip codegen test"}
+{"seq":0,"ts":1737563848.0,"kind":"navigate","book":"betmgm","market":"player_assists","phase":"nav","url":"https://www.mo.betmgm.com/en/sports?popup=betfinder","terminal":false}
+{"seq":1,"ts":1737563849.0,"kind":"fill","book":"betmgm","market":"player_assists","phase":"search","selector":"input[placeholder*=\"Search\"]","selector_strategy":"placeholder","value":"Rudy Gobert","elapsed_ms":1000,"terminal":false}
+{"seq":2,"ts":1737563850.0,"kind":"press","book":"betmgm","market":"player_assists","phase":"search","key":"Enter","elapsed_ms":1000,"terminal":false}
+{"seq":3,"ts":1737563852.0,"kind":"click","book":"betmgm","market":"player_assists","phase":"select_market","selector":"button[dsaccordiontoggle]:has-text(\"Player assists O/U\")","text":"Player assists O/U","elapsed_ms":2000,"terminal":false}
+{"seq":4,"ts":1737563854.0,"kind":"click","book":"betmgm","market":"player_assists","phase":"select_bet","selector":"ms-event-pick","text":"Rudy Gobert Over 1.5","element_signature":{"tag":"ms-event-pick","text":"Rudy Gobert Over 1.5","data_attrs":{},"css_classes":[]},"elapsed_ms":2000,"terminal":false}
+{"seq":5,"ts":1737563856.0,"kind":"click","book":"betmgm","market":"player_assists","phase":"place","selector":"button[aria-label*=\"Place Bet\"]","elapsed_ms":2000,"terminal":true}
