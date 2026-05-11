@@ -1,0 +1,4 @@
+{"format_version":1,"started_at":1737567000.0,"book":"fanduel","market":"player_points_alternate","session_id":"fixture000003","notes":"alternate market fixture"}
+{"seq":0,"ts":1737567001.0,"kind":"navigate","book":"fanduel","market":"player_points_alternate","phase":"nav","url":"https://mo.sportsbook.fanduel.com/search","terminal":false}
+{"seq":1,"ts":1737567002.0,"kind":"click","book":"fanduel","market":"player_points_alternate","phase":"select_market","text":"Points","elapsed_ms":1000,"terminal":false}
+{"seq":2,"ts":1737567003.0,"kind":"click","book":"fanduel","market":"player_points_alternate","phase":"select_bet","selector":"[aria-label*=\"Stephen Curry\"][aria-label*=\"20+\"][aria-label*=\"Points\"]","elapsed_ms":1000,"terminal":false}
