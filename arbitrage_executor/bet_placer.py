@@ -12,7 +12,7 @@ from playwright.sync_api import Page
 
 from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
 from execution_logger import ExecutionLogger
-from text_match import fuzzy_contains
+from text_match import fuzzy_score
 
 # Accordion-header fuzzy threshold. Lower than the player-name threshold (90)
 # because UI labels can be reworded more than player names ("Player points O/U"
@@ -279,27 +279,38 @@ class BetPlacer:
             if accordion.count() > 0:
                 accordion.first.click()
             else:
-                # Fuzzy fallback: scan all accordion buttons for a close-text
-                # match. Absorbs UI rewording (e.g. "Player points O/U" ->
-                # "Player Points Over/Under") without requiring a re-map.
-                fuzzy_match = None
+                # Fuzzy fallback: score every accordion button and pick the
+                # best match above threshold. The previous "first match wins"
+                # broke when stale YAML "Player assists O/U" matched both
+                # "Player points" and "Player assists" at >80 and the wrong
+                # one came first in DOM order.
+                best_btn = None
+                best_text = None
+                best_score = 0
+                all_texts = []
                 for btn in self.page.locator('button[dsaccordiontoggle]').all():
                     try:
                         btn_text = (btn.text_content() or "").strip()
                     except Exception:
                         continue
-                    if btn_text and fuzzy_contains(btn_text, accordion_name,
-                                                   threshold=_ACCORDION_FUZZY_THRESHOLD):
-                        fuzzy_match = (btn, btn_text)
-                        break
+                    if not btn_text:
+                        continue
+                    all_texts.append(btn_text)
+                    score = fuzzy_score(btn_text, accordion_name)
+                    if score > best_score:
+                        best_score = score
+                        best_btn = btn
+                        best_text = btn_text
 
-                if fuzzy_match is None:
+                if best_btn is None or best_score < _ACCORDION_FUZZY_THRESHOLD:
+                    print(f"[BETMGM] accordion '{accordion_name}' not found. "
+                          f"Visible accordions ({len(all_texts)}): {all_texts!r}")
                     raise BetPlacerError(f"Accordion not found: {accordion_name}")
 
-                matched_button, matched_text = fuzzy_match
-                print(f"[BETMGM] ⚠ Exact accordion miss; fuzzy-matched "
-                      f"'{matched_text}' for expected '{accordion_name}'")
-                matched_button.click()
+                print(f"[BETMGM] ⚠ Exact accordion miss; best fuzzy match "
+                      f"'{best_text}' (score={best_score}) for expected "
+                      f"'{accordion_name}'")
+                best_btn.click()
 
             self.page.wait_for_timeout(1500)
 
@@ -416,6 +427,51 @@ class BetPlacer:
         )
 
         if not candidates:
+            # Diagnostic: dump aria-labels and visible button text near the
+            # player name so the next selector update has data. Cheap, runs
+            # only on the failure path. Limited to keep console output sane.
+            try:
+                aria_dump = []
+                aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
+                for i in range(min(aria_loc.count(), 10)):
+                    try:
+                        aria_dump.append(aria_loc.nth(i).get_attribute("aria-label"))
+                    except Exception:
+                        continue
+                print(f"[{self.site.upper()}] aria-labels mentioning {player_name!r} "
+                      f"({len(aria_dump)}): {aria_dump!r}")
+            except Exception:
+                pass
+            try:
+                btn_dump = []
+                btn_loc = self.page.locator(f'button:has-text("{player_name}")')
+                for i in range(min(btn_loc.count(), 10)):
+                    try:
+                        txt = (btn_loc.nth(i).text_content() or "").strip()[:120]
+                        btn_dump.append(txt)
+                    except Exception:
+                        continue
+                print(f"[{self.site.upper()}] buttons mentioning {player_name!r} "
+                      f"({len(btn_dump)}): {btn_dump!r}")
+            except Exception:
+                pass
+            try:
+                # BetMGM-specific: list ms-event-pick elements (the bet
+                # element type from YAML) near the player row.
+                if self.site == "betmgm":
+                    pick_loc = self.page.locator("ms-event-pick")
+                    pick_dump = []
+                    for i in range(min(pick_loc.count(), 20)):
+                        try:
+                            txt = (pick_loc.nth(i).text_content() or "").strip()[:80]
+                            if player_name.lower() in txt.lower():
+                                pick_dump.append(txt)
+                        except Exception:
+                            continue
+                    print(f"[BETMGM] ms-event-pick elements mentioning "
+                          f"{player_name!r} ({len(pick_dump)}): {pick_dump!r}")
+            except Exception:
+                pass
             self._screenshot("bet_not_found")
             raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
 

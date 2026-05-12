@@ -109,21 +109,30 @@ _MGM_SUBMIT_SELECTORS = (
     'button[type="submit"]',
 )
 
-# Text fragments on post-submit pages that indicate operator intervention
-# is required. Conservative on purpose — false positives only delay one
-# bet attempt; false negatives could pile up failed-login attempts and
-# trigger account locks.
-_INTERVENTION_KEYWORDS = (
-    "verify",
-    "verification code",
-    "two-factor",
-    "2fa",
-    "captcha",
-    "recaptcha",
-    "security check",
-    "are you human",
+# Structural signals that a verification / CAPTCHA challenge is active.
+# Substring matches on raw HTML gave false positives (BetMGM has "2fa" in
+# marketing copy on logged-in pages) — these signals require an actual
+# challenge element to be present in the DOM.
+_INTERVENTION_STRUCTURAL = (
+    ('input[autocomplete="one-time-code"]', "OTP input present"),
+    ('input[name*="otp" i]', "OTP-named input present"),
+    ('input[name*="code" i]', "code-named input present"),
+    ('input[aria-label*="verification" i]', "verification input present"),
+    ('iframe[src*="recaptcha"]', "reCAPTCHA iframe present"),
+    ('iframe[src*="hcaptcha"]', "hCaptcha iframe present"),
+    ('iframe[src*="arkose"]', "Arkose challenge iframe present"),
+    ('iframe[src*="funcaptcha"]', "FunCaptcha iframe present"),
+)
+
+# Visible-text phrases that are specific enough to indicate a live
+# challenge, not just marketing copy.
+_INTERVENTION_TEXT_PHRASES = (
     "press and hold",
-    "puzzle",
+    "we sent a code",
+    "we sent you a code",
+    "enter the code we sent",
+    "verification code",
+    "two-factor authentication required",
 )
 
 
@@ -186,14 +195,31 @@ def _looks_logged_in(page: Page) -> bool:
 
 
 def _detect_intervention(page: Page) -> Optional[str]:
-    """Return a short reason string if the page demands human action."""
+    """Return a short reason string if the page demands human action.
+
+    Conservative two-layer check:
+      1. Structural — a verification input or challenge iframe is visible.
+      2. Visible-text phrases specific enough that they cannot appear in
+         marketing copy on a logged-in page (e.g. "we sent a code").
+
+    Returns None when both layers are quiet — the caller's job is to then
+    decide between "logged in" and "login failed (try again)".
+    """
+    for sel, reason in _INTERVENTION_STRUCTURAL:
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                return reason
+        except Exception:
+            continue
+
     try:
-        body = (page.content() or "").lower()
+        text = (page.inner_text("body") or "").lower()
     except Exception:
         return None
-    for kw in _INTERVENTION_KEYWORDS:
-        if kw in body:
-            return f"page contains '{kw}' — manual step required"
+    for phrase in _INTERVENTION_TEXT_PHRASES:
+        if phrase in text:
+            return f"page shows '{phrase}'"
     return None
 
 
@@ -258,20 +284,23 @@ def _do_login(
 
     page.wait_for_timeout(6000)
 
+    # Order matters: a logged-in homepage may mention "verification" or
+    # similar in marketing copy. Confirm logged-in first; only investigate
+    # what went wrong if it didn't take.
+    if _looks_logged_in(page):
+        print(f"[AUTH] {site}: login successful")
+        return True
+
     intervention = _detect_intervention(page)
     if intervention is not None:
         _safe_screenshot(page, audit_dir, f"{site}_intervention_required")
         raise LoginInterventionRequired(f"{site}: {intervention}")
 
-    if not _looks_logged_in(page):
-        _safe_screenshot(page, audit_dir, f"{site}_login_did_not_take")
-        raise LoginError(
-            f"{site}: still on a login-shaped URL after submit "
-            f"(url={page.url[:120]!r}); check credentials and audit screenshots"
-        )
-
-    print(f"[AUTH] {site}: login successful")
-    return True
+    _safe_screenshot(page, audit_dir, f"{site}_login_did_not_take")
+    raise LoginError(
+        f"{site}: still on a login-shaped URL after submit "
+        f"(url={page.url[:120]!r}); check credentials and audit screenshots"
+    )
 
 
 def ensure_logged_in(page: Page, site: str, audit_dir: str) -> bool:
