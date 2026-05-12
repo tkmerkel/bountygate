@@ -17,6 +17,7 @@ from bet_placer import BetPlacer, BetPlacerError
 from execution_logger import ExecutionLogger
 from db_connection import mark_opportunity_executed
 from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
+from auth import ensure_logged_in, LoginError, LoginInterventionRequired
 
 
 class OrphanedBetError(Exception):
@@ -26,6 +27,15 @@ class OrphanedBetError(Exception):
     instead of moving on to the next opportunity while one bet is unhedged.
     The accompanying Discord CRITICAL alert (sent before raising) tells the
     user exactly what was placed so they can manually hedge.
+    """
+
+
+class WorkerHaltError(Exception):
+    """Halt the worker — operator intervention required (no orphan bet).
+
+    Distinct from OrphanedBetError: there is no money at risk, but a human
+    must act before any more bets can be attempted. The canonical trigger is
+    2FA / CAPTCHA on login. A CRITICAL Discord alert is sent before raising.
     """
 
 
@@ -217,6 +227,29 @@ class ArbExecutor:
                 print("Opening FanDuel tab...")
                 page_fd = context.new_page()
                 page_fd.set_viewport_size({"width": 943, "height": 944})
+
+                try:
+                    ensure_logged_in(page_fd, "fanduel", self.audit_dir)
+                except LoginInterventionRequired as e:
+                    ExecutionLogger.log_critical(
+                        reason=f"LOGIN INTERVENTION REQUIRED on FanDuel: {e}",
+                        opportunity=self.opportunity,
+                        action_required=(
+                            "Open the FanDuel tab in the bot's Chrome window "
+                            "and finish the login by hand (2FA/CAPTCHA). Then "
+                            "restart the worker."
+                        ),
+                        details={"audit_dir": self.audit_dir, "site": "fanduel"},
+                    )
+                    raise WorkerHaltError(f"FanDuel login intervention required: {e}") from e
+                except LoginError as e:
+                    print(f"❌ FanDuel login failed: {e}")
+                    ExecutionLogger.log_execution_failure(
+                        "FanDuel login failed", self.opportunity, "fanduel", e,
+                    )
+                    page_fd.close()
+                    return False
+
                 placer_fd = BetPlacer(page_fd, "fanduel", self.audit_dir)
 
                 try:
@@ -244,6 +277,31 @@ class ArbExecutor:
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
                 page_mgm.set_viewport_size({"width": 958, "height": 944})
+
+                try:
+                    ensure_logged_in(page_mgm, "betmgm", self.audit_dir)
+                except LoginInterventionRequired as e:
+                    ExecutionLogger.log_critical(
+                        reason=f"LOGIN INTERVENTION REQUIRED on BetMGM: {e}",
+                        opportunity=self.opportunity,
+                        action_required=(
+                            "Open the BetMGM tab in the bot's Chrome window "
+                            "and finish the login by hand (2FA/CAPTCHA). Then "
+                            "restart the worker."
+                        ),
+                        details={"audit_dir": self.audit_dir, "site": "betmgm"},
+                    )
+                    page_fd.close()
+                    raise WorkerHaltError(f"BetMGM login intervention required: {e}") from e
+                except LoginError as e:
+                    print(f"❌ BetMGM login failed: {e}")
+                    ExecutionLogger.log_execution_failure(
+                        "BetMGM login failed", self.opportunity, "betmgm", e,
+                    )
+                    page_mgm.close()
+                    page_fd.close()
+                    return False
+
                 placer_mgm = BetPlacer(page_mgm, "betmgm", self.audit_dir)
 
                 # Original prices from opportunity
@@ -511,10 +569,17 @@ class ArbExecutor:
         raise OrphanedBetError(reason)
 
 
-def main() -> bool:
+def main() -> tuple[bool, bool]:
     """Main execution — iterate candidates until one succeeds or all are exhausted.
 
-    Returns True on success, False on failure.
+    Returns ``(success, attempted)`` so the worker can distinguish:
+      - ``(True,  True)`` — a bet was placed.
+      - ``(False, True)`` — a viable candidate was attempted but failed
+        (selector regression, rejected wager, etc.). Counts toward the
+        circuit breaker.
+      - ``(False, False)`` — no viable candidates existed at all (everything
+        was unmapped or the wrong book pair). Does NOT count toward the
+        breaker — quiet days happen.
     """
     print("Arbitrage Bot Starting...\n")
 
@@ -522,7 +587,7 @@ def main() -> bool:
 
     if not opportunities:
         print("No opportunities found.")
-        return False
+        return False, False
 
     for i, opportunity in enumerate(opportunities):
         over_book = opportunity.get('over_bookmaker_key', '').lower()
@@ -558,16 +623,18 @@ def main() -> bool:
             opportunity["market_key"] = opportunity.get("under_market_key") or opportunity.get("over_market_key")
             mark_opportunity_executed(opp_hash, opportunity)
             print("\n✓ Execution complete")
-            return True
+            return True, True
 
         # Execution failed (browser error, ROI dropped, bet rejected, etc.)
         # Stop here — browser state may be dirty, let the next queued task retry.
+        # attempted=True so the worker's circuit breaker counts this.
         print(f"\n✗ Execution failed for {label} - stopping")
-        return False
+        return False, True
 
     print("\n✗ All opportunities exhausted — none viable")
-    return False
+    return False, False
 
 
 if __name__ == "__main__":
-    main()
+    success, _ = main()
+    raise SystemExit(0 if success else 1)
