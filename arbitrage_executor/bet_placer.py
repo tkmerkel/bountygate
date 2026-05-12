@@ -277,7 +277,7 @@ class BetPlacer:
             accordion = self.page.locator(accordion_selector)
 
             if accordion.count() > 0:
-                accordion.first.click()
+                target = accordion.first
             else:
                 # Fuzzy fallback: score every accordion button and pick the
                 # best match above threshold. The previous "first match wins"
@@ -310,7 +310,19 @@ class BetPlacer:
                 print(f"[BETMGM] ⚠ Exact accordion miss; best fuzzy match "
                       f"'{best_text}' (score={best_score}) for expected "
                       f"'{accordion_name}'")
-                best_btn.click()
+                target = best_btn
+
+            # Accordion buttons are toggles — if a prior session left it
+            # expanded, clicking again COLLAPSES. Check aria-expanded and
+            # skip the click in that case.
+            try:
+                already_expanded = (target.get_attribute("aria-expanded") == "true")
+            except Exception:
+                already_expanded = False
+            if already_expanded:
+                print(f"[BETMGM] Accordion already expanded; skipping click.")
+            else:
+                target.click()
 
             self.page.wait_for_timeout(1500)
 
