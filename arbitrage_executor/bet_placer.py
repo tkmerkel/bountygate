@@ -545,10 +545,16 @@ class BetPlacer:
                     f'[aria-label*="{verb} {article} {noun}"][aria-label*="{player_name}"]',
                 ])
 
-        # Standard N+ patterns (always included as fallback, or primary for threshold >= 2)
-        # IMPORTANT: Include market display name (base_display) to avoid matching wrong market type
+        # Standard N+ patterns. Button-restricted variants come FIRST because
+        # an unscoped [aria-label*=...] matches any element with the label
+        # (player avatars, section headers, profile links) — clicking those
+        # navigates away from the bet without adding to slip.
         selector_patterns.extend([
-            # Most specific: player + threshold + market type (e.g., "6+ Assists")
+            # Button-restricted, most specific
+            f'button[aria-label*="{player_name}"][aria-label*="{threshold}+"][aria-label*="{base_display}"]',
+            f'[role="button"][aria-label*="{player_name}"][aria-label*="{threshold}+"][aria-label*="{base_display}"]',
+            f'button[aria-label*="{player_name}"][aria-label*="{threshold} or more"][aria-label*="{base_display}"]',
+            # Unrestricted aria-label fallbacks
             f'[aria-label*="{player_name}"][aria-label*="{threshold}+"][aria-label*="{base_display}"]',
             f'[aria-label*="{player_name}"][aria-label*="{threshold} or more"][aria-label*="{base_display}"]',
             f'[aria-label*="{player_name}"][aria-label*="{threshold}"][aria-label*="{base_display}"]',
@@ -567,8 +573,41 @@ class BetPlacer:
                     for i in range(locator.count()):
                         elem = locator.nth(i)
                         if elem.is_visible():
+                            # Capture pre-click state so we can tell whether
+                            # the click was a TOGGLE (FanDuel bet buttons
+                            # toggle between selected/unselected — clicking
+                            # an already-Selected one removes it from slip).
+                            try:
+                                tag = elem.evaluate("e => e.tagName") or "?"
+                                aria_before = elem.get_attribute("aria-label") or ""
+                                role = elem.get_attribute("role") or ""
+                                was_selected = " Selected" in aria_before
+                                clicked_desc = (
+                                    f"tag={tag} role={role!r} "
+                                    f"aria={aria_before[:80]!r} "
+                                    f"was_selected={was_selected}"
+                                )
+                            except Exception:
+                                was_selected = False
+                                clicked_desc = "<unknown>"
+
                             elem.click(timeout=10000)
                             self.page.wait_for_timeout(1500)
+
+                            # If the bet started Selected, the click likely
+                            # toggled it OFF — click again to re-add. Re-
+                            # locate first; the DOM may have re-rendered.
+                            if was_selected:
+                                try:
+                                    elem2 = self.page.locator(selector).first
+                                    aria_after = elem2.get_attribute("aria-label") or ""
+                                    if " Selected" not in aria_after:
+                                        print(f"[FANDUEL] Click deselected an "
+                                              f"already-Selected bet; re-clicking to add.")
+                                        elem2.click(timeout=10000)
+                                        self.page.wait_for_timeout(1500)
+                                except Exception as e:
+                                    print(f"[FANDUEL] Re-locate after toggle failed: {e}")
 
                             # Expand viewport for betslip interaction
                             print(f"[FANDUEL] Expanding viewport to 1920x945...")
@@ -576,8 +615,22 @@ class BetPlacer:
                             self.page.wait_for_timeout(500)
 
                             self._screenshot("alternate_bet_clicked")
+
+                            # Verify the click actually added a bet.
+                            if not self._fanduel_slip_has_bet():
+                                print(f"[FANDUEL] ⚠ Slip still empty after click "
+                                      f"using {selector} — clicked element was "
+                                      f"{clicked_desc}. Aborting (next opportunity will retry).")
+                                self._screenshot("alternate_bet_did_not_add_to_slip")
+                                raise BetPlacerError(
+                                    f"FanDuel bet click did not add to slip "
+                                    f"(selector={selector!r}, clicked={clicked_desc})"
+                                )
+
                             print(f"[FANDUEL] ✓ Alternate bet added to slip")
                             return True
+            except BetPlacerError:
+                raise
             except Exception as e:
                 print(f"[FANDUEL] Selector pattern failed: {selector} - {e}")
                 continue
@@ -629,6 +682,30 @@ class BetPlacer:
             return self._enter_wager_betmgm(amount)
         else:
             raise BetPlacerError(f"Unknown site: {self.site}")
+
+    def _fanduel_slip_has_bet(self) -> bool:
+        """Return True if the FanDuel betslip currently holds at least one
+        bet. Used to verify a click actually targeted a bet button — an
+        aria-label without button-restriction can match a player profile
+        link, which navigates away without populating the slip.
+
+        Conservative on the True side: if we can't determine state cleanly,
+        return True so the calling flow proceeds (better to attempt wager
+        entry and fail there than to mis-claim an empty-slip condition).
+        """
+        try:
+            empty_marker = self.page.get_by_text("Betslip empty", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return False
+        except Exception:
+            pass
+        try:
+            empty_marker = self.page.get_by_text("No bet selections", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return False
+        except Exception:
+            pass
+        return True
 
     def _enter_wager_fanduel(self, amount: float) -> bool:
         """Enter wager on FanDuel.

@@ -4,10 +4,19 @@ Main script that executes the tease-probe-execute strategy for FanDuel/BetMGM pa
 """
 
 import os
+import sys
 import hashlib
 import json
 from datetime import datetime
 from typing import Dict, Optional
+
+# Force UTF-8 on stdout/stderr so emoji prints (⏭ ▶ ✓ ✗) don't crash when
+# run via subprocess on Windows (cp1252 default). Mirrors task_worker.py.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from playwright.sync_api import sync_playwright
 

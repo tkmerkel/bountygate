@@ -16,6 +16,15 @@ import sys
 import time
 import traceback
 
+# Force UTF-8 on stdout/stderr so emoji prints (⏭ ▶ ✓ ✗) don't crash the
+# worker on Windows when launched from a shell that defaults to cp1252.
+# Triggered the circuit breaker 3-for-3 in testing before this was set.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from db_connection import claim_pending_task, complete_task, pending_task_count
 from execute_arb import OrphanedBetError, WorkerHaltError
 
