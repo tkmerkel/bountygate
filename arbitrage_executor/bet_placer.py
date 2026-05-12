@@ -1051,25 +1051,110 @@ class BetPlacer:
             raise BetPlacerError(f"Unknown site: {self.site}")
 
     def _place_bet_fanduel(self) -> Tuple[str, str]:
-        """Place bet on FanDuel."""
-        try:
-            # From DevTools recording: [data-testid='place-bet-button']
-            place_btn = self.page.locator('[data-testid="place-bet-button"]')
+        """Place bet on FanDuel.
 
-            if place_btn.count() == 0:
+        FanDuel labels the button as "Place $X.YZ bet" (dollar amount
+        included). The data-testid rotates between deploys — observed
+        "place-bet-button" historically; on 2026-05-12 the testid was
+        missing and only the text pattern matched. Try multiple strategies
+        in order of durability.
+        """
+        try:
+            place_btn = None
+
+            # 1. Text pattern — "Place $X.YZ bet" (most durable, matches
+            #    the label users actually see).
+            try:
+                cand = self.page.get_by_role(
+                    "button", name=re.compile(r"Place\s*\$[\d.]+\s*bet", re.I)
+                )
+                if cand.count() > 0 and cand.first.is_visible():
+                    place_btn = cand.first
+                    print(f"[FANDUEL] Found Place Bet via role+name=Place $X bet")
+            except Exception:
+                pass
+
+            # 2. Generic "Place ... bet" or "Place Bet"
+            if place_btn is None:
+                try:
+                    cand = self.page.get_by_role(
+                        "button", name=re.compile(r"^Place.*bet$", re.I)
+                    )
+                    if cand.count() > 0 and cand.first.is_visible():
+                        place_btn = cand.first
+                        print(f"[FANDUEL] Found Place Bet via role+name='Place...bet'")
+                except Exception:
+                    pass
+
+            # 3. Legacy data-testid (kept as fallback in case FD restores it)
+            if place_btn is None:
+                cand = self.page.locator('[data-testid="place-bet-button"]')
+                if cand.count() > 0 and cand.first.is_visible():
+                    place_btn = cand.first
+                    print(f"[FANDUEL] Found Place Bet via data-testid")
+
+            # 4. data-test-id (different attribute name, FD has mixed both)
+            if place_btn is None:
+                cand = self.page.locator('[data-test-id="place-bet-button"]')
+                if cand.count() > 0 and cand.first.is_visible():
+                    place_btn = cand.first
+                    print(f"[FANDUEL] Found Place Bet via data-test-id")
+
+            if place_btn is None:
+                # Diagnostic: list buttons whose text starts with "Place" so
+                # next selector update has data.
+                try:
+                    btns = self.page.locator('button:has-text("Place")')
+                    dump = []
+                    for i in range(min(btns.count(), 10)):
+                        try:
+                            txt = (btns.nth(i).text_content() or "").strip()[:80]
+                            dump.append(txt)
+                        except Exception:
+                            continue
+                    print(f"[FANDUEL] buttons starting with 'Place' ({len(dump)}): {dump!r}")
+                except Exception:
+                    pass
                 self._screenshot("place_bet_not_found")
                 raise BetPlacerError("Place Bet button not found")
 
             print(f"[FANDUEL] Clicking Place Bet...")
-            place_btn.first.click()
+            place_btn.click()
             self.page.wait_for_timeout(2000)
 
-            # Check for success: bet receipt or confirmation
-            receipt = self.page.locator('[data-testid="bet-receipt-done-btn"]')
-            if receipt.count() > 0:
-                self._screenshot("bet_placed_success")
-                print(f"[FANDUEL] ✓ Bet ACCEPTED")
-                return "ACCEPTED", "Bet placed successfully"
+            # Success detection — try several signals because the
+            # data-testid for the "Done" receipt button has gone stale
+            # before. Poll briefly to give the confirmation time to render.
+            success_signals = [
+                ('[data-testid="bet-receipt-done-btn"]', "legacy data-testid"),
+                ('[data-test-id="bet-receipt-done-btn"]', "data-test-id variant"),
+            ]
+            success_texts = [
+                "Bet placed",
+                "Bet accepted",
+                "Your bet has been placed",
+                "Wager Accepted",
+            ]
+            for _ in range(6):  # ~3s polling
+                for sel, label in success_signals:
+                    try:
+                        loc = self.page.locator(sel)
+                        if loc.count() > 0 and loc.first.is_visible():
+                            self._screenshot("bet_placed_success")
+                            print(f"[FANDUEL] ✓ Bet ACCEPTED ({label})")
+                            return "ACCEPTED", "Bet placed successfully"
+                    except Exception:
+                        continue
+                for text in success_texts:
+                    try:
+                        loc = self.page.get_by_text(text, exact=False)
+                        if loc.count() > 0 and loc.first.is_visible():
+                            self._screenshot("bet_placed_success")
+                            print(f"[FANDUEL] ✓ Bet ACCEPTED (text={text!r})")
+                            return "ACCEPTED", f"Bet placed ({text})"
+                    except Exception:
+                        continue
+                self.page.wait_for_timeout(500)
 
             # Check for error messages
             error_indicators = [
@@ -1084,7 +1169,21 @@ class BetPlacer:
                     print(f"[FANDUEL] ✗ Bet REJECTED: {msg}")
                     return "REJECTED", msg
 
-            # Unknown state
+            # Unknown state — diagnostic dump so the next pass can map a
+            # new confirmation signal.
+            try:
+                btns = self.page.locator("button")
+                dump = []
+                for i in range(min(btns.count(), 15)):
+                    try:
+                        btn = btns.nth(i)
+                        if btn.is_visible():
+                            dump.append((btn.text_content() or "").strip()[:60])
+                    except Exception:
+                        continue
+                print(f"[FANDUEL] post-place visible buttons ({len(dump)}): {dump!r}")
+            except Exception:
+                pass
             self._screenshot("bet_status_unknown")
             print(f"[FANDUEL] ? Bet status UNKNOWN")
             return "UNKNOWN", "Could not determine bet status"

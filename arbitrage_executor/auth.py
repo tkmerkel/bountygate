@@ -58,15 +58,23 @@ _LOGGED_OUT_INDICATORS = (
     'button:has-text("Sign In")',
 )
 
-# FanDuel login-form selectors, tried in order.
+# FanDuel login-form selectors, tried in order. FD presents login as a
+# modal overlay (not a separate URL), and the username field is typed as
+# `input[type="text"]` with `name="email"` or `name="UserName"`.
 _FD_EMAIL_SELECTORS = (
     'input[type="email"]',
     'input[name="email"]',
+    'input[name="UserName"]',
+    'input[name="userName"]',
+    'input[name="username"]',
     'input[autocomplete="email"]',
     'input[autocomplete="username"]',
     'input[id*="email" i]',
     'input[id*="username" i]',
     'input[placeholder*="email" i]',
+    'input[placeholder*="username" i]',
+    '[role="dialog"] input[type="text"]',
+    'form input[type="text"]:not([placeholder*="search" i])',
 )
 _FD_PASSWORD_SELECTORS = (
     'input[type="password"]',
@@ -167,20 +175,64 @@ def _safe_screenshot(page: Page, audit_dir: str, tag: str) -> None:
         print(f"[AUTH] screenshot failed ({tag}): {e}")
 
 
-def _first_visible(page: Page, selectors) -> Optional[Locator]:
-    for sel in selectors:
+def _all_frames(page: Page):
+    """Yield (label, frame_locator_target). The page itself plus each
+    iframe — needed because FanDuel renders its login modal inside an
+    iframe whose contents are invisible to top-level page.locator()."""
+    yield ("main", page)
+    for i, frame in enumerate(page.frames):
+        if frame == page.main_frame:
+            continue
         try:
-            loc = page.locator(sel)
-            n = loc.count()
-            for i in range(min(n, 5)):
-                cand = loc.nth(i)
-                try:
-                    if cand.is_visible():
-                        return cand
-                except Exception:
-                    continue
+            yield (f"frame[{i}]:{frame.url[:60]}", frame)
         except Exception:
             continue
+
+
+def _dump_visible_inputs(page: Page, site: str, context: str) -> None:
+    """Log every visible input on the page (and inside iframes) so we can
+    update selectors with real data. Triggered only on failure paths."""
+    for label, target in _all_frames(page):
+        try:
+            all_inputs = target.locator("input")
+            dump = []
+            for i in range(min(all_inputs.count(), 25)):
+                elem = all_inputs.nth(i)
+                try:
+                    if not elem.is_visible():
+                        continue
+                    dump.append({
+                        "type": elem.get_attribute("type"),
+                        "name": elem.get_attribute("name"),
+                        "id": elem.get_attribute("id"),
+                        "autocomplete": elem.get_attribute("autocomplete"),
+                        "placeholder": elem.get_attribute("placeholder"),
+                    })
+                except Exception:
+                    continue
+            if dump:
+                print(f"[AUTH] {site}: inputs in {label} ({context}, {len(dump)}): {dump!r}")
+        except Exception as e:
+            print(f"[AUTH] {site}: dump in {label} failed: {e}")
+
+
+def _first_visible(page: Page, selectors) -> Optional[Locator]:
+    """Find the first visible match for any selector, scanning the main
+    page and every iframe. FD's login form lives inside an iframe."""
+    for label, target in _all_frames(page):
+        for sel in selectors:
+            try:
+                loc = target.locator(sel)
+                n = loc.count()
+                for i in range(min(n, 5)):
+                    cand = loc.nth(i)
+                    try:
+                        if cand.is_visible():
+                            return cand
+                    except Exception:
+                        continue
+            except Exception:
+                continue
     return None
 
 
@@ -248,11 +300,13 @@ def _do_login(
 
     email = _first_visible(page, email_selectors)
     if email is None:
+        _dump_visible_inputs(page, site, "before email lookup")
         _safe_screenshot(page, audit_dir, f"{site}_email_input_missing")
         raise LoginError(f"{site}: email input not found on login page")
 
     pw = _first_visible(page, password_selectors)
     if pw is None:
+        _dump_visible_inputs(page, site, "before password lookup")
         _safe_screenshot(page, audit_dir, f"{site}_password_input_missing")
         raise LoginError(f"{site}: password input not found on login page")
 
