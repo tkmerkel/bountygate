@@ -1423,10 +1423,28 @@ class BetPlacer:
     def _enter_wager_betmgm(self, amount: float) -> bool:
         """Enter wager on BetMGM."""
         try:
-            # BetMGM: app-stake-input input or similar
+            # BetMGM docks the slip at the bottom of the screen, collapsed
+            # to a "1 Bet slip — $X.XX pays out $Y.YY" pill. The wager
+            # input only mounts when the slip is expanded. Click the pill
+            # (or any visible "pays out"/"Bet slip" affordance) to expand.
+            self._open_betmgm_slip()
+
+            # BetMGM stake input — historically `app-stake-input input`,
+            # but the prefix and component name drift. Broaden the cascade
+            # to durable signals: inputmode=decimal, aria-label / placeholder
+            # patterns, and the data-testid families we've seen.
             wager_selectors = [
                 'app-stake-input input',
-                'input[type="text"]',
+                'bs-stake-input input',
+                'input[inputmode="decimal"]',
+                'input[type="number"]',
+                'input[aria-label*="stake" i]',
+                'input[aria-label*="wager" i]',
+                'input[aria-label*="amount" i]',
+                'input[placeholder*="stake" i]',
+                'input[placeholder*="enter amount" i]',
+                '[data-testid*="stake" i] input',
+                'input[type="text"]',  # last-resort fallback
             ]
 
             wager_input = None
@@ -1438,6 +1456,7 @@ class BetPlacer:
                             elem = locator.nth(i)
                             if elem.is_visible():
                                 wager_input = elem
+                                print(f"[BETMGM] Found wager input via {selector}")
                                 break
                         if wager_input:
                             break
@@ -1445,6 +1464,27 @@ class BetPlacer:
                     continue
 
             if wager_input is None:
+                # Diagnostic dump on miss — what visible inputs DO exist?
+                try:
+                    inputs = self.page.locator("input")
+                    dump = []
+                    for i in range(min(inputs.count(), 12)):
+                        el = inputs.nth(i)
+                        try:
+                            if not el.is_visible():
+                                continue
+                            dump.append({
+                                "type": el.get_attribute("type"),
+                                "inputmode": el.get_attribute("inputmode"),
+                                "aria-label": el.get_attribute("aria-label"),
+                                "placeholder": el.get_attribute("placeholder"),
+                                "data-testid": el.get_attribute("data-testid"),
+                            })
+                        except Exception:
+                            continue
+                    print(f"[BETMGM] visible inputs ({len(dump)}): {dump!r}")
+                except Exception:
+                    pass
                 self._screenshot("wager_input_not_found")
                 raise BetPlacerError("Could not find BetMGM wager input")
 
@@ -1464,6 +1504,57 @@ class BetPlacer:
         except Exception as e:
             self._screenshot("wager_entry_failed")
             raise BetPlacerError(f"Failed to enter wager: {e}")
+
+    def _open_betmgm_slip(self) -> None:
+        """Click the bottom-docked Bet slip pill to expand the slip panel.
+
+        BetMGM's slip is collapsed by default after a bet is added —
+        the wager input doesn't exist in the DOM until the slip
+        expands. Tries multiple selectors (text variants seen in
+        production: 'pays out', 'to win', plain 'Bet slip').
+        Idempotent — if the slip is already open, returns silently.
+        """
+        try:
+            # If a stake input is already visible, slip is already expanded.
+            for probe in ('app-stake-input input', 'bs-stake-input input',
+                          'input[inputmode="decimal"]'):
+                try:
+                    loc = self.page.locator(probe)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        return
+                except Exception:
+                    continue
+
+            # Click any visible slip-pill affordance.
+            for sel in (
+                'div:has-text("pays out")',
+                'span:has-text("pays out")',
+                '*[role="button"]:has-text("Bet slip")',
+                'button:has-text("Bet slip")',
+                'a:has-text("Bet slip")',
+                'span:has-text("Bet slip")',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() == 0:
+                        continue
+                    # Pick the FIRST visible candidate; bottom-pill is
+                    # usually the only visible match.
+                    for i in range(min(loc.count(), 5)):
+                        cand = loc.nth(i)
+                        try:
+                            if cand.is_visible():
+                                print(f"[BETMGM] Opening slip via {sel}")
+                                cand.click()
+                                self.page.wait_for_timeout(1500)
+                                return
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            print("[BETMGM] ⚠ No slip-pill affordance found; continuing.")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Slip-open probe failed: {e} (continuing)")
 
     def discover_max_wager_fanduel(self) -> Tuple[float, str]:
         """
