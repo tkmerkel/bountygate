@@ -52,6 +52,19 @@ class BetPlacerError(Exception):
     pass
 
 
+class LineNotOfferedError(BetPlacerError):
+    """The hedge book's page loaded and is showing bets for this market, but
+    not at the line we need (Airflow paired books that don't share this line).
+
+    Distinguishes "page is fine, opportunity is impossible" from "selector
+    regression / page broken". The worker should treat this as a benign skip
+    (no_opportunity) and NOT count it toward the circuit breaker — otherwise
+    a single stale opportunity at the top of the queue halts the bot every
+    restart.
+    """
+    pass
+
+
 class BetPlacer:
     """Handles bet placement on sportsbook sites."""
 
@@ -527,24 +540,38 @@ class BetPlacer:
                       f"({len(btn_dump)}): {btn_dump!r}")
             except Exception:
                 pass
+            betmgm_picks_present = False
+            betmgm_player_present = False
             try:
                 # BetMGM-specific: list ms-event-pick elements (the bet
                 # element type from YAML) near the player row.
                 if self.site == "betmgm":
                     pick_loc = self.page.locator("ms-event-pick")
+                    pick_count = pick_loc.count()
+                    betmgm_picks_present = pick_count > 0
                     pick_dump = []
-                    for i in range(min(pick_loc.count(), 20)):
+                    for i in range(min(pick_count, 20)):
                         try:
                             txt = (pick_loc.nth(i).text_content() or "").strip()[:80]
                             if player_name.lower() in txt.lower():
                                 pick_dump.append(txt)
                         except Exception:
                             continue
+                    betmgm_player_present = len(pick_dump) > 0
                     print(f"[BETMGM] ms-event-pick elements mentioning "
                           f"{player_name!r} ({len(pick_dump)}): {pick_dump!r}")
             except Exception:
                 pass
             self._screenshot("bet_not_found")
+            # If the BetMGM page is in a known state (bet buttons present)
+            # AND the player is on the page at SOME line — the analytics
+            # paired books that don't share this line. Treat as benign skip
+            # so the worker breaker doesn't trip on impossible opportunities.
+            if self.site == "betmgm" and betmgm_picks_present and betmgm_player_present:
+                raise LineNotOfferedError(
+                    f"BetMGM does not offer {player_name} {direction} {line} "
+                    f"(player is on page at other lines)"
+                )
             raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
 
         # Filter by direction
