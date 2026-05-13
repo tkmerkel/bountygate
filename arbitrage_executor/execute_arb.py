@@ -275,6 +275,14 @@ class ArbExecutor:
                 except BetPlacerError as e:
                     print(f"❌ Phase 1 failed: {e}")
                     ExecutionLogger.log_execution_failure("FanDuel limit discovery failed", self.opportunity, "fanduel", e)
+                    # Close the FD tab so multi-opportunity loops don't
+                    # accumulate orphan tabs across iterations (Chrome ends
+                    # up with dozens of FD tabs, FD's bot heuristics may
+                    # flag the session as a result).
+                    try:
+                        page_fd.close()
+                    except Exception:
+                        pass
                     return False
 
                 # === PHASE 2: Execute BetMGM Primary ===
@@ -354,6 +362,14 @@ class ArbExecutor:
                 except BetPlacerError as e:
                     print(f"❌ Phase 2 navigation failed: {e}")
                     ExecutionLogger.log_execution_failure("BetMGM navigation failed", self.opportunity, "betmgm", e)
+                    try:
+                        page_mgm.close()
+                    except Exception:
+                        pass
+                    try:
+                        page_fd.close()
+                    except Exception:
+                        pass
                     return False
 
                 # Calculate MGM stake (don't bet more than we can hedge)
@@ -598,6 +614,7 @@ def main() -> tuple[bool, bool]:
         print("No opportunities found.")
         return False, False
 
+    attempted_any = False
     for i, opportunity in enumerate(opportunities):
         over_book = opportunity.get('over_bookmaker_key', '').lower()
         under_book = opportunity.get('under_bookmaker_key', '').lower()
@@ -626,6 +643,7 @@ def main() -> tuple[bool, bool]:
         print(f"\n▶ {label}: attempting execution")
         executor = ArbExecutor(opportunity)
         success = executor.execute()
+        attempted_any = True
 
         if success:
             opp_hash = _opportunity_hash(opportunity)
@@ -634,10 +652,20 @@ def main() -> tuple[bool, bool]:
             print("\n✓ Execution complete")
             return True, True
 
-        # Execution failed (browser error, ROI dropped, bet rejected, etc.)
-        # Stop here — browser state may be dirty, let the next queued task retry.
-        # attempted=True so the worker's circuit breaker counts this.
-        print(f"\n✗ Execution failed for {label} - stopping")
+        # Execution failed but no money committed — orphan-bet paths raise
+        # OrphanedBetError which bypasses this loop entirely. With the
+        # post-clear assertive slip-clear in BetPlacer, residual betslip
+        # state from this attempt will raise on the NEXT opportunity's
+        # navigation, so advancing is safe.
+        print(f"\n✗ Execution failed for {label} — advancing to next opportunity")
+        continue
+
+    if attempted_any:
+        # Tried at least one viable candidate, none succeeded.
+        # attempted=True so the worker's circuit breaker counts the
+        # exhausted run — repeated full-queue exhaustion signals a real
+        # selector regression worth halting on.
+        print("\n✗ All opportunities exhausted after attempts — none placed")
         return False, True
 
     print("\n✗ All opportunities exhausted — none viable")
