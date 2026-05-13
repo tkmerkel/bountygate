@@ -109,11 +109,35 @@ class BetPlacer:
         # and the slip ends up empty when we expect it populated.
         self._clear_betslip_fanduel()
 
-        # Find search input
-        try:
-            search_input = self.page.locator('input[placeholder="Search"], div.aq input').first
-            search_input.wait_for(state="visible", timeout=15000)
-        except Exception:
+        # Find search input. Scope to visible text-typed inputs only —
+        # the bare `div.aq input` fallback can match hidden checkbox
+        # inputs left over from the slip-clear overlay.
+        search_input = None
+        for sel in (
+            'input[placeholder="Search"]',
+            'input[type="text"][placeholder*="search" i]',
+            'div.aq input[type="text"]',
+            'input[type="search"]',
+            'input[type="text"]:not([readonly]):not([aria-hidden="true"])',
+        ):
+            try:
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    cand = loc.nth(i)
+                    if not cand.is_visible():
+                        continue
+                    if cand.get_attribute("readonly") is not None:
+                        continue
+                    if cand.get_attribute("aria-hidden") == "true":
+                        continue
+                    search_input = cand
+                    break
+                if search_input is not None:
+                    break
+            except Exception:
+                continue
+
+        if search_input is None:
             self._screenshot("search_input_not_found")
             raise BetPlacerError("Could not find FanDuel search input")
 
