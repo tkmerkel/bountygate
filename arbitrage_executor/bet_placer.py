@@ -1510,13 +1510,30 @@ class BetPlacer:
                 self._screenshot("wager_input_not_found")
                 raise BetPlacerError("Could not find BetMGM wager input")
 
-            # Clear and enter amount
+            # Enter the amount via individual keystrokes. BetMGM uses a
+            # custom Angular numpad widget; .fill() sets the input value
+            # in DOM but doesn't fire the keydown events the widget's
+            # form-state machine listens for, so the Place Bet button
+            # stays aria-disabled='true'. .pw_type() generates real
+            # keystroke events that the widget accepts.
             wager_input.click()
-            wager_input.fill(f"{amount:.2f}")
+            self.page.wait_for_timeout(200)
+            # Clear any existing content first (Ctrl+A, Delete) so the
+            # new digits don't get appended.
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Delete")
+            self.page.wait_for_timeout(200)
+            amount_str = f"{amount:.2f}"
+            # Use keyboard.type with a small per-char delay so each
+            # digit triggers a clean keypress that the numpad widget
+            # processes individually.
+            self.page.keyboard.type(amount_str, delay=80)
             self.page.wait_for_timeout(500)
 
-            # Press down arrow to trigger validation and enable Place Bet button
-            self.page.keyboard.press("ArrowDown")
+            # Press Tab/ArrowDown to blur the input and trigger validation
+            # — needed so the Place Bet button transitions from disabled
+            # to enabled.
+            self.page.keyboard.press("Tab")
             self.page.wait_for_timeout(1000)
 
             self._screenshot("wager_entered")
