@@ -123,9 +123,14 @@ _MGM_SUBMIT_SELECTORS = (
 # challenge element to be present in the DOM.
 _INTERVENTION_STRUCTURAL = (
     ('input[autocomplete="one-time-code"]', "OTP input present"),
+    ('input[inputmode="numeric"][maxlength="1"]', "single-digit OTP input present"),
     ('input[name*="otp" i]', "OTP-named input present"),
     ('input[name*="code" i]', "code-named input present"),
-    ('input[aria-label*="verification" i]', "verification input present"),
+    ('input[name*="verification" i]', "verification-named input present"),
+    ('input[id*="otp" i]', "OTP-id input present"),
+    ('input[id*="code" i]', "code-id input present"),
+    ('input[aria-label*="verification" i]', "verification aria input present"),
+    ('input[aria-label*="code" i]', "code aria input present"),
     ('iframe[src*="recaptcha"]', "reCAPTCHA iframe present"),
     ('iframe[src*="hcaptcha"]', "hCaptcha iframe present"),
     ('iframe[src*="arkose"]', "Arkose challenge iframe present"),
@@ -139,8 +144,14 @@ _INTERVENTION_TEXT_PHRASES = (
     "we sent a code",
     "we sent you a code",
     "enter the code we sent",
+    "enter your code",
     "verification code",
     "two-factor authentication required",
+    "secure your account",
+    "confirm it's you",
+    "confirm its you",
+    "verify it's you",
+    "verify its you",
 )
 
 
@@ -251,27 +262,30 @@ def _detect_intervention(page: Page) -> Optional[str]:
 
     Conservative two-layer check:
       1. Structural — a verification input or challenge iframe is visible.
+         Scans every frame (FanDuel renders the 2FA challenge in an iframe).
       2. Visible-text phrases specific enough that they cannot appear in
          marketing copy on a logged-in page (e.g. "we sent a code").
 
     Returns None when both layers are quiet — the caller's job is to then
     decide between "logged in" and "login failed (try again)".
     """
-    for sel, reason in _INTERVENTION_STRUCTURAL:
+    for _label, target in _all_frames(page):
+        for sel, reason in _INTERVENTION_STRUCTURAL:
+            try:
+                loc = target.locator(sel)
+                if loc.count() > 0 and loc.first.is_visible():
+                    return reason
+            except Exception:
+                continue
+
+    for _label, target in _all_frames(page):
         try:
-            loc = page.locator(sel)
-            if loc.count() > 0 and loc.first.is_visible():
-                return reason
+            text = (target.locator("body").inner_text() or "").lower()
         except Exception:
             continue
-
-    try:
-        text = (page.inner_text("body") or "").lower()
-    except Exception:
-        return None
-    for phrase in _INTERVENTION_TEXT_PHRASES:
-        if phrase in text:
-            return f"page shows '{phrase}'"
+        for phrase in _INTERVENTION_TEXT_PHRASES:
+            if phrase in text:
+                return f"page shows '{phrase}'"
     return None
 
 
@@ -338,17 +352,20 @@ def _do_login(
 
     page.wait_for_timeout(6000)
 
-    # Order matters: a logged-in homepage may mention "verification" or
-    # similar in marketing copy. Confirm logged-in first; only investigate
-    # what went wrong if it didn't take.
-    if _looks_logged_in(page):
-        print(f"[AUTH] {site}: login successful")
-        return True
-
+    # 2FA / CAPTCHA detection FIRST. _looks_logged_in is too lenient when
+    # FD's 2FA modal overlays a partial home page (no Log In button to
+    # see, no /login URL marker) — it would short-circuit to "logged in"
+    # and we'd never raise the CRITICAL alert. The intervention detector
+    # now uses tight signals (visible OTP input or specific text phrases)
+    # so a false positive on a genuinely logged-in page is very unlikely.
     intervention = _detect_intervention(page)
     if intervention is not None:
         _safe_screenshot(page, audit_dir, f"{site}_intervention_required")
         raise LoginInterventionRequired(f"{site}: {intervention}")
+
+    if _looks_logged_in(page):
+        print(f"[AUTH] {site}: login successful")
+        return True
 
     _safe_screenshot(page, audit_dir, f"{site}_login_did_not_take")
     raise LoginError(
