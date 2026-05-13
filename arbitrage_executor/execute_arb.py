@@ -291,9 +291,14 @@ class ArbExecutor:
                 print(f"{'─'*60}\n")
 
                 # Open BetMGM page
+                # Wide desktop viewport (1920x1080): in the narrower
+                # 958-wide layout BetMGM renders a mobile-style slip where
+                # "Clear All" sits in a position the bot's selectors miss.
+                # The desktop right-rail layout makes Clear All a <span>
+                # that's actually clickable.
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
-                page_mgm.set_viewport_size({"width": 958, "height": 944})
+                page_mgm.set_viewport_size({"width": 1920, "height": 1080})
 
                 try:
                     ensure_logged_in(page_mgm, "betmgm", self.audit_dir)

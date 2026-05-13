@@ -1100,15 +1100,17 @@ class BetPlacer:
             # bets accumulated across iterations.
             self._open_betmgm_slip()
 
-            # "Remove all" sweep. The actual button is labeled "Clear All"
-            # (capital A) inside the expanded slip. has-text is
-            # case-insensitive so "Clear all" still matches.
+            # "Remove all" sweep. In desktop right-rail layout the actual
+            # clickable Clear All element is a <span> (not a <button>).
+            # Mobile-layout variants render it as a button or div[role=button].
             for sel in (
+                'span:has-text("Clear All")',
                 'button:has-text("Clear All")',
                 'button:has-text("Remove all")',
                 'button:has-text("Clear all")',
                 'button[aria-label*="remove all" i]',
                 'div[role="button"]:has-text("Clear All")',
+                '[role="button"]:has-text("Clear All")',
             ):
                 try:
                     loc = self.page.locator(sel)
