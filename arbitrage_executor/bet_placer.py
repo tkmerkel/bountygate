@@ -283,17 +283,28 @@ class BetPlacer:
         # Expand accordion
         try:
             print(f"[BETMGM] Expanding accordion: {accordion_name}")
-            accordion_selector = f'button[dsaccordiontoggle]:has-text("{accordion_name}")'
-            accordion = self.page.locator(accordion_selector)
+            # Use :text-is for an EXACT match — BetMGM ships sibling
+            # accordions like "Player rebounds + assists" and "Player
+            # rebounds + assists O/U" at the same level. :has-text would
+            # match both via substring and pick whichever came first in
+            # DOM order, often expanding the wrong market silently.
+            exact_selector = (
+                f'button[dsaccordiontoggle]:text-is("{accordion_name}")'
+            )
+            accordion = self.page.locator(exact_selector)
 
+            target = None
             if accordion.count() > 0:
                 target = accordion.first
             else:
                 # Fuzzy fallback: score every accordion button and pick the
-                # best match above threshold. The previous "first match wins"
-                # broke when stale YAML "Player assists O/U" matched both
-                # "Player points" and "Player assists" at >80 and the wrong
-                # one came first in DOM order.
+                # best match above threshold. Tie-break on length: at equal
+                # fuzzy score, prefer the SHORTER candidate. partial_ratio
+                # returns 100 for any haystack that contains the needle as
+                # a substring, so "Player rebounds + assists" and "Player
+                # rebounds + assists O/U" both score 100 against either
+                # input. Shortest-length tie-break gives us the most exact
+                # textual match available.
                 best_btn = None
                 best_text = None
                 best_score = 0
@@ -307,7 +318,11 @@ class BetPlacer:
                         continue
                     all_texts.append(btn_text)
                     score = fuzzy_score(btn_text, accordion_name)
-                    if score > best_score:
+                    if score > best_score or (
+                        score == best_score
+                        and best_text is not None
+                        and len(btn_text) < len(best_text)
+                    ):
                         best_score = score
                         best_btn = btn
                         best_text = btn_text

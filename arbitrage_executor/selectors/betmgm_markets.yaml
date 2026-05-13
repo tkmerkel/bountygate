@@ -32,8 +32,8 @@ player_rebounds:
   test_line: 1.5
   validated_at: '2026-01-22T13:07:30.682828'
 player_rebounds_assists:
-  accordion_name: Player rebounds + assists
-  accordion_selector: button[dsaccordiontoggle]:has-text("Player rebounds + assists")
+  accordion_name: Player rebounds + assists O/U
+  accordion_selector: button[dsaccordiontoggle]:text-is("Player rebounds + assists O/U")
   show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
   bet_element_type: ms-event-pick
   search_strategy: player_container_then_line
@@ -52,8 +52,8 @@ player_receptions:
   test_line: 2.5
   validated_at: '2026-01-24T15:22:00.501281'
 player_points_assists:
-  accordion_name: Player points + assists
-  accordion_selector: button[dsaccordiontoggle]:has-text("Player points + assists")
+  accordion_name: Player points + assists O/U
+  accordion_selector: button[dsaccordiontoggle]:text-is("Player points + assists O/U")
   show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
   bet_element_type: ms-event-pick
   search_strategy: player_container_then_line
@@ -82,8 +82,8 @@ player_blocks:
   test_line: 1.5
   validated_at: '2026-01-26T10:06:39.051091'
 player_points_rebounds:
-  accordion_name: Player points + rebounds
-  accordion_selector: button[dsaccordiontoggle]:text-is("Player points + rebounds")
+  accordion_name: Player points + rebounds O/U
+  accordion_selector: button[dsaccordiontoggle]:text-is("Player points + rebounds O/U")
   show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
   bet_element_type: ms-event-pick
   search_strategy: player_container_then_line
