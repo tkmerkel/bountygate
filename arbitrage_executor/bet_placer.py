@@ -104,6 +104,14 @@ class BetPlacer:
         self.page.goto("https://mo.sportsbook.fanduel.com/search", wait_until="domcontentloaded")
         self.page.wait_for_timeout(2000)
 
+        # Dismiss any blocking modal first. FanDuel pops a "Reality Check"
+        # responsible-gambling modal every ~270 minutes (button label
+        # varies — "Done", "Got it", "OK"). It uses div[role="dialog"]
+        # aria-modal=true and intercepts all pointer events until
+        # dismissed. Left up, our slip-clear and search-input selectors
+        # silently miss everything.
+        self._dismiss_fanduel_modal()
+
         # Clear any leftover bets from a previous failed run. Otherwise the
         # bet-button click on the next step toggles a still-Selected bet OFF
         # and the slip ends up empty when we expect it populated.
@@ -897,6 +905,40 @@ class BetPlacer:
             self._screenshot("click_failed")
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
+    def _dismiss_fanduel_modal(self) -> None:
+        """Dismiss any FanDuel modal blocking the page.
+
+        Primary case: the "Reality Check" responsible-gambling modal
+        that fires every ~270 minutes of session activity. Implemented
+        as `<div role="dialog" aria-modal="true">` and intercepts every
+        pointer event until dismissed. Button label varies — observed:
+        "Done", "Got it", "OK". The modal contains a single button so
+        we click it regardless of label.
+
+        Idempotent and silent — if no modal is present, return.
+        """
+        try:
+            modal = self.page.locator('div[role="dialog"][aria-modal="true"]')
+            if modal.count() == 0:
+                return
+            if not modal.first.is_visible():
+                return
+            # Capture the modal's inner text for the log (helps if FD
+            # introduces a different modal type that needs a separate
+            # dismissal path).
+            try:
+                t = (modal.first.inner_text() or "").strip()[:120]
+            except Exception:
+                t = "(no text)"
+            print(f"[FANDUEL] Dismissing modal: {t!r}")
+            buttons = modal.first.locator("button")
+            if buttons.count() > 0:
+                buttons.first.click()
+                self.page.wait_for_timeout(1500)
+                print(f"[FANDUEL] Modal dismissed.")
+        except Exception as e:
+            print(f"[FANDUEL] ⚠ Modal-dismiss probe failed: {e} (continuing)")
+
     def _clear_betslip_fanduel(self) -> None:
         """Empty the FanDuel betslip if it isn't already.
 
@@ -931,9 +973,17 @@ class BetPlacer:
                 pass
 
             # 1. Try a single "Remove all" / "Clear" affordance.
+            # NOTE: the visible "Remove all selections" element is a
+            # div[role="button"], NOT a <button> tag. Earlier
+            # button:has-text() selectors silently missed it across an
+            # entire session — every iteration's "slip cleared" log was
+            # a false positive while the slip retained a stale tease.
             for sel in (
                 '[data-testid="remove-all-selections-button"]',
                 '[data-test-id="remove-all-selections-button"]',
+                'div[role="button"]:has-text("Remove all selections")',
+                'div[role="button"]:has-text("Remove all")',
+                '[role="button"]:has-text("Remove all selections")',
                 'button[aria-label*="remove all" i]',
                 'button[aria-label*="clear all" i]',
                 'button:has-text("Remove all")',
