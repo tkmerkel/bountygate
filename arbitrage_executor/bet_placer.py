@@ -564,7 +564,25 @@ class BetPlacer:
         print(f"[{self.site.upper()}] Clicking bet: {selected.preview_text[:60]}")
 
         try:
-            locator = self.page.locator(selected.selector).first
+            # Pick the first VISIBLE match. FanDuel renders hidden DOM
+            # duplicates (mobile-layout, promo cards) ahead of the real
+            # tile, and `.first` will silently grab one of those and
+            # time out on click.
+            loc = self.page.locator(selected.selector)
+            count = loc.count()
+            locator = None
+            for i in range(count):
+                cand = loc.nth(i)
+                try:
+                    if cand.is_visible():
+                        locator = cand
+                        break
+                except Exception:
+                    continue
+            if locator is None:
+                raise BetPlacerError(
+                    f"Selector matched {count} elements but none were visible: {selected.selector}"
+                )
             locator.click(timeout=10000)
             self.page.wait_for_timeout(1500)
 

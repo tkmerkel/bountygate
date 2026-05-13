@@ -8,6 +8,13 @@ from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
+from text_match import fuzzy_contains
+
+# Fuzzy-match threshold for player-name containment checks. 90 is stricter
+# than the text_match default of 85 — these checks gate bet selection, so
+# we want high precision (few false positives) over recall.
+_PLAYER_NAME_THRESHOLD = 90
+
 
 # ============================================================================
 # Alternate Market Utilities
@@ -102,28 +109,51 @@ class SelectorFinder:
                 # Find all elements with aria-label containing the term
                 elements = page.locator(f'[aria-label*="{term}"]').all()
 
-                for elem in elements[:10]:  # Limit to first 10 to avoid spam
+                for elem in elements[:20]:
                     try:
                         aria_label = elem.get_attribute("aria-label") or ""
 
-                        # Check if it contains player name and term
-                        if player_name.lower() in aria_label.lower() and term.lower() in aria_label.lower():
-                            confidence = 80
+                        if not fuzzy_contains(aria_label, player_name, threshold=_PLAYER_NAME_THRESHOLD):
+                            continue
+                        if term.lower() not in aria_label.lower():
+                            continue
 
-                            # Boost confidence if line matches
-                            if line and str(line) in aria_label:
-                                confidence = 95
+                        # When a line is required, the matched element's own
+                        # aria-label must contain it. FanDuel serves featured/
+                        # promo tiles with line-less aria alongside the real
+                        # market tile — filtering here keeps us off the promos.
+                        if line is not None and str(line) not in aria_label:
+                            continue
 
-                            selector = f'[aria-label*="{player_name}"][aria-label*="{term}"]'
-                            if line:
-                                selector += f'[aria-label*="{line}"]'
+                        # Skip hidden duplicates (mobile-layout copies, etc).
+                        try:
+                            if not elem.is_visible():
+                                continue
+                        except Exception:
+                            continue
 
-                            candidates.append(SelectorCandidate(
-                                selector=selector,
-                                selector_type="aria_label",
-                                preview_text=aria_label,
-                                confidence=confidence
-                            ))
+                        # Encode direction in preview so bet_placer's
+                        # direction filter can use it for FanDuel candidates.
+                        aria_lower = aria_label.lower()
+                        if "under," in aria_lower or " under " in aria_lower or aria_lower.endswith(" under"):
+                            direction_tag = "[under] "
+                        elif "over," in aria_lower or " over " in aria_lower or aria_lower.endswith(" over"):
+                            direction_tag = "[over] "
+                        else:
+                            direction_tag = ""
+
+                        confidence = 95 if line is not None else 80
+
+                        selector = f'[aria-label*="{player_name}"][aria-label*="{term}"]'
+                        if line is not None:
+                            selector += f'[aria-label*="{line}"]'
+
+                        candidates.append(SelectorCandidate(
+                            selector=selector,
+                            selector_type="aria_label",
+                            preview_text=f"{direction_tag}{aria_label}",
+                            confidence=confidence
+                        ))
                     except Exception:
                         continue
             except Exception:
@@ -139,8 +169,8 @@ class SelectorFinder:
                     try:
                         text_content = btn.text_content() or ""
 
-                        # Check if it contains player name
-                        if player_name.lower() in text_content.lower():
+                        # Check if it contains player name (fuzzy)
+                        if fuzzy_contains(text_content, player_name, threshold=_PLAYER_NAME_THRESHOLD):
                             confidence = 70
 
                             # Try to extract data attributes for better selector
@@ -192,8 +222,8 @@ class SelectorFinder:
                         try:
                             row_text = row.text_content() or ""
 
-                            # Check if this row contains our player name
-                            if player_name.lower() not in row_text.lower():
+                            # Check if this row contains our player name (fuzzy)
+                            if not fuzzy_contains(row_text, player_name, threshold=_PLAYER_NAME_THRESHOLD):
                                 continue
 
                             # This is the right player's row!
@@ -263,7 +293,7 @@ class SelectorFinder:
                     try:
                         text_content = elem.text_content() or ""
 
-                        if player_name.lower() in text_content.lower():
+                        if fuzzy_contains(text_content, player_name, threshold=_PLAYER_NAME_THRESHOLD):
                             # Check for unique attributes
                             elem_id = elem.get_attribute("id")
                             elem_class = elem.get_attribute("class")
