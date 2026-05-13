@@ -432,11 +432,22 @@ class BetPlacer:
         if self.site == "fanduel" and is_alternate:
             return self._find_and_click_alternate_bet_fanduel(opportunity, direction, market_config, player_name, line)
 
-        # Use SelectorFinder to locate the bet
-        display_names = market_config.get('display_names', [market_key])
-        candidates = SelectorFinder.find_candidates_by_text(
-            self.page, display_names, player_name, line
-        )
+        # BetMGM: ms-event-pick elements don't contain the player name in
+        # their own text — the name is in a sibling element. The generic
+        # find_candidates_by_text fails because it requires both player
+        # name and line in the same element. Use a structural finder that
+        # walks DOM upward from each bet button to find the row.
+        if self.site == "betmgm":
+            if self._click_betmgm_pick_for_player(player_name, line, direction):
+                return True
+            # Fall through to diagnostic dump and raise below
+            candidates = []
+        else:
+            # Use SelectorFinder to locate the bet
+            display_names = market_config.get('display_names', [market_key])
+            candidates = SelectorFinder.find_candidates_by_text(
+                self.page, display_names, player_name, line
+            )
 
         if not candidates:
             # Diagnostic: dump aria-labels and visible button text near the
@@ -694,6 +705,97 @@ class BetPlacer:
             return self._enter_wager_betmgm(amount)
         else:
             raise BetPlacerError(f"Unknown site: {self.site}")
+
+    def _click_betmgm_pick_for_player(self, player_name: str, line: float, direction: str) -> bool:
+        """Find and click the BetMGM ms-event-pick that matches this player+line+direction.
+
+        BetMGM's player-prop rows lay out as:
+            [avatar][player name][stat avg][chart icon][ms-event-pick: "O 11.5  2.00"]
+
+        The bet button (``ms-event-pick``) text contains only the direction
+        letter + line + odds (e.g. "O 11.5"). The player name lives in a
+        sibling element. Generic same-element matching can't find this.
+
+        Strategy: enumerate every ms-event-pick on the page, check its text
+        matches ``"<O|U> <line>"`` exactly, then walk up the DOM looking for
+        an ancestor whose innerText contains the player name but is *small
+        enough* that it's the row, not the whole page. Conservative on the
+        match side — we'd rather raise No-Match than mis-click.
+
+        Returns True on a successful click, False if no match found.
+        """
+        direction_letter = "O" if direction == "over" else "U"
+        target_text = f"{direction_letter} {line}"
+        target_text_alt = f"{direction_letter} {int(line)}" if float(line).is_integer() else None
+
+        all_picks = self.page.locator("ms-event-pick")
+        pick_count = all_picks.count()
+        print(f"[BETMGM] scanning {pick_count} ms-event-pick(s) for "
+              f"{target_text!r} on player {player_name!r}")
+
+        # Walk-up script: returns True if any ancestor (within max_depth
+        # hops) has innerText that contains the player name AND has
+        # innerText length below max_text_len. The length cap is what
+        # separates "this is the player's row" from "this is the whole
+        # page, which obviously contains the name."
+        walkup_js = """
+        (el, args) => {
+            const player = args.player;
+            const max_depth = args.max_depth;
+            const max_text_len = args.max_text_len;
+            let cur = el;
+            for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
+                cur = cur.parentElement;
+                const text = (cur.innerText || cur.textContent || '').trim();
+                if (!text.includes(player)) continue;
+                if (text.length <= max_text_len) return true;
+            }
+            return false;
+        }
+        """
+
+        matched = None
+        matched_meta = None
+        for i in range(pick_count):
+            try:
+                pick = all_picks.nth(i)
+                if not pick.is_visible():
+                    continue
+                txt = (pick.text_content() or "").strip()
+                # Normalize whitespace: "O 11.5  2.00" -> "O 11.5 2.00"
+                norm = " ".join(txt.split())
+                if target_text not in norm and (
+                    target_text_alt is None or target_text_alt not in norm
+                ):
+                    continue
+                has_player = pick.evaluate(
+                    walkup_js,
+                    {"player": player_name, "max_depth": 8, "max_text_len": 200},
+                )
+                if has_player:
+                    matched = pick
+                    option_id = pick.get_attribute("data-test-option-id")
+                    matched_meta = f"text={norm!r} option_id={option_id!r}"
+                    break
+            except Exception as e:
+                print(f"[BETMGM] pick #{i} scan error: {e}")
+                continue
+
+        if matched is None:
+            print(f"[BETMGM] no ms-event-pick matched {target_text!r} for "
+                  f"{player_name!r} (scanned {pick_count})")
+            return False
+
+        print(f"[BETMGM] matched bet: {matched_meta}")
+        try:
+            matched.click(timeout=10000)
+            self.page.wait_for_timeout(1500)
+            self._screenshot("bet_clicked")
+            print(f"[BETMGM] ✓ Bet added to slip")
+            return True
+        except Exception as e:
+            self._screenshot("click_failed")
+            raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
     def _fanduel_slip_has_bet(self) -> bool:
         """Return True if the FanDuel betslip currently holds at least one
