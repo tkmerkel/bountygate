@@ -524,6 +524,11 @@ class ArbExecutor:
             # Already alerted via log_critical inside _raise_orphaned. Bubble
             # up so the worker halts the polling loop.
             raise
+        except LineNotOfferedError:
+            # Hedge book doesn't list this line. No money committed.
+            # Bubble out so main() can skip this opportunity without
+            # tripping the worker breaker.
+            raise
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             # If we crashed inside the asymmetric-risk window, escalate to
