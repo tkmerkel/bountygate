@@ -272,6 +272,13 @@ class ArbExecutor:
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
+                except LineNotOfferedError as e:
+                    # FanDuel doesn't list this line. No money committed.
+                    # Bubble out so main() can skip this opportunity without
+                    # tripping the worker breaker.
+                    print(f"⏭ Phase 1 skip — line not offered: {e}")
+                    page_fd.close()
+                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 1 failed: {e}")
                     ExecutionLogger.log_execution_failure("FanDuel limit discovery failed", self.opportunity, "fanduel", e)

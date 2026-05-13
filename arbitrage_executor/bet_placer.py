@@ -515,8 +515,8 @@ class BetPlacer:
             # Diagnostic: dump aria-labels and visible button text near the
             # player name so the next selector update has data. Cheap, runs
             # only on the failure path. Limited to keep console output sane.
+            aria_dump = []
             try:
-                aria_dump = []
                 aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
                 for i in range(min(aria_loc.count(), 10)):
                     try:
@@ -563,14 +563,23 @@ class BetPlacer:
             except Exception:
                 pass
             self._screenshot("bet_not_found")
-            # If the BetMGM page is in a known state (bet buttons present)
-            # AND the player is on the page at SOME line — the analytics
-            # paired books that don't share this line. Treat as benign skip
-            # so the worker breaker doesn't trip on impossible opportunities.
+            # If the book's page is in a known state (player IS on the page,
+            # we just can't find this specific line) — analytics paired books
+            # that don't share this line. Treat as benign skip so the worker
+            # breaker doesn't trip on impossible opportunities.
+            #   BetMGM signal: ms-event-pick buttons exist AND a pick mentions
+            #                  the player.
+            #   FanDuel signal: at least one aria-label mentions the player.
             if self.site == "betmgm" and betmgm_picks_present and betmgm_player_present:
                 raise LineNotOfferedError(
                     f"BetMGM does not offer {player_name} {direction} {line} "
                     f"(player is on page at other lines)"
+                )
+            if self.site == "fanduel" and len(aria_dump) > 0:
+                raise LineNotOfferedError(
+                    f"FanDuel does not offer {player_name} {direction} {line} "
+                    f"(player has {len(aria_dump)} aria-labels on page but none "
+                    f"match this line)"
                 )
             raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
 
