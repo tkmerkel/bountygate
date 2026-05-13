@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 
 from opportunity import fetch_and_prepare_opportunity, fetch_all_opportunities, infer_direction_for_book, get_market_keys, MIN_ROI_THRESHOLD
 from selector_finder import SelectorManager
-from bet_placer import BetPlacer, BetPlacerError, LineNotOfferedError
+from bet_placer import BetPlacer, BetPlacerError
 from execution_logger import ExecutionLogger
 from db_connection import mark_opportunity_executed
 from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
@@ -272,13 +272,6 @@ class ArbExecutor:
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
-                except LineNotOfferedError as e:
-                    # FanDuel doesn't list this line. No money committed.
-                    # Bubble out so main() can skip this opportunity without
-                    # tripping the worker breaker.
-                    print(f"⏭ Phase 1 skip — line not offered: {e}")
-                    page_fd.close()
-                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 1 failed: {e}")
                     ExecutionLogger.log_execution_failure("FanDuel limit discovery failed", self.opportunity, "fanduel", e)
@@ -358,15 +351,6 @@ class ArbExecutor:
 
                     print(f"✓ ROI verified: {actual_roi * 100:.2f}%\n")
 
-                except LineNotOfferedError as e:
-                    # Hedge book doesn't offer this line. Bubble out so the
-                    # main() loop skips this opportunity without counting it
-                    # as a circuit-breaker tick (no money was committed —
-                    # Phase 1 only teases the slip to discover max wager).
-                    print(f"⏭ Phase 2 skip — line not offered: {e}")
-                    page_mgm.close()
-                    page_fd.close()
-                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 2 navigation failed: {e}")
                     ExecutionLogger.log_execution_failure("BetMGM navigation failed", self.opportunity, "betmgm", e)
@@ -531,11 +515,6 @@ class ArbExecutor:
             # Already alerted via log_critical inside _raise_orphaned. Bubble
             # up so the worker halts the polling loop.
             raise
-        except LineNotOfferedError:
-            # Hedge book doesn't list this line. No money committed.
-            # Bubble out so main() can skip this opportunity without
-            # tripping the worker breaker.
-            raise
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             # If we crashed inside the asymmetric-risk window, escalate to
@@ -646,13 +625,7 @@ def main() -> tuple[bool, bool]:
         # Viable candidate — attempt execution
         print(f"\n▶ {label}: attempting execution")
         executor = ArbExecutor(opportunity)
-        try:
-            success = executor.execute()
-        except LineNotOfferedError as e:
-            # Hedge book doesn't list this line. No money committed.
-            # Skip to the next opportunity instead of halting the worker.
-            print(f"⏭ {label}: {e}")
-            continue
+        success = executor.execute()
 
         if success:
             opp_hash = _opportunity_hash(opportunity)

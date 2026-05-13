@@ -12,7 +12,7 @@ from playwright.sync_api import Page
 
 from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
 from execution_logger import ExecutionLogger
-from text_match import fuzzy_score
+from text_match import fuzzy_score, fuzzy_contains
 
 # Accordion-header fuzzy threshold. Lower than the player-name threshold (90)
 # because UI labels can be reworded more than player names ("Player points O/U"
@@ -49,19 +49,6 @@ FANDUEL_THRESHOLD_ONE_LABELS = {
 
 class BetPlacerError(Exception):
     """Raised when bet placement fails."""
-    pass
-
-
-class LineNotOfferedError(BetPlacerError):
-    """The hedge book's page loaded and is showing bets for this market, but
-    not at the line we need (Airflow paired books that don't share this line).
-
-    Distinguishes "page is fine, opportunity is impossible" from "selector
-    regression / page broken". The worker should treat this as a benign skip
-    (no_opportunity) and NOT count it toward the circuit breaker — otherwise
-    a single stale opportunity at the top of the queue halts the bot every
-    restart.
-    """
     pass
 
 
@@ -540,15 +527,12 @@ class BetPlacer:
                       f"({len(btn_dump)}): {btn_dump!r}")
             except Exception:
                 pass
-            betmgm_picks_present = False
-            betmgm_player_present = False
             try:
                 # BetMGM-specific: list ms-event-pick elements (the bet
                 # element type from YAML) near the player row.
                 if self.site == "betmgm":
                     pick_loc = self.page.locator("ms-event-pick")
                     pick_count = pick_loc.count()
-                    betmgm_picks_present = pick_count > 0
                     pick_dump = []
                     for i in range(min(pick_count, 20)):
                         try:
@@ -557,30 +541,11 @@ class BetPlacer:
                                 pick_dump.append(txt)
                         except Exception:
                             continue
-                    betmgm_player_present = len(pick_dump) > 0
                     print(f"[BETMGM] ms-event-pick elements mentioning "
                           f"{player_name!r} ({len(pick_dump)}): {pick_dump!r}")
             except Exception:
                 pass
             self._screenshot("bet_not_found")
-            # If the book's page is in a known state (player IS on the page,
-            # we just can't find this specific line) — analytics paired books
-            # that don't share this line. Treat as benign skip so the worker
-            # breaker doesn't trip on impossible opportunities.
-            #   BetMGM signal: ms-event-pick buttons exist AND a pick mentions
-            #                  the player.
-            #   FanDuel signal: at least one aria-label mentions the player.
-            if self.site == "betmgm" and betmgm_picks_present and betmgm_player_present:
-                raise LineNotOfferedError(
-                    f"BetMGM does not offer {player_name} {direction} {line} "
-                    f"(player is on page at other lines)"
-                )
-            if self.site == "fanduel" and len(aria_dump) > 0:
-                raise LineNotOfferedError(
-                    f"FanDuel does not offer {player_name} {direction} {line} "
-                    f"(player has {len(aria_dump)} aria-labels on page but none "
-                    f"match this line)"
-                )
             raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
 
         # Filter by direction
@@ -817,13 +782,14 @@ class BetPlacer:
 
         The bet button (``ms-event-pick``) text contains only the direction
         letter + line + odds (e.g. "O 11.5"). The player name lives in a
-        sibling element. Generic same-element matching can't find this.
+        sibling/ancestor element.
 
         Strategy: enumerate every ms-event-pick on the page, check its text
-        matches ``"<O|U> <line>"`` exactly, then walk up the DOM looking for
-        an ancestor whose innerText contains the player name but is *small
-        enough* that it's the row, not the whole page. Conservative on the
-        match side — we'd rather raise No-Match than mis-click.
+        matches ``"<O|U> <line>"``, then walk up the DOM and pull the
+        innerText of each ancestor row container. The player-name match runs
+        Python-side via ``fuzzy_contains`` so apostrophe variants
+        (curly vs straight: "De'Aaron" vs "De'Aaron"), abbreviation forms,
+        and case differences all resolve cleanly.
 
         Returns True on a successful click, False if no match found.
         """
@@ -831,67 +797,98 @@ class BetPlacer:
         target_text = f"{direction_letter} {line}"
         target_text_alt = f"{direction_letter} {int(line)}" if float(line).is_integer() else None
 
+        # Best-effort: scroll the page to its bottom to coax virtual-scroll
+        # / lazy-load picks into the DOM. Some BetMGM pages keep below-fold
+        # picks unrendered until they enter the viewport — we previously
+        # missed Fox's Under-3.5 pick this way. Cheap, idempotent.
+        try:
+            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.wait_for_timeout(400)
+            self.page.evaluate("window.scrollTo(0, 0)")
+            self.page.wait_for_timeout(200)
+        except Exception:
+            pass
+
         all_picks = self.page.locator("ms-event-pick")
         pick_count = all_picks.count()
         print(f"[BETMGM] scanning {pick_count} ms-event-pick(s) for "
               f"{target_text!r} on player {player_name!r}")
 
-        # Walk-up script: returns True if any ancestor (within max_depth
-        # hops) has innerText that contains the player name AND has
-        # innerText length below max_text_len. The length cap is what
-        # separates "this is the player's row" from "this is the whole
-        # page, which obviously contains the name."
+        # Walk-up returns each ancestor's innerText (with a length cap so we
+        # don't pay for serializing the whole document). Python-side, we
+        # apply fuzzy_contains across the returned texts — the JS-side
+        # `.includes(player)` is character-exact and silently misses curly-
+        # vs-straight-apostrophe rows like "De'Aaron Fox".
         walkup_js = """
         (el, args) => {
-            const player = args.player;
             const max_depth = args.max_depth;
             const max_text_len = args.max_text_len;
+            const out = [];
             let cur = el;
             for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
                 cur = cur.parentElement;
                 const text = (cur.innerText || cur.textContent || '').trim();
-                if (!text.includes(player)) continue;
-                if (text.length <= max_text_len) return true;
+                if (text.length <= max_text_len) out.push(text);
             }
-            return false;
+            return out;
         }
         """
 
-        matched = None
+        matched_option_id = None
+        matched_handle = None
         matched_meta = None
+
         for i in range(pick_count):
             try:
                 pick = all_picks.nth(i)
-                if not pick.is_visible():
-                    continue
+                # Deliberately NOT calling pick.is_visible() — the previous
+                # impl skipped DOM-attached but not-yet-rendered picks (e.g.
+                # below the fold), which is exactly how Fox's Under-3.5
+                # disappeared. Playwright's click() will auto-scroll into
+                # view, so unrendered-but-attached is fine here.
                 txt = (pick.text_content() or "").strip()
-                # Normalize whitespace: "O 11.5  2.00" -> "O 11.5 2.00"
                 norm = " ".join(txt.split())
                 if target_text not in norm and (
                     target_text_alt is None or target_text_alt not in norm
                 ):
                     continue
-                has_player = pick.evaluate(
+                # Pull ancestor texts; fuzzy-match the player Python-side.
+                ancestor_texts = pick.evaluate(
                     walkup_js,
-                    {"player": player_name, "max_depth": 8, "max_text_len": 200},
+                    {"max_depth": 15, "max_text_len": 600},
                 )
-                if has_player:
-                    matched = pick
-                    option_id = pick.get_attribute("data-test-option-id")
-                    matched_meta = f"text={norm!r} option_id={option_id!r}"
-                    break
+                player_found = any(
+                    fuzzy_contains(t, player_name, threshold=90)
+                    for t in ancestor_texts
+                )
+                if not player_found:
+                    continue
+                option_id = pick.get_attribute("data-test-option-id")
+                matched_option_id = option_id
+                matched_handle = pick
+                matched_meta = f"text={norm!r} option_id={option_id!r}"
+                break
             except Exception as e:
                 print(f"[BETMGM] pick #{i} scan error: {e}")
                 continue
 
-        if matched is None:
+        if matched_handle is None:
             print(f"[BETMGM] no ms-event-pick matched {target_text!r} for "
                   f"{player_name!r} (scanned {pick_count})")
             return False
 
         print(f"[BETMGM] matched bet: {matched_meta}")
+        # Prefer clicking via the stable data-test-option-id selector when
+        # one is present — the locator handle can go stale across the click's
+        # auto-scroll if Angular re-renders the row.
         try:
-            matched.click(timeout=10000)
+            if matched_option_id:
+                target = self.page.locator(
+                    f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
+                )
+                target.first.click(timeout=10000)
+            else:
+                matched_handle.click(timeout=10000)
             self.page.wait_for_timeout(1500)
             self._screenshot("bet_clicked")
             print(f"[BETMGM] ✓ Bet added to slip")
@@ -983,6 +980,42 @@ class BetPlacer:
             print(f"[FANDUEL] Slip cleared (best-effort).")
         except Exception as e:
             print(f"[FANDUEL] ⚠ Slip clear failed: {e} (continuing).")
+
+        # Post-clear verification: if the slip still has bets, halt loud.
+        # A stale slip causes the next bet click to toggle OFF instead of ON,
+        # leaving wager entry against an empty slip — wastes the run and may
+        # leak browser state into subsequent attempts.
+        try:
+            empty_marker = self.page.get_by_text("Betslip empty", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return  # confirmed empty
+        except Exception:
+            pass
+        # Fallback signal: look for a non-zero count near "Bet slip (N)" or
+        # any remaining remove-selection button. Either is evidence of items.
+        try:
+            for sel in (
+                'button[aria-label*="remove" i]',
+                '[data-testid*="remove-selection" i]',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(loc.count()):
+                    try:
+                        if loc.nth(i).is_visible():
+                            raise BetPlacerError(
+                                f"FanDuel slip-clear failed: remove control "
+                                f"still present ({sel!r})"
+                            )
+                    except BetPlacerError:
+                        raise
+                    except Exception:
+                        continue
+        except BetPlacerError:
+            raise
+        except Exception:
+            # Verification probe itself failed — don't escalate; the original
+            # best-effort clear may have succeeded.
+            pass
 
     def _clear_betslip_betmgm_precheck(self) -> None:
         """Empty the BetMGM betslip if it isn't already.
@@ -1084,6 +1117,24 @@ class BetPlacer:
             print(f"[BETMGM] Slip cleared (best-effort).")
         except Exception as e:
             print(f"[BETMGM] ⚠ Slip clear failed: {e} (continuing).")
+
+        # Post-clear verification: re-read the slip pill. If "(N)" with N > 0
+        # remains, the clear didn't take and we should halt before placing.
+        try:
+            slip_pill = self.page.locator(
+                'text=/^\\s*Bet slip\\s*\\(?\\s*\\d+\\s*\\)?\\s*$/'
+            )
+            if slip_pill.count() > 0:
+                text = (slip_pill.first.text_content() or "").strip()
+                m = re.search(r"\((\d+)\)", text)
+                if m and int(m.group(1)) > 0:
+                    raise BetPlacerError(
+                        f"BetMGM slip-clear failed: pill still reads {text!r}"
+                    )
+        except BetPlacerError:
+            raise
+        except Exception:
+            pass
 
     def _fanduel_slip_has_bet(self) -> bool:
         """Return True if the FanDuel betslip currently holds at least one
