@@ -1092,26 +1092,23 @@ class BetPlacer:
             except Exception:
                 pass
 
-            # Open the slip to access remove controls.
-            for sel in (
-                'button:has-text("Bet slip")',
-                'a:has-text("Bet slip")',
-                '[aria-label*="bet slip" i]',
-            ):
-                try:
-                    loc = self.page.locator(sel)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        loc.first.click()
-                        self.page.wait_for_timeout(800)
-                        break
-                except Exception:
-                    continue
+            # Open the slip to access remove controls. The pill at the
+            # bottom is a non-button element ("0 Bet slip" / "1 Bet slip"
+            # in a span/div). Earlier `button:has-text("Bet slip")`
+            # selectors matched nothing and the subsequent "Clear all"
+            # click hit a wrong button on the page (or no-op'd) while
+            # bets accumulated across iterations.
+            self._open_betmgm_slip()
 
-            # "Remove all" sweep.
+            # "Remove all" sweep. The actual button is labeled "Clear All"
+            # (capital A) inside the expanded slip. has-text is
+            # case-insensitive so "Clear all" still matches.
             for sel in (
+                'button:has-text("Clear All")',
                 'button:has-text("Remove all")',
                 'button:has-text("Clear all")',
                 'button[aria-label*="remove all" i]',
+                'div[role="button"]:has-text("Clear All")',
             ):
                 try:
                     loc = self.page.locator(sel)
@@ -1447,19 +1444,42 @@ class BetPlacer:
                 'input[type="text"]',  # last-resort fallback
             ]
 
+            # When slip-clear fails and multiple bets accumulate, the slip
+            # has multiple stake inputs and we must enter the wager into
+            # the one for the just-added bet. Heuristic: prefer the LAST
+            # visible EMPTY stake input (just-added bets have no value;
+            # previously-filled bets retain their value across iterations).
             wager_input = None
             for selector in wager_selectors:
                 try:
                     locator = self.page.locator(selector)
-                    if locator.count() > 0:
-                        for i in range(locator.count()):
-                            elem = locator.nth(i)
-                            if elem.is_visible():
-                                wager_input = elem
-                                print(f"[BETMGM] Found wager input via {selector}")
-                                break
-                        if wager_input:
-                            break
+                    if locator.count() == 0:
+                        continue
+                    visible_inputs = []
+                    for i in range(locator.count()):
+                        elem = locator.nth(i)
+                        try:
+                            if not elem.is_visible():
+                                continue
+                            try:
+                                value = elem.input_value() or ""
+                            except Exception:
+                                value = ""
+                            visible_inputs.append((elem, value))
+                        except Exception:
+                            continue
+                    if not visible_inputs:
+                        continue
+                    empty_inputs = [el for el, v in visible_inputs if not v.strip()]
+                    if empty_inputs:
+                        wager_input = empty_inputs[-1]  # last empty = just-added bet
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(picked last empty of {len(visible_inputs)})")
+                    else:
+                        wager_input = visible_inputs[-1][0]  # last filled — best guess
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(all {len(visible_inputs)} filled; picked last)")
+                    break
                 except Exception:
                     continue
 
