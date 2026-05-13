@@ -104,6 +104,11 @@ class BetPlacer:
         self.page.goto("https://mo.sportsbook.fanduel.com/search", wait_until="domcontentloaded")
         self.page.wait_for_timeout(2000)
 
+        # Clear any leftover bets from a previous failed run. Otherwise the
+        # bet-button click on the next step toggles a still-Selected bet OFF
+        # and the slip ends up empty when we expect it populated.
+        self._clear_betslip_fanduel()
+
         # Find search input
         try:
             search_input = self.page.locator('input[placeholder="Search"], div.aq input').first
@@ -131,6 +136,11 @@ class BetPlacer:
         print(f"[BETMGM] Navigating to event... (sport: {sport})")
         self.page.goto("https://www.mo.betmgm.com/en/sports?popup=betfinder", wait_until="domcontentloaded")
         self.page.wait_for_timeout(2000)
+
+        # Clear any leftover bets from a previous failed run. The slip
+        # icon at the bottom shows "(N)" when items are queued — those
+        # must come out before our click adds a new one cleanly.
+        self._clear_betslip_betmgm_precheck()
 
         # Search for team — MLB needs autocomplete suggestion click, others use Enter
         try:
@@ -796,6 +806,191 @@ class BetPlacer:
         except Exception as e:
             self._screenshot("click_failed")
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
+
+    def _clear_betslip_fanduel(self) -> None:
+        """Empty the FanDuel betslip if it isn't already.
+
+        Best-effort. Stale bets in the slip cause the next bet-button click
+        to toggle the SAME bet OFF (the aria-label still says " Selected"),
+        leaving the slip empty when we go to enter a wager. Run this before
+        every search to start from a known-empty state.
+
+        Does not raise — if removal fails for any reason, we log and
+        continue. The downstream _fanduel_slip_has_bet check after the
+        click is the real safety net.
+        """
+        try:
+            # Open the slip first; the remove buttons live inside its panel.
+            try:
+                wins_pattern = self.page.get_by_text(
+                    re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
+                )
+                if wins_pattern.count() > 0 and wins_pattern.first.is_visible():
+                    wins_pattern.first.click()
+                    self.page.wait_for_timeout(600)
+            except Exception:
+                pass
+
+            # If already empty, bail.
+            try:
+                empty = self.page.get_by_text("Betslip empty", exact=False)
+                if empty.count() > 0 and empty.first.is_visible():
+                    print(f"[FANDUEL] Slip already empty.")
+                    return
+            except Exception:
+                pass
+
+            # 1. Try a single "Remove all" / "Clear" affordance.
+            for sel in (
+                '[data-testid="remove-all-selections-button"]',
+                '[data-test-id="remove-all-selections-button"]',
+                'button[aria-label*="remove all" i]',
+                'button[aria-label*="clear all" i]',
+                'button:has-text("Remove all")',
+                'button:has-text("Clear all")',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        print(f"[FANDUEL] Clearing slip via {sel}")
+                        loc.first.click()
+                        self.page.wait_for_timeout(800)
+                        return
+                except Exception:
+                    continue
+
+            # 2. Otherwise, click individual remove buttons until empty.
+            for _ in range(10):  # safety cap
+                removed = False
+                for sel in (
+                    'button[aria-label*="remove" i]',
+                    'button[aria-label*="delete" i]',
+                    '[data-testid*="remove-selection" i]',
+                    '[data-test-id*="remove-selection" i]',
+                ):
+                    try:
+                        loc = self.page.locator(sel)
+                        n = loc.count()
+                        for i in range(n):
+                            cand = loc.nth(i)
+                            try:
+                                if cand.is_visible():
+                                    cand.click(timeout=2000)
+                                    self.page.wait_for_timeout(400)
+                                    removed = True
+                                    break
+                            except Exception:
+                                continue
+                        if removed:
+                            break
+                    except Exception:
+                        continue
+                if not removed:
+                    break
+            print(f"[FANDUEL] Slip cleared (best-effort).")
+        except Exception as e:
+            print(f"[FANDUEL] ⚠ Slip clear failed: {e} (continuing).")
+
+    def _clear_betslip_betmgm_precheck(self) -> None:
+        """Empty the BetMGM betslip if it isn't already.
+
+        Same rationale as the FanDuel version: stale items leave the
+        accordion-click path in an ambiguous state and cause toggle-off
+        side-effects. Best-effort, never raises.
+        """
+        try:
+            # BetMGM shows a "Bet slip (N)" pill at the bottom. If N == 0
+            # there's nothing to clear and the icon is just "Bet slip".
+            try:
+                slip_pill = self.page.locator(
+                    'text=/^\\s*Bet slip\\s*\\(?\\s*\\d+\\s*\\)?\\s*$/'
+                )
+                text = ""
+                if slip_pill.count() > 0:
+                    text = (slip_pill.first.text_content() or "").strip()
+                # Match "(0)" -> empty; "(1)" -> has bets.
+                m = re.search(r"\((\d+)\)", text)
+                if m and int(m.group(1)) == 0:
+                    print(f"[BETMGM] Slip already empty.")
+                    return
+            except Exception:
+                pass
+
+            # Open the slip to access remove controls.
+            for sel in (
+                'button:has-text("Bet slip")',
+                'a:has-text("Bet slip")',
+                '[aria-label*="bet slip" i]',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        loc.first.click()
+                        self.page.wait_for_timeout(800)
+                        break
+                except Exception:
+                    continue
+
+            # "Remove all" sweep.
+            for sel in (
+                'button:has-text("Remove all")',
+                'button:has-text("Clear all")',
+                'button[aria-label*="remove all" i]',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        print(f"[BETMGM] Clearing slip via {sel}")
+                        loc.first.click()
+                        self.page.wait_for_timeout(800)
+                        # Some BetMGM flows show a confirmation dialog.
+                        for confirm_sel in (
+                            'button:has-text("Yes")',
+                            'button:has-text("Remove")',
+                            'button:has-text("Confirm")',
+                        ):
+                            try:
+                                cloc = self.page.locator(confirm_sel)
+                                if cloc.count() > 0 and cloc.first.is_visible():
+                                    cloc.first.click()
+                                    self.page.wait_for_timeout(500)
+                                    break
+                            except Exception:
+                                continue
+                        return
+                except Exception:
+                    continue
+
+            # Otherwise individual remove icons.
+            for _ in range(10):
+                removed = False
+                for sel in (
+                    'bs-bet-slip-item button[aria-label*="remove" i]',
+                    'button[aria-label*="remove" i]',
+                    'button[aria-label*="delete" i]',
+                ):
+                    try:
+                        loc = self.page.locator(sel)
+                        n = loc.count()
+                        for i in range(n):
+                            cand = loc.nth(i)
+                            try:
+                                if cand.is_visible():
+                                    cand.click(timeout=2000)
+                                    self.page.wait_for_timeout(400)
+                                    removed = True
+                                    break
+                            except Exception:
+                                continue
+                        if removed:
+                            break
+                    except Exception:
+                        continue
+                if not removed:
+                    break
+            print(f"[BETMGM] Slip cleared (best-effort).")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Slip clear failed: {e} (continuing).")
 
     def _fanduel_slip_has_bet(self) -> bool:
         """Return True if the FanDuel betslip currently holds at least one
