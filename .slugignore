@@ -1,0 +1,9 @@
+airflow/
+arbitrage_executor/
+claude_toolkit/
+watcher/
+audit_logs/
+traces/
+docs/
+.claude/
+*.md
