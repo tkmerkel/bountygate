@@ -420,7 +420,12 @@ def _fetch_staged_odds() -> pd.DataFrame:
 
 
 def _append_history_and_alert(df: pd.DataFrame, history_table: str) -> int:
-	"""Filter to new high-ROI rows, append to history table, fire Discord on high-value."""
+	"""Filter to new high-ROI rows, append to history table, fire Discord on high-value.
+
+	Returns the count of NEW HIGH-VALUE rows (> HIGH_VALUE_ROI_THRESHOLD) so the
+	caller can gate downstream side-effects (e.g. bot queue insert) on whether
+	there's actually anything actionable. Returns 0 when nothing new fires.
+	"""
 	if df is None or df.empty:
 		return 0
 
@@ -463,7 +468,7 @@ def _append_history_and_alert(df: pd.DataFrame, history_table: str) -> int:
 	].copy()
 	if not high_value.empty:
 		notify_opportunities(high_value, label=history_table)
-	return int(len(new_rows))
+	return int(len(high_value))
 
 
 @dag(
@@ -489,7 +494,7 @@ def bg_arbitrage_player_props_pipeline() -> None:
 		arbitrage = build_player_props_arbitrage(
 			staged, base_wager=100.0, exclude_market_substring="alternate"
 		)
-		_append_history_and_alert(arbitrage, HISTORY_TABLE)
+		high_value_count = _append_history_and_alert(arbitrage, HISTORY_TABLE)
 
 		if arbitrage is None or arbitrage.empty:
 			raise AirflowSkipException("No player-props arbitrage records to load")
@@ -501,7 +506,7 @@ def bg_arbitrage_player_props_pipeline() -> None:
 		if filtered.empty:
 			raise AirflowSkipException("All player-props records filtered by blacklist")
 		insert_data(filtered, TARGET_TABLE, if_exists="replace")
-		return int(len(filtered))
+		return high_value_count
 
 	@task()
 	def process_player_props_arbitrage_alt() -> int:
@@ -512,7 +517,7 @@ def bg_arbitrage_player_props_pipeline() -> None:
 		arbitrage_alt = build_player_props_arbitrage_alt(
 			staged, base_wager=100.0, alternate_suffix="_alternate"
 		)
-		_append_history_and_alert(arbitrage_alt, HISTORY_TABLE_ALT)
+		high_value_count = _append_history_and_alert(arbitrage_alt, HISTORY_TABLE_ALT)
 
 		if arbitrage_alt is None or arbitrage_alt.empty:
 			raise AirflowSkipException("No alternate-market player-props arbitrage records to load")
@@ -524,16 +529,28 @@ def bg_arbitrage_player_props_pipeline() -> None:
 		if filtered.empty:
 			raise AirflowSkipException("All alternate-market records filtered by blacklist")
 		insert_data(filtered, TARGET_TABLE_ALT, if_exists="replace")
-		return int(len(filtered))
+		return high_value_count
 
 	@task()
-	def trigger_bot_execution(_loaded: int, _alt_loaded: int) -> None:
-		"""Insert PENDING tasks into bot_execution_queue so the local worker picks them up."""
+	def trigger_bot_execution(high_value: int, alt_high_value: int) -> None:
+		"""Insert PENDING bot tasks ONLY when a new high-value opp fired this run.
+
+		Avoids waking the worker just to drain the same below-threshold table.
+		Inserts BOT_EXECUTION_TASK_COUNT rows; worker uses FOR UPDATE SKIP LOCKED
+		to claim atomically. Stale unclaimed rows are reaped by the worker on
+		startup (see task_worker TTL cleanup).
+		"""
+		total = (high_value or 0) + (alt_high_value or 0)
+		if total <= 0:
+			print("[trigger_bot_execution] no new high-value opps this run — skipping queue insert")
+			raise AirflowSkipException("No new high-value opps; skipping queue insert")
 		for _ in range(BOT_EXECUTION_TASK_COUNT):
 			execute_raw_sql(
 				"INSERT INTO bot_execution_queue (status) VALUES ('PENDING')",
 				fetch_results=False,
 			)
+		print(f"[trigger_bot_execution] queued {BOT_EXECUTION_TASK_COUNT} task(s) "
+			  f"(high_value={high_value}, alt_high_value={alt_high_value})")
 
 	loaded = process_player_props_arbitrage()
 	alt_loaded = process_player_props_arbitrage_alt()

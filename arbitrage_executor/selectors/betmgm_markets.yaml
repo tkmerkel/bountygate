@@ -17,6 +17,7 @@ player_assists:
   show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
   bet_element_type: ms-event-pick
   search_strategy: player_container_then_line
+  sub_tab_label: "Assists"
   search_validated: true
   test_player: Rudy Gobert
   test_line: 1.5
@@ -87,6 +88,7 @@ player_points_rebounds:
   show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
   bet_element_type: ms-event-pick
   search_strategy: player_container_then_line
+  sub_tab_label: "Combo stats"
   search_validated: true
   test_player: Pascal Siakam
   test_line: 30.5

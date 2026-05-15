@@ -25,7 +25,13 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-from db_connection import claim_pending_task, complete_task, pending_task_count
+from db_connection import (
+    claim_pending_task,
+    complete_task,
+    pending_task_count,
+    cleanup_stale_pending,
+    reap_orphaned_running,
+)
 from execute_arb import OrphanedBetError, WorkerHaltError
 
 # Path setup so we can import the shared Discord notifier (executor isn't a package).
@@ -86,12 +92,28 @@ def _send_heartbeat(counters: dict) -> None:
         counters[key] = 0
 
 
+PENDING_TTL_MINUTES = int(os.getenv("PENDING_TTL_MINUTES", "15"))
+RUNNING_TTL_MINUTES = int(os.getenv("RUNNING_TTL_MINUTES", "5"))
+
+
 def run_worker() -> None:
     """Main polling loop — runs forever until interrupted."""
     logger.info(
         "Task worker started. Polling for pending tasks (heartbeat every %dm)...",
         HEARTBEAT_INTERVAL_MINUTES,
     )
+
+    # Startup cleanup: drop stale PENDING rows (the DAG kept inserting while
+    # we were offline) and reap RUNNING rows from a crashed prior worker.
+    stale_pending = cleanup_stale_pending(ttl_minutes=PENDING_TTL_MINUTES)
+    orphaned_running = reap_orphaned_running(ttl_minutes=RUNNING_TTL_MINUTES)
+    if stale_pending or orphaned_running:
+        logger.info(
+            "Startup cleanup: dropped %d stale PENDING (> %dm), "
+            "reaped %d orphaned RUNNING (> %dm)",
+            stale_pending, PENDING_TTL_MINUTES,
+            orphaned_running, RUNNING_TTL_MINUTES,
+        )
 
     counters = {"attempts": 0, "succeeded": 0, "no_opportunity": 0, "errored": 0}
     last_heartbeat = time.monotonic()

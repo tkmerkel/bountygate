@@ -216,6 +216,67 @@ def pending_task_count(table_name: str = EXECUTION_QUEUE_TABLE) -> int:
         engine.dispose()
 
 
+def cleanup_stale_pending(ttl_minutes: int = 15,
+                          table_name: str = EXECUTION_QUEUE_TABLE) -> int:
+    """Delete PENDING tasks older than ttl_minutes.
+
+    Stale tasks accumulate when the DAG keeps inserting while the worker is
+    offline. By the time the worker comes back, those rows correspond to
+    long-gone opportunities (table snapshot has been replaced many times).
+    Draining them costs Chrome time for nothing.
+    """
+    ensure_execution_queue_table(table_name)
+    engine = create_engine(DATABASE_URL)
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(f"""
+                    DELETE FROM {table_name}
+                    WHERE status = 'PENDING'
+                      AND created_at < NOW() - INTERVAL ':ttl minutes'
+                """.replace(":ttl", str(int(ttl_minutes))))
+            )
+            return int(result.rowcount or 0)
+    except Exception as e:
+        print(f"Error cleaning stale PENDING tasks: {e}")
+        return 0
+    finally:
+        engine.dispose()
+
+
+def reap_orphaned_running(ttl_minutes: int = 5,
+                          table_name: str = EXECUTION_QUEUE_TABLE) -> int:
+    """Mark RUNNING tasks older than ttl_minutes as FAILED.
+
+    A RUNNING row that's older than any plausible execution (~3-5 min in the
+    worst case) is from a crashed worker — Chrome died, OS rebooted, etc.
+    Without reaping, claim_pending_task will never pick them up again (they're
+    not PENDING), and they accumulate forever.
+    """
+    ensure_execution_queue_table(table_name)
+    engine = create_engine(DATABASE_URL)
+    try:
+        with engine.begin() as conn:
+            result = conn.execute(
+                text(f"""
+                    UPDATE {table_name}
+                    SET status = 'FAILED',
+                        finished_at = NOW(),
+                        error_log = COALESCE(error_log, '')
+                                    || ' [reaped: RUNNING > '
+                                    || ':ttl' || ' min on startup]'
+                    WHERE status = 'RUNNING'
+                      AND started_at < NOW() - INTERVAL ':ttl minutes'
+                """.replace(":ttl", str(int(ttl_minutes))))
+            )
+            return int(result.rowcount or 0)
+    except Exception as e:
+        print(f"Error reaping orphaned RUNNING tasks: {e}")
+        return 0
+    finally:
+        engine.dispose()
+
+
 def claim_pending_task(table_name: str = EXECUTION_QUEUE_TABLE) -> int | None:
     """Atomically claim the oldest PENDING task. Returns task id or None."""
     ensure_execution_queue_table(table_name)

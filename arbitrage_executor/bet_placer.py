@@ -8,7 +8,7 @@ import os
 import re
 from datetime import datetime
 from typing import Dict, Tuple, Optional
-from playwright.sync_api import Page
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
 from execution_logger import ExecutionLogger
@@ -312,6 +312,10 @@ class BetPlacer:
             self._screenshot("navigation_failed")
             raise BetPlacerError(f"Event navigation failed: {e}")
 
+        # Click market sub-tab first (e.g. "Combo stats" for player_points_rebounds)
+        # — the sub-tab determines which accordion is visible at all.
+        self._select_market_sub_tab_betmgm(market_config)
+
         # Expand accordion
         try:
             print(f"[BETMGM] Expanding accordion: {accordion_name}")
@@ -381,7 +385,17 @@ class BetPlacer:
             else:
                 target.click()
 
-            self.page.wait_for_timeout(1500)
+            # Fast-fail: wait up to 5s for at least one ms-event-pick row.
+            # Replaces a fixed 1.5s sleep that previously let stuck-search /
+            # wrong-sub-tab cases stall ~67s downstream before surfacing.
+            try:
+                self.page.wait_for_selector("ms-event-pick", timeout=5000, state="visible")
+            except PlaywrightTimeoutError as e:
+                self._screenshot("betmgm_accordion_empty")
+                raise BetPlacerError(
+                    "BetMGM accordion expanded but no ms-event-pick rows in 5s "
+                    "— likely wrong sub-tab, market not offered, or stuck search overlay"
+                ) from e
 
             # Click "Show More" until all players visible
             show_more_selector = 'ms-option-panel-bottom-action:has-text("Show More")'
@@ -404,6 +418,38 @@ class BetPlacer:
         except Exception as e:
             self._screenshot("accordion_expansion_failed")
             raise BetPlacerError(f"Accordion expansion failed: {e}")
+
+    def _select_market_sub_tab_betmgm(self, market_config: Dict) -> None:
+        """Click a market sub-tab (e.g. 'Combo stats') if configured.
+
+        For non-default BetMGM markets like player_points_rebounds, the
+        correct accordion lives under a sub-tab that isn't selected by
+        default. No-op if the market has no `sub_tab_label`.
+        """
+        sub_tab = market_config.get("sub_tab_label")
+        if not sub_tab:
+            return
+
+        print(f"[BETMGM] Selecting market sub-tab: {sub_tab}")
+        for selector in (
+            f'div[role="tablist"] button:has-text("{sub_tab}")',
+            f'[role="tab"]:has-text("{sub_tab}")',
+            f'button:has-text("{sub_tab}")',
+        ):
+            try:
+                loc = self.page.locator(selector)
+                if loc.count() > 0 and loc.first.is_visible():
+                    loc.first.click()
+                    self.page.wait_for_timeout(800)
+                    print(f"[BETMGM] ✓ Sub-tab '{sub_tab}' selected via {selector}")
+                    self._screenshot("sub_tab_selected")
+                    return
+            except Exception as e:
+                print(f"[BETMGM] Sub-tab selector failed ({selector}): {e}")
+                continue
+
+        self._screenshot("sub_tab_not_found")
+        raise BetPlacerError(f"Could not find BetMGM sub-tab '{sub_tab}'")
 
     def _select_alternate_tab_betmgm(self, opportunity: Dict, market_config: Dict, direction: str):
         """Select threshold tab in BetMGM alternate accordion.

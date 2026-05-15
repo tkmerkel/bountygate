@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arb Execution Review</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel-2: #1f2330;
+    --text: #e7ebf3;
+    --muted: #8b95a8;
+    --line: #2a2f3c;
+    --ok: #51d088;
+    --bad: #ff6e6e;
+    --wasted: #4ea1ff;
+    --selector: #ff9a3c;
+    --slip: #ff4d6d;
+    --auth: #b58bff;
+    --stealth: #ffd86b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
+  header .updated { color: var(--muted); font-size: 12px; }
+  main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .card .value { font-size: 22px; font-weight: 600; margin-top: 6px; }
+  .card .value.small { font-size: 14px; font-weight: 500; line-height: 1.35; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  tbody tr { border-bottom: 1px solid var(--line); }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody td { padding: 10px 12px; vertical-align: top; }
+  .outcome.ok { color: var(--ok); font-weight: 600; }
+  .outcome.bad { color: var(--bad); font-weight: 600; }
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--line);
+  }
+  .tag.wasted { color: var(--wasted); border-color: rgba(78,161,255,0.35); }
+  .tag.selector { color: var(--selector); border-color: rgba(255,154,60,0.35); }
+  .tag.slip { color: var(--slip); border-color: rgba(255,77,109,0.35); }
+  .tag.auth { color: var(--auth); border-color: rgba(181,139,255,0.35); }
+  .tag.stealth { color: var(--stealth); border-color: rgba(255,216,107,0.35); }
+  a { color: #6ea8ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; font-size: 14px; }
+  .top-finding { color: var(--text); }
+  .ts { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Arb Execution Review</h1>
+  <span class="updated" id="updated">never updated</span>
+</header>
+<main>
+  <div class="cards">
+    <div class="card"><div class="label">Runs analyzed</div><div class="value" id="total">0</div></div>
+    <div class="card"><div class="label">Last 24h</div><div class="value" id="last24">0</div></div>
+    <div class="card"><div class="label">Top recurring issue</div><div class="value small" id="top-issue">—</div></div>
+    <div class="card"><div class="label">Avg wasted wait (est)</div><div class="value" id="avg-wait">—</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Player</th>
+        <th>Market</th>
+        <th>Outcome</th>
+        <th>Dur</th>
+        <th>Issues</th>
+        <th>Top finding</th>
+        <th>Links</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="empty" id="empty">No runs analyzed yet. The watcher will populate this dashboard after the first execution.</div>
+</main>
+
+<script>
+const ISSUE_KEYS = [
+  ["wasted_wait", "wasted", "wait"],
+  ["selector_miss", "selector", "selector"],
+  ["slip_state", "slip", "slip"],
+  ["auth_geo", "auth", "auth/geo"],
+  ["stealth", "stealth", "stealth"],
+];
+
+async function load() {
+  try {
+    const res = await fetch("data.json?cb=" + Date.now());
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    document.getElementById("empty").textContent = "Could not load data.json: " + e.message;
+  }
+}
+
+function fmtTs(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  return d.toLocaleString();
+}
+
+function render(data) {
+  const runs = (data.runs || []).slice().reverse(); // newest first
+  document.getElementById("updated").textContent = data.updated_at
+    ? "Updated " + fmtTs(data.updated_at)
+    : "never updated";
+  document.getElementById("total").textContent = runs.length;
+
+  const now = Date.now();
+  const last24 = runs.filter(r => {
+    const t = new Date(r.timestamp).getTime();
+    return !isNaN(t) && (now - t) < 24 * 3600 * 1000;
+  }).length;
+  document.getElementById("last24").textContent = last24;
+
+  // top recurring issue: count which axes have non-empty issue lists
+  const counts = { wasted_wait: 0, selector_miss: 0, slip_state: 0, auth_geo: 0, stealth: 0 };
+  let waitTotal = 0, waitN = 0;
+  for (const r of runs) {
+    const iss = r.issues || {};
+    for (const k of Object.keys(counts)) {
+      const v = iss[k];
+      if (Array.isArray(v) ? v.length > 0 : (v && v !== "none")) counts[k]++;
+    }
+    if (typeof r.estimated_wasted_wait_s === "number") {
+      waitTotal += r.estimated_wasted_wait_s; waitN++;
+    }
+  }
+  const top = Object.entries(counts).sort((a,b) => b[1] - a[1])[0];
+  document.getElementById("top-issue").textContent = top && top[1] > 0
+    ? `${labelOf(top[0])} (${top[1]} runs)`
+    : "—";
+  document.getElementById("avg-wait").textContent = waitN > 0
+    ? (waitTotal / waitN).toFixed(1) + "s"
+    : "—";
+
+  const tbody = document.getElementById("rows");
+  tbody.innerHTML = "";
+  document.getElementById("empty").style.display = runs.length === 0 ? "block" : "none";
+
+  for (const r of runs.slice(0, 50)) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="ts">${fmtTs(r.timestamp)}</td>
+      <td>${esc(r.player)}</td>
+      <td>${esc(r.market)}</td>
+      <td class="outcome ${r.outcome === "success" ? "ok" : "bad"}">${esc(r.outcome || "—")}</td>
+      <td>${r.duration_s != null ? r.duration_s.toFixed(1) + "s" : "—"}</td>
+      <td><div class="tags">${tagsHtml(r.issues)}</div></td>
+      <td class="top-finding">${esc(r.top_finding || "")}</td>
+      <td>${linksHtml(r)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function labelOf(key) {
+  return ISSUE_KEYS.find(k => k[0] === key)?.[2] || key;
+}
+
+function tagsHtml(issues) {
+  if (!issues) return "";
+  return ISSUE_KEYS.map(([key, cls, label]) => {
+    const v = issues[key];
+    const has = Array.isArray(v) ? v.length > 0 : (v && v !== "none");
+    if (!has) return "";
+    const n = Array.isArray(v) ? v.length : "";
+    return `<span class="tag ${cls}">${label}${n ? " " + n : ""}</span>`;
+  }).join("");
+}
+
+function linksHtml(r) {
+  const parts = [];
+  if (r.recording) parts.push(`<a href="${esc(r.recording)}">▶ video</a>`);
+  if (r.review) parts.push(`<a href="${esc(r.review)}">review</a>`);
+  return parts.join(" · ");
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+load();
+window.addEventListener("focus", load);
+setInterval(load, 30000);
+</script>
+</body>
+</html>

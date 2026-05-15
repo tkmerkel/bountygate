@@ -27,6 +27,8 @@ from execution_logger import ExecutionLogger
 from db_connection import mark_opportunity_executed
 from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 from auth import ensure_logged_in, LoginError, LoginInterventionRequired
+from screen_recorder import start_recording, stop_recording
+from dashboard_tab import ensure_dashboard_tab
 
 
 class OrphanedBetError(Exception):
@@ -87,6 +89,28 @@ def _opportunity_hash(opportunity: Dict) -> str:
     ]
     serialized = "|".join("" if p is None else str(p) for p in parts)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+
+
+# Same-player+market cooldown. Once an opportunity is attempted (success
+# OR failure), block re-attempting the same (player, market, event) tuple
+# for the worker's lifetime. Prevents the cross-book correlation pattern
+# that risk teams cluster on (5 attempts on the same prop in 14 min).
+_attempted_events: set[tuple] = set()
+
+
+def _event_cooldown_key(opportunity: Dict) -> tuple:
+    """Stable key for the same-player+market+event cooldown."""
+    market_key = (
+        opportunity.get("over_market_key")
+        or opportunity.get("under_market_key")
+        or opportunity.get("market_key")
+    )
+    return (
+        opportunity.get("player_name"),
+        market_key,
+        opportunity.get("home_team"),
+        opportunity.get("away_team"),
+    )
 
 
 def check_selectors_mapped(opportunity: Dict) -> tuple[bool, Optional[str]]:
@@ -219,6 +243,16 @@ class ArbExecutor:
         print(f"FanDuel side: {fd_direction} (market: {fd_market_key})")
         print(f"BetMGM side: {mgm_direction} (market: {mgm_market_key})\n")
 
+        # Pre-warm both sessions BEFORE recording starts so any cold-session
+        # credential login happens outside the recording window. Keeps the
+        # video-feedback-loop dashboard's duration metric meaningful and the
+        # /watch:watch review focused on bet-placement, not auth recovery.
+        self._warmup_sessions()
+
+        # Start screen recording for the video-feedback-loop reviewer.
+        # Fail-silent: if ffmpeg is missing, the bot runs normally.
+        record_proc = start_recording(os.path.join(self.audit_dir, "recording.mp4"))
+
         # Setup browser
         endpoint_url = ensure_chrome_cdp(profile_dir, CDP_PORT)
 
@@ -226,6 +260,7 @@ class ArbExecutor:
             with sync_playwright() as p:
                 browser = p.chromium.connect_over_cdp(endpoint_url)
                 context = browser.contexts[0] if browser.contexts else browser.new_context()
+                ensure_dashboard_tab(browser)
 
                 # === PHASE 1: Tease FanDuel Limit ===
                 print(f"\n{'─'*60}")
@@ -547,6 +582,13 @@ class ArbExecutor:
                 )
             ExecutionLogger.log_execution_failure(f"Unexpected error: {e}", self.opportunity, error=e)
             return False
+        finally:
+            stop_recording(record_proc)
+            try:
+                with open(os.path.join(self.audit_dir, "review.pending"), "w") as _f:
+                    _f.write("")
+            except Exception as marker_err:
+                print(f"[rec] Could not write review.pending: {marker_err}")
 
     def _raise_orphaned(
         self,
@@ -598,9 +640,64 @@ class ArbExecutor:
         )
         raise OrphanedBetError(reason)
 
+    def _warmup_sessions(self) -> None:
+        """Warm FD + MGM sessions BEFORE recording starts.
 
-def main() -> tuple[bool, bool]:
-    """Main execution — iterate candidates until one succeeds or all are exhausted.
+        If a book's session is cold, this triggers the credential login here
+        instead of inside the recording, so the recording captures only the
+        actual bet-placement work (cleaner duration metrics, easier review).
+        Re-uses Chrome's persistent profile — cookies set here persist into
+        the recorded session.
+
+        Raises WorkerHaltError if a book needs 2FA/CAPTCHA intervention.
+        """
+        endpoint_url = ensure_chrome_cdp(profile_dir, CDP_PORT)
+        print("Warming sessions (FD + MGM) before recording...")
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(endpoint_url)
+            context = browser.contexts[0] if browser.contexts else browser.new_context()
+            for site in ("fanduel", "betmgm"):
+                warm_page = None
+                try:
+                    warm_page = context.new_page()
+                    ensure_logged_in(warm_page, site, self.audit_dir)
+                except LoginInterventionRequired as e:
+                    ExecutionLogger.log_critical(
+                        reason=f"LOGIN INTERVENTION REQUIRED on {site} (warmup): {e}",
+                        opportunity=self.opportunity,
+                        action_required=(
+                            f"Open the {site} tab in the bot's Chrome window "
+                            "and finish the login by hand (2FA/CAPTCHA). Then "
+                            "restart the worker."
+                        ),
+                        details={"audit_dir": self.audit_dir, "site": site, "phase": "warmup"},
+                    )
+                    raise WorkerHaltError(f"{site} login intervention required (warmup): {e}") from e
+                except LoginError as e:
+                    # Log but don't halt — the real Phase 1/2 attempt will hit
+                    # the same problem and surface it through the normal path.
+                    print(f"[warmup] {site} warmup login failed (will retry in-phase): {e}")
+                finally:
+                    if warm_page is not None:
+                        try:
+                            warm_page.close()
+                        except Exception:
+                            pass
+
+
+def main(max_attempts: int = 3, max_candidates: Optional[int] = None) -> tuple[bool, bool]:
+    """Main execution — iterate candidates until one succeeds, max_attempts is hit,
+    or all are exhausted.
+
+    ``max_attempts`` caps how many viable candidates actually call ``execute()``
+    in a single invocation (unmapped/skipped candidates don't count). Default
+    of 3 keeps recordings small enough to review and prevents long churn
+    sessions when every candidate keeps failing.
+
+    ``max_candidates`` caps the total opportunity list considered (including
+    unmapped/wrong-book skips). ``None`` (default) means no cap — preserves
+    existing worker behavior. Useful for tight recordings: e.g. ``--max-candidates 5``
+    bounds the session length regardless of how many skips you hit.
 
     Returns ``(success, attempted)`` so the worker can distinguish:
       - ``(True,  True)`` — a bet was placed.
@@ -611,7 +708,7 @@ def main() -> tuple[bool, bool]:
         was unmapped or the wrong book pair). Does NOT count toward the
         breaker — quiet days happen.
     """
-    print("Arbitrage Bot Starting...\n")
+    print(f"Arbitrage Bot Starting... (max_attempts={max_attempts}, max_candidates={max_candidates})\n")
 
     opportunities = fetch_all_opportunities(testing_mode=True)
 
@@ -619,7 +716,12 @@ def main() -> tuple[bool, bool]:
         print("No opportunities found.")
         return False, False
 
+    if max_candidates is not None and max_candidates > 0 and len(opportunities) > max_candidates:
+        print(f"Capping candidate list: {len(opportunities)} -> {max_candidates}")
+        opportunities = opportunities[:max_candidates]
+
     attempted_any = False
+    attempts = 0
     for i, opportunity in enumerate(opportunities):
         over_book = opportunity.get('over_bookmaker_key', '').lower()
         under_book = opportunity.get('under_bookmaker_key', '').lower()
@@ -644,11 +746,25 @@ def main() -> tuple[bool, bool]:
             )
             continue
 
+        # Pre-check: ROI threshold (BEFORE any Playwright navigation)
+        roi = opportunity.get("roi") or 0
+        if roi < MIN_ROI_THRESHOLD:
+            print(f"⏭ {label}: ROI {roi * 100:.2f}% below threshold {MIN_ROI_THRESHOLD * 100:.2f}%")
+            continue
+
+        # Pre-check: same-player+market cooldown
+        cooldown_key = _event_cooldown_key(opportunity)
+        if cooldown_key in _attempted_events:
+            print(f"⏭ {label}: cooldown — already attempted this session")
+            continue
+
         # Viable candidate — attempt execution
-        print(f"\n▶ {label}: attempting execution")
+        print(f"\n▶ {label}: attempting execution (attempt {attempts + 1}/{max_attempts})")
+        _attempted_events.add(cooldown_key)
         executor = ArbExecutor(opportunity)
         success = executor.execute()
         attempted_any = True
+        attempts += 1
 
         if success:
             opp_hash = _opportunity_hash(opportunity)
@@ -663,6 +779,10 @@ def main() -> tuple[bool, bool]:
         # state from this attempt will raise on the NEXT opportunity's
         # navigation, so advancing is safe.
         print(f"\n✗ Execution failed for {label} — advancing to next opportunity")
+
+        if attempts >= max_attempts:
+            print(f"\n⏹ Hit max_attempts cap ({max_attempts}) — stopping iteration")
+            break
         continue
 
     if attempted_any:
@@ -678,5 +798,24 @@ def main() -> tuple[bool, bool]:
 
 
 if __name__ == "__main__":
-    success, _ = main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Execute arbitrage opportunities.")
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Cap how many viable candidates actually call execute() in one run. "
+             "Unmapped/skipped candidates don't count. Default: 3.",
+    )
+    parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=None,
+        help="Cap the total candidate list considered (including skips). "
+             "Default: no cap. Useful for tight recordings, e.g. --max-candidates 5.",
+    )
+    args = parser.parse_args()
+
+    success, _ = main(max_attempts=args.max_attempts, max_candidates=args.max_candidates)
     raise SystemExit(0 if success else 1)

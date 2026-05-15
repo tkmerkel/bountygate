@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ffmpeg:*)",
+      "Bash(ffprobe:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(find:*)",
+      "Bash(test:*)",
+      "Bash(rm:*)",
+      "Bash(touch:*)",
+      "Read(C:\\Users\\tkmer\\bountygate\\**)",
+      "Write(C:\\Users\\tkmer\\bountygate\\arbitrage_executor\\audit_logs\\**)",
+      "Write(C:\\Users\\tkmer\\bountygate\\dashboard\\data.json)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -NoProfile -File C:\\Users\\tkmer\\bountygate\\watcher\\stop_hook.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}

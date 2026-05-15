@@ -52,7 +52,7 @@ def get_market_keys(opportunity: dict) -> tuple[str, str]:
 
 
 POLL_INTERVAL_SECONDS = int(os.getenv("ARBITRAGE_POLL_SECONDS", "30"))
-MIN_ROI_THRESHOLD = float(os.getenv("MIN_ROI_THRESHOLD", "-1.0"))
+MIN_ROI_THRESHOLD = float(os.getenv("MIN_ROI_THRESHOLD", "0.005"))
 WAGER_SCALE_FACTOR = float(os.getenv("WAGER_SCALE_FACTOR", "0.01"))
 TESTING_MODE = os.getenv("TESTING_MODE", "false").lower() == "true"
 
