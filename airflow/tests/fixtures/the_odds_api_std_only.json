@@ -1,0 +1,34 @@
+{
+  "id": "evt_test_001",
+  "sport_key": "basketball_nba",
+  "sport_title": "NBA",
+  "commence_time": "2026-05-15T22:00:00Z",
+  "home_team": "Cleveland Cavaliers",
+  "away_team": "Detroit Pistons",
+  "bookmakers": [
+    {
+      "key": "fanduel",
+      "markets": [
+        {
+          "key": "player_assists",
+          "outcomes": [
+            {"name": "Over",  "description": "Dennis Schroder", "price": 1.85, "point": 2.5},
+            {"name": "Under", "description": "Dennis Schroder", "price": 2.00, "point": 2.5}
+          ]
+        }
+      ]
+    },
+    {
+      "key": "betmgm",
+      "markets": [
+        {
+          "key": "player_assists",
+          "outcomes": [
+            {"name": "Over",  "description": "Dennis Schroder", "price": 1.90, "point": 2.5},
+            {"name": "Under", "description": "Dennis Schroder", "price": 1.95, "point": 2.5}
+          ]
+        }
+      ]
+    }
+  ]
+}
