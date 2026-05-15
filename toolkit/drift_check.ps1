@@ -56,7 +56,7 @@ $Errors    = @()
 
 foreach ($trace in $Traces) {
     Write-Host "checking: $($trace.Name)"
-    $output = & python -m claude_toolkit.recorder_cli drift --trace $trace.FullName --json 2>&1
+    $output = & python -m toolkit.recorder_cli drift --trace $trace.FullName --json 2>&1
     $code = $LASTEXITCODE
     switch ($code) {
         0 { Write-Host "  clean" }

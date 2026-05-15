@@ -4,8 +4,8 @@ Shows counts by status, any tasks stuck in RUNNING (with age), the last 10
 FAILED (with error excerpt), and the last 10 COMPLETED. No writes.
 
 Usage:
-    python claude_toolkit/inspect_queue.py
-    python claude_toolkit/inspect_queue.py --stuck-threshold-minutes 10
+    python toolkit/inspect_queue.py
+    python toolkit/inspect_queue.py --stuck-threshold-minutes 10
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def main() -> int:
             started = str(row.started_at) if row.started_at else ""
             print(f"  {row.id:>6}  {age:>9}  {started:31s}  {_truncate(row.error_log, 80)}")
         print()
-        print("  -> Run `python claude_toolkit/rescue_stuck_tasks.py --dry-run` to inspect.")
+        print("  -> Run `python toolkit/rescue_stuck_tasks.py --dry-run` to inspect.")
 
     print()
     print("=== Last 10 FAILED ===")

@@ -10,7 +10,7 @@ Use for:
   watch where it breaks
 - CI: a daily replay of a known-good trace catches catastrophic UI breakage
 
-Trace contract (from claude_toolkit.recorder.schema):
+Trace contract (from toolkit.recorder.schema):
     kind=navigate         page.goto(url)
     kind=fill             page.locator(selector).fill(value)
     kind=type             page.locator(selector).type(value, delay=delay_ms_per_char)
@@ -23,9 +23,9 @@ Trace contract (from claude_toolkit.recorder.schema):
     kind=note             no-op log
 
 CLI:
-    python -m claude_toolkit.replay.replay_trace --trace path/to/trace.jsonl
-    python -m claude_toolkit.replay.replay_trace --trace ... --dry-run
-    python -m claude_toolkit.replay.replay_trace --trace ... --cdp-port 9223
+    python -m toolkit.replay.replay_trace --trace path/to/trace.jsonl
+    python -m toolkit.replay.replay_trace --trace ... --dry-run
+    python -m toolkit.replay.replay_trace --trace ... --cdp-port 9223
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from claude_toolkit.recorder.schema import TraceRecord, load_trace
+from toolkit.recorder.schema import TraceRecord, load_trace
 
 DEFAULT_CDP_PORT = 9223
 DEFAULT_NETWORK_TIMEOUT_MS = 15_000

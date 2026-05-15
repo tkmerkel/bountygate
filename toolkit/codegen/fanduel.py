@@ -38,7 +38,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from claude_toolkit.recorder.schema import TraceHeader, TraceRecord, load_trace
+from toolkit.recorder.schema import TraceHeader, TraceRecord, load_trace
 
 # Match the [aria-label*="..."] segments produced by FanDuel's selectors.
 _ARIA_PART_RE = re.compile(r'\[aria-label\*="([^"]+)"\]')

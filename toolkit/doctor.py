@@ -5,7 +5,7 @@ the first thing to run on a fresh clone, after a reboot, or when something
 is mysteriously broken.
 
 Usage:
-    python claude_toolkit/doctor.py
+    python toolkit/doctor.py
 """
 
 from __future__ import annotations

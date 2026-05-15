@@ -5,7 +5,7 @@ Downstream codegen and replay tools consume traces produced here.
 
 See arbitrage_executor/docs/recorder_workflow.md for usage.
 """
-from claude_toolkit.recorder.schema import (  # noqa: F401
+from toolkit.recorder.schema import (  # noqa: F401
     FORMAT_VERSION,
     ACTION_KINDS,
     PHASES,

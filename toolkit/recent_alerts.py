@@ -9,7 +9,7 @@ Prints counts per day for the last 7 days and the last 5 failure messages.
 Read-only.
 
 Usage:
-    python claude_toolkit/recent_alerts.py
+    python toolkit/recent_alerts.py
 """
 
 from __future__ import annotations

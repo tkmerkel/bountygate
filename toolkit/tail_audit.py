@@ -9,8 +9,8 @@ and the outcome inferred from screenshot filenames (success / error / unknown).
 Read-only.
 
 Usage:
-    python claude_toolkit/tail_audit.py
-    python claude_toolkit/tail_audit.py -n 20
+    python toolkit/tail_audit.py
+    python toolkit/tail_audit.py -n 20
 """
 
 from __future__ import annotations

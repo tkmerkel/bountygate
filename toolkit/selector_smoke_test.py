@@ -14,8 +14,8 @@ session, not to exercise the full placement path.
 Requires --player for FanDuel and --team for BetMGM (no stale defaults).
 
 Usage:
-    python claude_toolkit/selector_smoke_test.py --player "Evan Mobley" --team "Cleveland Cavaliers"
-    python claude_toolkit/selector_smoke_test.py --player "LeBron James" --skip-betmgm
+    python toolkit/selector_smoke_test.py --player "Evan Mobley" --team "Cleveland Cavaliers"
+    python toolkit/selector_smoke_test.py --player "LeBron James" --skip-betmgm
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from chrome_helpers import CDP_PORT, ensure_chrome_cdp  # noqa: E402
 # (The critique flags the CWD-based default in chrome_helpers.py as P1 #9.)
 PROFILE_DIR = os.path.join(_EXECUTOR, "chrome_profile")
 
-SCREENSHOT_DIR = os.path.join(_REPO_ROOT, "claude_toolkit", ".smoke_screenshots")
+SCREENSHOT_DIR = os.path.join(_REPO_ROOT, "toolkit", ".smoke_screenshots")
 
 FANDUEL_SEARCH_URL = "https://mo.sportsbook.fanduel.com/search"
 BETMGM_SEARCH_URL = "https://www.mo.betmgm.com/en/sports?popup=betfinder"

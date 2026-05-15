@@ -7,8 +7,8 @@ No secrets in the payload -- just hostname, timestamp, and the fact that the
 toolkit triggered it.
 
 Usage:
-    python claude_toolkit/test_discord.py
-    python claude_toolkit/test_discord.py --strict   # fail if env var unset
+    python toolkit/test_discord.py
+    python toolkit/test_discord.py --strict   # fail if env var unset
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def main() -> int:
     ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     body = f"toolkit test from {host} at {ts} -- safe to ignore"
     print(f"Posting: {body!r}")
-    notify(body, level="info", source="claude_toolkit:test_discord")
+    notify(body, level="info", source="toolkit:test_discord")
     print("Done. Check the Discord channel for an INFO message.")
     return 0
 

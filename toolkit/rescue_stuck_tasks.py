@@ -7,9 +7,9 @@ resetting a task that's actually still executing would cause double-execution
 (same opportunity placed twice), and that risk dominates convenience.
 
 Usage:
-    python claude_toolkit/rescue_stuck_tasks.py
-    python claude_toolkit/rescue_stuck_tasks.py --threshold-minutes 10
-    python claude_toolkit/rescue_stuck_tasks.py --dry-run
+    python toolkit/rescue_stuck_tasks.py
+    python toolkit/rescue_stuck_tasks.py --threshold-minutes 10
+    python toolkit/rescue_stuck_tasks.py --dry-run
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _reset_to_pending(conn, task_id: int) -> None:
             started_at = NULL,
             finished_at = NULL,
             error_log = COALESCE(error_log || ' | ', '')
-                      || 'reset from RUNNING by claude_toolkit/rescue_stuck_tasks.py'
+                      || 'reset from RUNNING by toolkit/rescue_stuck_tasks.py'
         WHERE id = :task_id AND status = 'RUNNING'
         """
     ), {"task_id": task_id})
