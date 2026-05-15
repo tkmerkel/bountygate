@@ -243,20 +243,26 @@ class ArbExecutor:
         print(f"FanDuel side: {fd_direction} (market: {fd_market_key})")
         print(f"BetMGM side: {mgm_direction} (market: {mgm_market_key})\n")
 
-        # Pre-warm both sessions BEFORE recording starts so any cold-session
-        # credential login happens outside the recording window. Keeps the
-        # video-feedback-loop dashboard's duration metric meaningful and the
-        # /watch:watch review focused on bet-placement, not auth recovery.
-        self._warmup_sessions()
-
-        # Start screen recording for the video-feedback-loop reviewer.
-        # Fail-silent: if ffmpeg is missing, the bot runs normally.
-        record_proc = start_recording(os.path.join(self.audit_dir, "recording.mp4"))
-
-        # Setup browser
-        endpoint_url = ensure_chrome_cdp(profile_dir, CDP_PORT)
+        # Start screen recording, then warm sessions, then run phases —
+        # all inside a single try/finally so the recording always stops
+        # and review.pending always writes, regardless of which step
+        # raises (warmup credential-modal halt, Phase login, orphan bet).
+        record_proc = None
 
         try:
+            # Recording first so cold-session login flows are captured.
+            # Previously placed warmup before recording for clean duration
+            # metrics, but that hid the 2026-05-15 BetMGM stuck-credential-
+            # modal failure from the reviewer. Visibility > clean baseline.
+            record_proc = start_recording(os.path.join(self.audit_dir, "recording.mp4"))
+
+            # Pre-warm both sessions before Phase 1 so cold-session auth
+            # happens once up front (and is captured for diagnosis).
+            self._warmup_sessions()
+
+            # Setup browser
+            endpoint_url = ensure_chrome_cdp(profile_dir, CDP_PORT)
+
             with sync_playwright() as p:
                 browser = p.chromium.connect_over_cdp(endpoint_url)
                 context = browser.contexts[0] if browser.contexts else browser.new_context()
@@ -570,6 +576,12 @@ class ArbExecutor:
         except OrphanedBetError:
             # Already alerted via log_critical inside _raise_orphaned. Bubble
             # up so the worker halts the polling loop.
+            raise
+        except WorkerHaltError:
+            # Already alerted via log_critical at the raise site (FD/MGM
+            # login intervention or stuck-credential modal). Bubble up so
+            # task_worker.py halts instead of churning more attempts
+            # against a dead session.
             raise
         except Exception as e:
             print(f"❌ Unexpected error: {e}")

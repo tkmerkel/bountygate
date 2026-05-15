@@ -367,6 +367,22 @@ def _do_login(
         print(f"[AUTH] {site}: login successful")
         return True
 
+    # Stuck-credential-modal detector. If the password input is STILL
+    # visible 6s after submit, the modal didn't dismiss — usually because
+    # the session/cookie state is corrupted on the persistent profile.
+    # Treat as intervention (halt + page operator) rather than LoginError
+    # (silent retry on the next opp), because retry-thrashing through a
+    # stuck modal looks like a non-human attack pattern to risk teams and
+    # burns Chrome cycles. Observed 2026-05-15 on BetMGM: modal stayed
+    # 39s static across 27 frames while the bot kept clicking.
+    if _first_visible(page, password_selectors) is not None:
+        _safe_screenshot(page, audit_dir, f"{site}_credential_modal_stuck")
+        raise LoginInterventionRequired(
+            f"{site}: credential modal still visible 6s after submit — "
+            f"refresh the {site} session in the bot's Chrome profile by "
+            f"logging in manually, then restart the worker"
+        )
+
     _safe_screenshot(page, audit_dir, f"{site}_login_did_not_take")
     raise LoginError(
         f"{site}: still on a login-shaped URL after submit "

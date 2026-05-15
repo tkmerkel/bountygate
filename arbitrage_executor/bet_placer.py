@@ -334,16 +334,23 @@ class BetPlacer:
                 target = accordion.first
             else:
                 # Fuzzy fallback: score every accordion button and pick the
-                # best match above threshold. Tie-break on length: at equal
-                # fuzzy score, prefer the SHORTER candidate. partial_ratio
-                # returns 100 for any haystack that contains the needle as
-                # a substring, so "Player rebounds + assists" and "Player
-                # rebounds + assists O/U" both score 100 against either
-                # input. Shortest-length tie-break gives us the most exact
-                # textual match available.
+                # best match above threshold. partial_ratio returns 100 for
+                # any substring containment, so e.g. "Player rebounds" and
+                # "Player rebounds O/U" both score 100 against
+                # "Player rebounds O/U". Break ties on a *match-quality*
+                # rank that prefers (1) an exact normalized match, then
+                # (2) the candidate that *contains* the needle (more
+                # specific label), over (3) a candidate the needle
+                # contains (less specific label). Old code preferred the
+                # shorter text, which silently picked the alternate
+                # "Player rebounds" accordion over the standard
+                # "Player rebounds O/U" — landed on the wrong tab strip
+                # and the bet was never findable.
+                need_norm = " ".join((accordion_name or "").lower().split())
                 best_btn = None
                 best_text = None
                 best_score = 0
+                best_quality = -1
                 all_texts = []
                 for btn in self.page.locator('button[dsaccordiontoggle]').all():
                     try:
@@ -354,12 +361,16 @@ class BetPlacer:
                         continue
                     all_texts.append(btn_text)
                     score = fuzzy_score(btn_text, accordion_name)
-                    if score > best_score or (
-                        score == best_score
-                        and best_text is not None
-                        and len(btn_text) < len(best_text)
-                    ):
+                    btn_norm = " ".join(btn_text.lower().split())
+                    if btn_norm == need_norm:
+                        quality = 2  # exact match (post-normalize)
+                    elif need_norm and need_norm in btn_norm:
+                        quality = 1  # btn contains needle (more specific)
+                    else:
+                        quality = 0  # needle contains btn (less specific) / partial
+                    if (score, quality) > (best_score, best_quality):
                         best_score = score
+                        best_quality = quality
                         best_btn = btn
                         best_text = btn_text
 
@@ -369,8 +380,8 @@ class BetPlacer:
                     raise BetPlacerError(f"Accordion not found: {accordion_name}")
 
                 print(f"[BETMGM] ⚠ Exact accordion miss; best fuzzy match "
-                      f"'{best_text}' (score={best_score}) for expected "
-                      f"'{accordion_name}'")
+                      f"'{best_text}' (score={best_score}, quality={best_quality}) "
+                      f"for expected '{accordion_name}'")
                 target = best_btn
 
             # Accordion buttons are toggles — if a prior session left it
