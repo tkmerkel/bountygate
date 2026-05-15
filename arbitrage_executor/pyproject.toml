@@ -17,6 +17,8 @@ dependencies = [
     "psycopg2-binary~=2.9",
     "python-dotenv~=1.2",
     "rapidfuzz>=3.0",
+    "requests>=2.31",     # transitively needed by bountygate.utils.discord_notify
+    "numpy>=1.26",        # transitively needed by bountygate transformers
 ]
 
 [dependency-groups]
