@@ -39,7 +39,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from claude_toolkit.recorder.schema import TraceHeader, TraceRecord, load_trace
+from toolkit.recorder.schema import TraceHeader, TraceRecord, load_trace
 
 SHOW_MORE_SELECTOR = 'ms-option-panel-bottom-action:has-text("Show More")'
 BET_ELEMENT_TYPE = "ms-event-pick"

@@ -1,7 +1,7 @@
 # Recorder Workflow
 
-The recorder/codegen/replay/drift toolchain (`claude_toolkit/recorder*`,
-`claude_toolkit/codegen/`, `claude_toolkit/replay/`) lets Claude Code drive
+The recorder/codegen/replay/drift toolchain (`toolkit/recorder*`,
+`toolkit/codegen/`, `toolkit/replay/`) lets Claude Code drive
 the browser through any arb-bet flow and emit ready-to-merge YAML for
 `arbitrage_executor/selectors/{book}_markets.yaml`.
 
@@ -56,7 +56,7 @@ You should already be logged into both books in this profile.
 ### 2. Open a new probe session
 
 ```bash
-python -m claude_toolkit.recorder_cli probe start \
+python -m toolkit.recorder_cli probe start \
     --book fanduel --market player_points
 ```
 
@@ -70,28 +70,28 @@ After each action, Claude logs it:
 
 ```bash
 # After mcp__playwright__browser_navigate to the search page:
-python -m claude_toolkit.recorder_cli probe log_action \
+python -m toolkit.recorder_cli probe log_action \
     --kind navigate --phase nav \
     --url 'https://mo.sportsbook.fanduel.com/search'
 
 # After typing the player name:
-python -m claude_toolkit.recorder_cli probe log_action \
+python -m toolkit.recorder_cli probe log_action \
     --kind fill --phase search \
     --selector 'input[placeholder="Search"]' --strategy placeholder \
     --value 'Stephen Curry'
 
 # After pressing Enter:
-python -m claude_toolkit.recorder_cli probe log_action \
+python -m toolkit.recorder_cli probe log_action \
     --kind press --phase search --key Enter
 
 # After clicking the bet element (label this select_bet so codegen finds it):
-python -m claude_toolkit.recorder_cli probe log_action \
+python -m toolkit.recorder_cli probe log_action \
     --kind click --phase select_bet \
     --selector '[aria-label*="Stephen Curry"][aria-label*="Points"][aria-label*="22.5"]'
 
 # DO NOT actually click Place Bet during a Claude session. If you log it
 # as a placeholder, mark it terminal so replay halts:
-python -m claude_toolkit.recorder_cli probe log_action \
+python -m toolkit.recorder_cli probe log_action \
     --kind click --phase place \
     --selector '[data-testid="place-bet-button"]' --terminal
 ```
@@ -110,7 +110,7 @@ Phase tags the codegen looks for:
 ### 4. Stop the session
 
 ```bash
-python -m claude_toolkit.recorder_cli probe stop
+python -m toolkit.recorder_cli probe stop
 ```
 
 Prints the trace path and record count.
@@ -118,13 +118,13 @@ Prints the trace path and record count.
 ### 5. Run codegen against the trace
 
 ```bash
-python -m claude_toolkit.recorder_cli codegen --trace traces/<file>.jsonl
+python -m toolkit.recorder_cli codegen --trace traces/<file>.jsonl
 ```
 
 Prints the derived config without persisting. To persist:
 
 ```bash
-python -m claude_toolkit.recorder_cli codegen \
+python -m toolkit.recorder_cli codegen \
     --trace traces/<file>.jsonl --save
 ```
 
@@ -134,14 +134,14 @@ unless you also pass `--overwrite`.
 ### 6. Replay the trace as verification
 
 ```bash
-python -m claude_toolkit.recorder_cli replay --trace traces/<file>.jsonl --dry-run
+python -m toolkit.recorder_cli replay --trace traces/<file>.jsonl --dry-run
 ```
 
 `--dry-run` parses and plans without touching the browser. Once that
 prints the expected halt at the terminal step, run for real:
 
 ```bash
-python -m claude_toolkit.recorder_cli replay --trace traces/<file>.jsonl
+python -m toolkit.recorder_cli replay --trace traces/<file>.jsonl
 ```
 
 Replay re-executes every non-terminal step and halts before the place-bet
@@ -165,7 +165,7 @@ rows in `network_signatures.md`).
 ### 2. Run the daemon in one terminal
 
 ```bash
-python -m claude_toolkit.recorder_cli record \
+python -m toolkit.recorder_cli record \
     --book fanduel --market player_points
 ```
 
@@ -193,7 +193,7 @@ Once a market is in production, run drift periodically against a fresh
 recording:
 
 ```bash
-python -m claude_toolkit.recorder_cli drift --trace traces/<latest>.jsonl
+python -m toolkit.recorder_cli drift --trace traces/<latest>.jsonl
 ```
 
 Exits 0 if codegen output matches the stored YAML (modulo `validated_at`),
@@ -205,18 +205,18 @@ markets in one run, loop in shell:
 
 ```bash
 for trace in traces/drift_check/*.jsonl; do
-    python -m claude_toolkit.recorder_cli drift --trace "$trace" --json
+    python -m toolkit.recorder_cli drift --trace "$trace" --json
 done
 ```
 
 ## Round-trip tests
 
-`claude_toolkit/recorder/tests/test_roundtrip.py` validates the codegen
+`toolkit/recorder/tests/test_roundtrip.py` validates the codegen
 contract against production YAML using committed fixture traces. No live
 browser needed. Run before merging any codegen change:
 
 ```bash
-python claude_toolkit/recorder/tests/test_roundtrip.py -v
+python toolkit/recorder/tests/test_roundtrip.py -v
 ```
 
 Fixtures cover: FanDuel standard (`player_assists`), FanDuel alternate
@@ -241,7 +241,7 @@ asserts each fixture marks its place-bet as terminal.
 ## File map
 
 ```
-claude_toolkit/
+toolkit/
   recorder/
     schema.py           # TraceRecord / TraceHeader / ElementSignature / NetworkEvent
     probe.py            # Claude-driven CLI (start/stop/log_action/log_network)

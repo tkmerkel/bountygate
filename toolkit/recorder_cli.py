@@ -5,18 +5,18 @@ doc has a single thing to teach. Each subcommand forwards its argv to the
 underlying tool's `main()`; per-tool flags pass through unchanged.
 
 Subcommands:
-    record    -> claude_toolkit.recorder.cdp_recorder.main
-    probe     -> claude_toolkit.recorder.probe.main           (start/stop/status/log_*)
+    record    -> toolkit.recorder.cdp_recorder.main
+    probe     -> toolkit.recorder.probe.main           (start/stop/status/log_*)
     codegen   -> derive YAML from a trace and (optionally) persist via SelectorManager
-    replay    -> claude_toolkit.replay.replay_trace.main
-    drift     -> claude_toolkit.codegen.drift.main
+    replay    -> toolkit.replay.replay_trace.main
+    drift     -> toolkit.codegen.drift.main
 
 Usage:
-    python -m claude_toolkit.recorder_cli record --book fanduel --market player_points
-    python -m claude_toolkit.recorder_cli probe start --book fanduel --market player_points
-    python -m claude_toolkit.recorder_cli codegen --trace traces/<file>.jsonl --save
-    python -m claude_toolkit.recorder_cli replay --trace traces/<file>.jsonl --dry-run
-    python -m claude_toolkit.recorder_cli drift --trace traces/<file>.jsonl
+    python -m toolkit.recorder_cli record --book fanduel --market player_points
+    python -m toolkit.recorder_cli probe start --book fanduel --market player_points
+    python -m toolkit.recorder_cli codegen --trace traces/<file>.jsonl --save
+    python -m toolkit.recorder_cli replay --trace traces/<file>.jsonl --dry-run
+    python -m toolkit.recorder_cli drift --trace traces/<file>.jsonl
 """
 from __future__ import annotations
 
@@ -36,12 +36,12 @@ def _cmd_codegen(rest: list[str]) -> int:
     p.add_argument("--json", action="store_true")
     args = p.parse_args(rest)
 
-    from claude_toolkit.recorder.schema import load_trace
+    from toolkit.recorder.schema import load_trace
     header, records = load_trace(args.trace)
     if header.book == "fanduel":
-        from claude_toolkit.codegen import fanduel as gen
+        from toolkit.codegen import fanduel as gen
     elif header.book == "betmgm":
-        from claude_toolkit.codegen import betmgm as gen
+        from toolkit.codegen import betmgm as gen
     else:
         print(f"error: unknown book in trace: {header.book!r}", file=sys.stderr)
         return 2
@@ -74,18 +74,18 @@ def main(argv: Optional[list] = None) -> int:
     cmd, rest = argv[0], argv[1:]
 
     if cmd == "record":
-        from claude_toolkit.recorder import cdp_recorder
+        from toolkit.recorder import cdp_recorder
         return cdp_recorder.main(rest)
     if cmd == "probe":
-        from claude_toolkit.recorder import probe
+        from toolkit.recorder import probe
         return probe.main(rest)
     if cmd == "codegen":
         return _cmd_codegen(rest)
     if cmd == "replay":
-        from claude_toolkit.replay import replay_trace
+        from toolkit.replay import replay_trace
         return replay_trace.main(rest)
     if cmd == "drift":
-        from claude_toolkit.codegen import drift
+        from toolkit.codegen import drift
         return drift.main(rest)
 
     print(f"unknown subcommand: {cmd}", file=sys.stderr)

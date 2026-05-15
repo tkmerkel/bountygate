@@ -10,8 +10,8 @@ Exit codes:
     2  trace or stored config is unreadable / invalid
 
 CLI:
-    python -m claude_toolkit.codegen.drift --trace path/to/trace.jsonl
-    python -m claude_toolkit.codegen.drift --trace ... --json   # machine-readable
+    python -m toolkit.codegen.drift --trace path/to/trace.jsonl
+    python -m toolkit.codegen.drift --trace ... --json   # machine-readable
 """
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ import os
 import sys
 from typing import Any
 
-from claude_toolkit.codegen import betmgm as betmgm_codegen
-from claude_toolkit.codegen import fanduel as fanduel_codegen
-from claude_toolkit.recorder.schema import load_trace
+from toolkit.codegen import betmgm as betmgm_codegen
+from toolkit.codegen import fanduel as fanduel_codegen
+from toolkit.recorder.schema import load_trace
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

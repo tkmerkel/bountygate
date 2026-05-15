@@ -16,12 +16,12 @@ Active-session state lives at {trace_dir}/.active_session.json. Only one
 session can be active at a time. The next-sequence counter is persisted there.
 
 Example session:
-    python -m claude_toolkit.recorder.probe start --book fanduel --market player_points
-    python -m claude_toolkit.recorder.probe log_action --kind navigate --url 'https://mo.sportsbook.fanduel.com/search'
-    python -m claude_toolkit.recorder.probe log_action --kind fill --selector 'input[placeholder="Search"]' --value 'Stephen Curry' --strategy placeholder
-    python -m claude_toolkit.recorder.probe log_action --kind press --key Enter
-    python -m claude_toolkit.recorder.probe log_network --url-pattern 'smp\\.mo\\.sportsbook\\.fanduel\\.com/api/sports/fixedodds' --method GET --status 200 --elapsed-ms 412
-    python -m claude_toolkit.recorder.probe stop
+    python -m toolkit.recorder.probe start --book fanduel --market player_points
+    python -m toolkit.recorder.probe log_action --kind navigate --url 'https://mo.sportsbook.fanduel.com/search'
+    python -m toolkit.recorder.probe log_action --kind fill --selector 'input[placeholder="Search"]' --value 'Stephen Curry' --strategy placeholder
+    python -m toolkit.recorder.probe log_action --kind press --key Enter
+    python -m toolkit.recorder.probe log_network --url-pattern 'smp\\.mo\\.sportsbook\\.fanduel\\.com/api/sports/fixedodds' --method GET --status 200 --elapsed-ms 412
+    python -m toolkit.recorder.probe stop
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ import uuid
 from dataclasses import asdict
 from typing import Optional
 
-from claude_toolkit.recorder.schema import (
+from toolkit.recorder.schema import (
     ACTION_KINDS,
     FORMAT_VERSION,
     PHASES,

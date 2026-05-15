@@ -1,11 +1,11 @@
-# claude_toolkit
+# toolkit
 
 Small, self-contained diagnostic and recovery scripts for Future Claude (and you) to reach for when triaging bountygate. Every script in here is either read-only or interactive with per-row confirmation. Nothing here places bets, modifies selectors, edits DAGs, or posts anything to Discord beyond a single opt-in test message.
 
 All scripts assume they're run from the repo root with the project's Python environment active:
 
 ```bash
-python claude_toolkit/<script>.py [flags]
+python toolkit/<script>.py [flags]
 ```
 
 They read `DATABASE_URL` from `.env` via the same bootstrap `arbitrage_executor/db_connection.py` uses, so no additional config is needed.

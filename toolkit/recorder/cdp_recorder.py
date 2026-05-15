@@ -23,7 +23,7 @@ Caveats:
   be re-executed.
 
 CLI:
-    python -m claude_toolkit.recorder.cdp_recorder \\
+    python -m toolkit.recorder.cdp_recorder \\
         --book fanduel --market player_points [--cdp-port 9223] [--trace-dir ...]
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ import time
 import uuid
 from typing import Optional
 
-from claude_toolkit.recorder.schema import (
+from toolkit.recorder.schema import (
     FORMAT_VERSION,
     ElementSignature,
     NetworkEvent,

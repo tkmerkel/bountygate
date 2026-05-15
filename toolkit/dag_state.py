@@ -10,8 +10,8 @@ Silence by the executor (no Discord alerts, no new PENDING tasks) is
 ambiguous; this gives the other half of the picture.
 
 Usage:
-    python claude_toolkit/dag_state.py
-    python claude_toolkit/dag_state.py --window-hours 6
+    python toolkit/dag_state.py
+    python toolkit/dag_state.py --window-hours 6
 """
 
 from __future__ import annotations

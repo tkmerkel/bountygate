@@ -14,7 +14,7 @@ A **watcher** loop (`watcher/`) records each execution to `arbitrage_executor/au
 | `airflow/` | Airflow 3 DAGs + docker-compose local stack. Analytics pipeline. |
 | `app/shared/python/bountygate/` | Shared ETL utilities imported by both DAGs and the executor. Installable via `pip install -e ./app/shared/python`. |
 | `arbitrage_executor/` | The live betting bot. **Start here for operational work.** See `arbitrage_executor/CLAUDE.md`. |
-| `arbitrage_executor/tools/` | Operational scripts: doctor, smoke test, queue inspector, stuck-task rescue, codegen recorder/replay. |
+| `toolkit/` | Operational scripts: doctor, smoke test, queue inspector, stuck-task rescue, codegen recorder/replay. |
 | `db/migrations/` | Hand-rolled SQL migrations applied by `scripts/migrate.py`. |
 | `db/aliases/`, `db/market_aliases/` | Reference data loaded by `scripts/load_aliases.py` and `scripts/load_market_aliases.py`. |
 | `dashboard/` | Static HTML dashboard rendering `data.json` (watcher output). |
@@ -70,7 +70,7 @@ The bot's hot path is not test-driven (the value is in real Playwright runs agai
 ## Where to look when something breaks
 
 - Bot stopped placing bets → `arbitrage_executor/SOP.md` (UI-break recovery runbook).
-- Stuck task in `RUNNING` → `python arbitrage_executor/tools/rescue_stuck_tasks.py`.
+- Stuck task in `RUNNING` → `python toolkit/rescue_stuck_tasks.py`.
 - New market not mapped → `python arbitrage_executor/map_selectors.py --site <site> --market <market>`.
 - DAG not producing opportunities → check Airflow UI; data in `bg_arbitrage_player_props*` tables.
 - Discord alerts → see `arbitrage_executor/CLAUDE.md` § "Operator runbook (Discord alerts)".

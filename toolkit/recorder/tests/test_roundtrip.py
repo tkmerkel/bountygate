@@ -9,7 +9,7 @@ entries) are excluded from comparison since they're added on save by
 SelectorManager and not by codegen.
 
 These tests do NOT require a live browser. They use only fixture JSONL files
-in claude_toolkit/recorder/tests/fixtures/ and the production YAMLs.
+in toolkit/recorder/tests/fixtures/ and the production YAMLs.
 """
 from __future__ import annotations
 
@@ -26,9 +26,9 @@ sys.path.insert(0, REPO_ROOT)
 
 import yaml  # noqa: E402
 
-from claude_toolkit.codegen import betmgm as betmgm_codegen  # noqa: E402
-from claude_toolkit.codegen import fanduel as fanduel_codegen  # noqa: E402
-from claude_toolkit.recorder.schema import load_trace  # noqa: E402
+from toolkit.codegen import betmgm as betmgm_codegen  # noqa: E402
+from toolkit.codegen import fanduel as fanduel_codegen  # noqa: E402
+from toolkit.recorder.schema import load_trace  # noqa: E402
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 SELECTORS_DIR = os.path.join(REPO_ROOT, "arbitrage_executor", "selectors")
