@@ -24,6 +24,8 @@ A **watcher** loop (`watcher/`) records each execution to `arbitrage_executor/au
 
 ## Quick start
 
+A `Makefile` at the repo root captures common operations (`make doctor`, `make worker`, `make smoke`, `make migrate`, `make test`, `make compose-up`). If `make` isn't available on Windows: `scoop install make` (or `choco install make`). The targets are short enough to run directly without `make` — see the Makefile for the actual commands.
+
 ### Run the bot
 
 ```powershell
