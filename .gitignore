@@ -24,6 +24,14 @@ arbitrage_executor/chrome_profile/
 arbitrage_executor/audit_logs/
 arbitrage_executor/opportunity_info.json
 arbitrage_executor/.planning/
+arbitrage_executor/.venv/
+
+# Root-level runtime output (CWD-misnav guards)
+/audit_logs/
+/traces/
+/*.png
+/*.mp4
+/Userstkmer*
 
 # Claude Code per-machine settings
 **/.claude/settings.local.json
