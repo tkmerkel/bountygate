@@ -247,4 +247,35 @@ def wiki_page(slug: str):
     )
 
 
+@app.get("/api/wiki/{slug}.json")
+def api_wiki_page(slug: str):
+    """Per-page metrics for React Flow islands. Currently only bot-flow."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if slug != "bot-flow" or engine is None:
+        return {"slug": slug, "computed_at": now_iso, "node_metrics": {}, "edge_metrics": {}}
+
+    # Aggregate per-outcome metrics over last 24h.
+    with engine.connect() as c:
+        rows = c.execute(text(
+            """
+            SELECT outcome, COUNT(*) AS n, AVG(duration_s) AS avg_dur
+            FROM dashboard_runs
+            WHERE occurred_at > now() - interval '24 hours'
+            GROUP BY outcome
+            """
+        )).mappings().all()
+    node_metrics: dict = {}
+    for r in rows:
+        node_metrics[f"outcome_{r['outcome']}"] = {
+            "runs_24h": int(r["n"]),
+            "avg_duration_s": float(r["avg_dur"]) if r["avg_dur"] is not None else None,
+        }
+    return {
+        "slug": slug,
+        "computed_at": now_iso,
+        "node_metrics": node_metrics,
+        "edge_metrics": {},
+    }
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
