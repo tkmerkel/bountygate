@@ -42,7 +42,54 @@ $env:DATABASE_URL = "postgresql+psycopg2://user:pass@localhost:5432/bountygate"
 uvicorn app.web.main:app --reload --port 8000
 ```
 
-Then open <http://localhost:8000/>. Health check at `/health`.
+Then open <http://localhost:8000/>. Health check at `/health`. The web app has two surfaces:
+
+- **Dashboard** at `/` — latest bot runs, account balances per book (FanDuel + BetMGM), watcher health. All cards poll JSON endpoints every 30–60s and show a freshness pill.
+- **Wiki** at `/wiki` — internal docs as markdown. Mermaid diagrams always render; React Flow diagrams load on pages that use them. First page: [Bot execution flow](/wiki/bot-flow) — a layered decision graph of the three-phase pipeline.
+
+#### Dashboard endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/runs?limit=N` | latest bot executions with issue tags |
+| `GET /api/account-stats` | per-book balance, available liquidity, 7d P&L |
+| `GET /api/watchers` | per-watcher status (ok/amber/red), backlog, last tick |
+| `GET /api/wiki/{slug}.json` | per-page metrics for React Flow diagrams |
+
+All four read from Postgres (`dashboard_runs`, `account_stats`, `watcher_heartbeats`). Producers — review-watcher, `account_scraper`, wiki-watcher — run locally and write directly to those tables. The Heroku web dyno never produces data; it only serves it.
+
+#### Wiki auto-update
+
+Each wiki page declares the source files it depends on in front-matter:
+
+```yaml
+---
+title: Bot execution flow
+slug: bot-flow
+watches:
+  - arbitrage_executor/execute_arb.py
+  - arbitrage_executor/task_worker.py
+updated_at: 2026-05-16T00:00:00Z
+---
+```
+
+On every git commit, `.git/hooks/post-commit` reads each page's `watches:` and touches `wiki/.pending/{slug}` for any page whose watched files changed. A wiki-watcher Claude Code session drains the pending queue by invoking `/wiki:sync <slug>` per page; the regenerated `.md` shows up as a dirty file in your working tree — review the diff and commit manually. **No auto-commit.**
+
+One-time setup per clone:
+
+```powershell
+pwsh scripts/install_wiki_hook.ps1     # Windows PowerShell
+# or
+bash scripts/install_wiki_hook.sh      # git-bash / WSL / Linux
+```
+
+Run the wiki-watcher when you have pending pages:
+
+```powershell
+pwsh scripts/start_wiki_watcher.ps1
+```
+
+It loops until `wiki/.pending/` is empty, then exits.
 
 ### Run the bot
 
