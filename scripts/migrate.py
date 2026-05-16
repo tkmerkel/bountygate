@@ -25,7 +25,10 @@ except ImportError:
 
 def get_engine_url() -> str:
     fallback = getattr(dbc, "DATABASE_URL", "") if dbc is not None else ""
-    return os.environ.get("DATABASE_URL") or fallback
+    url = os.environ.get("DATABASE_URL") or fallback
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    return url
 
 
 def ensure_migrations_table(conn) -> None:
