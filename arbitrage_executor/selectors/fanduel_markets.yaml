@@ -1,5 +1,5 @@
 # FANDUEL Market Selector Configuration
-# Last updated: 2026-01-26 11:44:34
+# Last updated: 2026-05-15 09:14:59
 
 player_assists:
   display_names:
@@ -87,95 +87,78 @@ player_points_rebounds:
   test_player: Pascal Siakam
   test_line: 30.5
   validated_at: '2026-01-26T11:44:34.684658'
-
-# ============================================================================
-# MLB STANDARD O/U MARKETS (best-guess display names — verify interactively)
-# ============================================================================
-
 batter_hits:
   display_names:
   - Hits
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_singles:
   display_names:
   - Singles
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_doubles:
   display_names:
   - Doubles
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_triples:
   display_names:
   - Triples
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_home_runs:
   display_names:
   - Home Runs
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_total_bases:
   display_names:
   - Total Bases
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_rbis:
   display_names:
   - RBIs
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_runs:
   display_names:
   - Runs
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_stolen_bases:
   display_names:
   - Stolen Bases
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_strikeouts:
   display_names:
   - Strikeouts
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_walks:
   display_names:
   - Walks
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 batter_hits_runs_rbis:
   display_names:
   - Hits + Runs + RBIs
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 pitcher_strikeouts:
   display_names:
   - Pitching Strikeouts
@@ -183,14 +166,12 @@ pitcher_strikeouts:
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 pitcher_hits_allowed:
   display_names:
   - Hits Allowed
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 pitcher_walks:
   display_names:
   - Pitching Walks
@@ -198,7 +179,6 @@ pitcher_walks:
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 pitcher_outs:
   display_names:
   - Pitching Outs
@@ -206,19 +186,12 @@ pitcher_outs:
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
 pitcher_earned_runs:
   display_names:
   - Earned Runs
   selector_type: aria_label
   search_strategy: aria_label_match
   search_validated: false
-
-# ============================================================================
-# ALTERNATE MARKETS
-# These use threshold format (e.g., "4+ Points") instead of "Over 4.5 Points"
-# ============================================================================
-
 player_points_alternate:
   display_names:
   - Points
@@ -226,7 +199,6 @@ player_points_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_points
-
 player_assists_alternate:
   display_names:
   - Assists
@@ -234,7 +206,6 @@ player_assists_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_assists
-
 player_rebounds_alternate:
   display_names:
   - Rebounds
@@ -242,7 +213,6 @@ player_rebounds_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_rebounds
-
 player_threes_alternate:
   display_names:
   - Made Threes
@@ -250,7 +220,6 @@ player_threes_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_threes
-
 player_blocks_alternate:
   display_names:
   - Blocks
@@ -258,7 +227,6 @@ player_blocks_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_blocks
-
 player_steals_alternate:
   display_names:
   - Steals
@@ -266,12 +234,6 @@ player_steals_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: player_steals
-
-# ============================================================================
-# MLB ALTERNATE MARKETS
-# These use threshold format (e.g., "2+ Hits") or "To Hit A Single" for threshold=1
-# ============================================================================
-
 batter_hits_alternate:
   display_names:
   - Hits
@@ -279,7 +241,6 @@ batter_hits_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_hits
-
 batter_singles_alternate:
   display_names:
   - Singles
@@ -287,7 +248,6 @@ batter_singles_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_singles
-
 batter_doubles_alternate:
   display_names:
   - Doubles
@@ -295,7 +255,6 @@ batter_doubles_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_doubles
-
 batter_triples_alternate:
   display_names:
   - Triples
@@ -303,7 +262,6 @@ batter_triples_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_triples
-
 batter_home_runs_alternate:
   display_names:
   - Home Runs
@@ -311,7 +269,6 @@ batter_home_runs_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_home_runs
-
 batter_total_bases_alternate:
   display_names:
   - Total Bases
@@ -319,7 +276,6 @@ batter_total_bases_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_total_bases
-
 batter_rbis_alternate:
   display_names:
   - RBIs
@@ -327,7 +283,6 @@ batter_rbis_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_rbis
-
 batter_runs_alternate:
   display_names:
   - Runs
@@ -335,7 +290,6 @@ batter_runs_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_runs
-
 batter_stolen_bases_alternate:
   display_names:
   - Stolen Bases
@@ -343,7 +297,6 @@ batter_stolen_bases_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_stolen_bases
-
 batter_strikeouts_alternate:
   display_names:
   - Strikeouts
@@ -351,7 +304,6 @@ batter_strikeouts_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_strikeouts
-
 batter_walks_alternate:
   display_names:
   - Walks
@@ -359,7 +311,6 @@ batter_walks_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: batter_walks
-
 pitcher_strikeouts_alternate:
   display_names:
   - Pitching Strikeouts
@@ -368,7 +319,6 @@ pitcher_strikeouts_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: pitcher_strikeouts
-
 pitcher_hits_allowed_alternate:
   display_names:
   - Hits Allowed
@@ -376,7 +326,6 @@ pitcher_hits_allowed_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: pitcher_hits_allowed
-
 pitcher_walks_alternate:
   display_names:
   - Pitching Walks
@@ -385,7 +334,6 @@ pitcher_walks_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: pitcher_walks
-
 pitcher_outs_alternate:
   display_names:
   - Pitching Outs
@@ -394,7 +342,6 @@ pitcher_outs_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: pitcher_outs
-
 pitcher_earned_runs_alternate:
   display_names:
   - Earned Runs
@@ -402,3 +349,25 @@ pitcher_earned_runs_alternate:
   search_strategy: alternate_threshold_match
   is_alternate: true
   base_market: pitcher_earned_runs
+player_points_q1:
+  display_names:
+  - 1st Qtr Points
+  - 1st Quarter Points
+  - Player Points - 1st Qtr
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Duncan Robinson"][aria-label*="1st Qtr Points"][aria-label*="2.5"]'
+  search_strategy: aria_label_match
+  test_player: Duncan Robinson
+  test_line: 2.5
+  validated_at: '2026-05-15T09:04:29.115194'
+player_shots_on_goal:
+  display_names:
+  - 60 Min Shots on Goal
+  - Shots on Goal
+  - 60 Min
+  selector_type: aria_label
+  selector_pattern: '[aria-label*="Tage Thompson"][aria-label*="Shots on Goal"][aria-label*="3.5"]'
+  search_strategy: aria_label_match
+  test_player: Tage Thompson
+  test_line: 3.5
+  validated_at: '2026-05-15T09:14:59.724833'

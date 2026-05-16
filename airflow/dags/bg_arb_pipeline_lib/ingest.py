@@ -6,10 +6,21 @@ bg_arb_stage_lines.
 
 The fetch logic and the JSON normalization are split intentionally so the
 normalizer can be tested against fixtures without real HTTP.
+
+Performance notes:
+  - Per-sport market lists (ARB_MARKETS_BY_SPORT) so each event call only
+    asks for markets relevant to that sport. The-odds-api bills per-market
+    per-request, so a wide markets list wastes credits and slows wall time.
+  - Events are filtered by commence_time to those within EVENT_WINDOW_HOURS
+    BEFORE we spend the credit-expensive /odds calls. /events is a single
+    cheap call per sport; /odds is per-event and expensive.
+  - Per-event /odds calls run in a thread pool so wall time scales sublinearly.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import requests
@@ -17,17 +28,61 @@ import requests
 from bg_arb_pipeline_lib.markets import (
     ARB_BOOKMAKERS,
     ARB_MARKETS,
+    ARB_MARKETS_BY_SPORT,
     ARB_SPORTS,
     SPORT_TITLE,
 )
 
+LOGGER = logging.getLogger(__name__)
+
+# Only fetch odds for events starting within this many hours.
+# Anything further out has volatile lines and isn't bettable right now anyway.
+EVENT_WINDOW_HOURS = 24
+
+# How many event-odds calls to run concurrently. The-odds-api can handle this;
+# the bottleneck is round-trip latency per call.
+ODDS_FETCH_CONCURRENCY = 8
+
+# Shared session for connection reuse (one TCP/TLS handshake instead of N).
+SESSION = requests.Session()
+
 
 def fetch_events(sport_key: str, api_key: str, base_url: str) -> list[dict[str, Any]]:
-    """List in-window events for a sport."""
+    """List in-window events for a sport. Single cheap call."""
     url = f"{base_url}/v4/sports/{sport_key}/events"
-    r = requests.get(url, params={"apiKey": api_key, "regions": "us"}, timeout=15)
+    r = SESSION.get(url, params={"apiKey": api_key, "regions": "us"}, timeout=15)
     r.raise_for_status()
     return r.json() or []
+
+
+def _parse_commence_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def filter_events_in_window(
+    events: list[dict[str, Any]],
+    *,
+    now_utc: datetime,
+    window_hours: int = EVENT_WINDOW_HOURS,
+) -> list[dict[str, Any]]:
+    """Keep only events starting between now and now+window_hours.
+
+    Drops events that have already started (commence_time < now) — those are
+    in-play and the line dynamics are different (and we don't bet them).
+    Drops events further out than the window — line drift makes them stale
+    before we'd act.
+    """
+    window_end = now_utc + timedelta(hours=window_hours)
+    kept: list[dict[str, Any]] = []
+    for event in events:
+        ct = _parse_commence_time(event.get("commence_time"))
+        if ct is None:
+            continue
+        if now_utc <= ct <= window_end:
+            kept.append(event)
+    return kept
 
 
 def fetch_event_odds(
@@ -47,7 +102,7 @@ def fetch_event_odds(
         "markets": ",".join(markets),
         "oddsFormat": "decimal",
     }
-    r = requests.get(url, params=params, timeout=15)
+    r = SESSION.get(url, params=params, timeout=15)
     r.raise_for_status()
     return r.json() or {}
 
@@ -70,11 +125,7 @@ def normalize_odds_response(
     sport_title = payload.get("sport_title") or SPORT_TITLE.get(sport_key, sport_key)
     home_team = payload.get("home_team", "")
     away_team = payload.get("away_team", "")
-    commence_time_str = payload.get("commence_time")
-    commence_time_utc = (
-        datetime.fromisoformat(commence_time_str.replace("Z", "+00:00"))
-        if commence_time_str else None
-    )
+    commence_time_utc = _parse_commence_time(payload.get("commence_time"))
 
     rows: list[dict[str, Any]] = []
     for book in payload["bookmakers"]:
@@ -103,11 +154,58 @@ def normalize_odds_response(
 
 
 def ingest_all(api_key: str, base_url: str = "https://api.the-odds-api.com") -> list[dict[str, Any]]:
-    """Fetch every (sport, event) and return the flat list of stage rows."""
-    fetched_at_utc = datetime.now(timezone.utc)
-    all_rows: list[dict[str, Any]] = []
+    """Fetch every (sport, in-window event) and return flat stage rows.
+
+    Order of operations:
+      1. For each sport, fetch the events list (cheap, one call).
+      2. Filter events by commence_time to the EVENT_WINDOW_HOURS window.
+      3. Fetch odds for the filtered events in parallel (expensive, N calls).
+
+    The credit-expensive /odds calls run only against events worth fetching.
+    """
+    now_utc = datetime.now(timezone.utc)
+
+    # Collect (sport, event_id, sport_markets) tuples up front so the parallel
+    # pool sees the whole job at once instead of one sport at a time.
+    jobs: list[tuple[str, str, tuple[str, ...]]] = []
     for sport_key in ARB_SPORTS:
-        for event in fetch_events(sport_key, api_key, base_url):
-            payload = fetch_event_odds(sport_key, event["id"], api_key, base_url)
-            all_rows.extend(normalize_odds_response(payload, fetched_at_utc=fetched_at_utc))
+        sport_markets = ARB_MARKETS_BY_SPORT.get(sport_key, ())
+        if not sport_markets:
+            LOGGER.info("[ingest] skip sport=%s — no markets configured", sport_key)
+            continue
+        try:
+            events = fetch_events(sport_key, api_key, base_url)
+        except requests.RequestException as e:
+            LOGGER.warning("[ingest] events fetch failed for sport=%s: %s", sport_key, e)
+            continue
+        in_window = filter_events_in_window(events, now_utc=now_utc)
+        LOGGER.info(
+            "[ingest] sport=%s events=%d in_window=%d markets=%d",
+            sport_key, len(events), len(in_window), len(sport_markets),
+        )
+        for event in in_window:
+            jobs.append((sport_key, event["id"], sport_markets))
+
+    if not jobs:
+        LOGGER.info("[ingest] no in-window events across all sports")
+        return []
+
+    LOGGER.info("[ingest] dispatching %d /odds calls (concurrency=%d)", len(jobs), ODDS_FETCH_CONCURRENCY)
+
+    all_rows: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=ODDS_FETCH_CONCURRENCY) as pool:
+        futures = {
+            pool.submit(fetch_event_odds, sport_key, event_id, api_key, base_url, markets=markets): (sport_key, event_id)
+            for (sport_key, event_id, markets) in jobs
+        }
+        for fut in as_completed(futures):
+            sport_key, event_id = futures[fut]
+            try:
+                payload = fut.result()
+            except requests.RequestException as e:
+                LOGGER.warning("[ingest] odds fetch failed for %s/%s: %s", sport_key, event_id, e)
+                continue
+            all_rows.extend(normalize_odds_response(payload, fetched_at_utc=now_utc))
+
+    LOGGER.info("[ingest] produced %d total stage rows", len(all_rows))
     return all_rows

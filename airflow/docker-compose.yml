@@ -69,6 +69,16 @@ x-airflow-common:
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
     # yamllint enable rule:line-length
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # Memory-tuning overrides (override defaults in airflow.cfg)
+    AIRFLOW__CORE__PARALLELISM: '8'
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: '4'
+    AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: '2'
+    AIRFLOW__SCHEDULER__NUM_RUNS: '5000'
+    AIRFLOW__SCHEDULER__SCHEDULER_HEARTBEAT_SEC: '10'
+    AIRFLOW__SCHEDULER__MAX_TIS_PER_QUERY: '8'
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: '60'
+    AIRFLOW__API_SERVER__WORKERS: '2'
+    AIRFLOW__WEBSERVER__WORKERS: '2'
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
@@ -114,6 +124,7 @@ services:
       retries: 5
       start_period: 5s
     restart: always
+    mem_limit: 384m
 
   airflow-dag-processor:
     <<: *airflow-common
@@ -125,6 +136,7 @@ services:
       retries: 5
       start_period: 30s
     restart: always
+    mem_limit: 512m
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -142,6 +154,7 @@ services:
       retries: 5
       start_period: 30s
     restart: always
+    mem_limit: 1g
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:
@@ -157,6 +170,7 @@ services:
       retries: 5
       start_period: 30s
     restart: always
+    mem_limit: 2g
     depends_on:
       <<: *airflow-common-depends-on
       airflow-init:

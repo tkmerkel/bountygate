@@ -31,6 +31,13 @@ def build_opportunities(lines: pd.DataFrame, *, base_wager: float = 100.0) -> pd
         return pd.DataFrame()
 
     work = lines.copy()
+    # Postgres NUMERIC columns come back as Decimal; coerce to float so pandas
+    # arithmetic works downstream. Unit tests use float, but the live pipeline
+    # reads from bg_arb_stage_lines (NUMERIC columns).
+    for numeric_col in ("price", "line"):
+        if numeric_col in work.columns:
+            work[numeric_col] = pd.to_numeric(work[numeric_col], errors="coerce")
+    work = work.dropna(subset=["price", "line"])
     work["canonical_market"] = work["market_key"].astype(str).map(_strip_alt_suffix)
     work = work[~work["market_key"].isin(ARB_MARKET_BLACKLIST)]
     if work.empty:

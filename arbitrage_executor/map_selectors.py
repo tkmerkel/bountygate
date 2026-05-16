@@ -30,6 +30,17 @@ SITE_CONFIG = {
             "player_blocks": ["Blocks", "Player Blocks"],
             "player_steals": ["Steals", "Player Steals"],
             "player_turnovers": ["Turnovers", "Player Turnovers"],
+            # 1st quarter markets (only available pre-tipoff). FanDuel abbreviates "Quarter" -> "Qtr".
+            "player_points_q1": ["1st Qtr Points", "1st Quarter Points", "Player Points - 1st Qtr"],
+            "player_assists_q1": ["1st Qtr Assists", "1st Quarter Assists"],
+            "player_rebounds_q1": ["1st Qtr Rebounds", "1st Quarter Rebounds"],
+            "player_threes_q1": ["1st Qtr Made Threes", "1st Qtr Threes", "1st Quarter Threes"],
+            # NHL markets — FanDuel "60 Min" prefix = regulation-only (not OT/SO).
+            # Standard SOG header reads "60 Min <Player> Shots on Goal";
+            # alternate is "60 Min N+ Shots on Goal" with threshold tabs.
+            "player_shots_on_goal": ["60 Min Shots on Goal", "Shots on Goal", "60 Min"],
+            "player_shots_on_goal_alternate": ["60 Min Shots on Goal", "Shots on Goal"],
+            "player_total_saves": ["60 Min Saves", "Total Saves", "Saves"],
             "player_points_rebounds": ["Pts + Reb", "Points + Rebounds"],
             "player_points_assists": ["Pts + Ast"],
             "player_rebounds_assists": ["Reb + Ast", "Rebounds + Assists"],
@@ -94,6 +105,15 @@ SITE_CONFIG = {
             "player_threes": ["Player three-pointers O/U"],
             "player_blocks": ["Player blocks"],
             "player_steals": ["Total Steals", "Player Total Steals", "Steals"],
+            # 1st quarter markets (only available pre-tipoff)
+            "player_points_q1": ["Player points: 1st quarter"],
+            "player_assists_q1": ["Player assists: 1st quarter"],
+            "player_rebounds_q1": ["Player rebounds: 1st quarter"],
+            "player_threes_q1": ["Player three-pointers: 1st quarter"],
+            # NHL markets
+            "player_shots_on_goal": ["Player shots on goal O/U", "Shots on goal O/U", "Shots on goal"],
+            "player_shots_on_goal_alternate": ["Shots on goal", "Shots on Goal"],
+            "player_total_saves": ["Goalie saves O/U", "Total saves O/U", "Saves"],
             "player_points_rebounds": ["Player points + rebounds"],
             "player_points_assists": ["Player points + assists"],
             "player_rebounds_assists": ["Player rebounds + assists"],
@@ -214,8 +234,12 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
     df = fetch_data(query)
 
     if df is None or df.empty:
-        # Try alt table
-        query_alt = query.replace("bg_arbitrage_player_props", "bg_arbitrage_player_props_alt")
+        # Try alt table — separate under_market_key/over_market_key columns there.
+        # Project under_market_key AS market_key so downstream dict access keeps working.
+        query_alt = (query
+            .replace("bg_arbitrage_player_props", "bg_arbitrage_player_props_alt")
+            .replace("           market_key,", "           under_market_key AS market_key,")
+            .replace("WHERE market_key = ", "WHERE under_market_key = "))
         df = fetch_data(query_alt)
 
     if df is None or df.empty:
