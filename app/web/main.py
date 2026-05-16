@@ -1,18 +1,21 @@
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from app.web.watcher_status import compute_status
+from app.web.wiki import render_markdown
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT / "dashboard"
+WIKI_DIR = ROOT / "wiki"
 
 app = FastAPI(title="BountyGate")
 
@@ -130,6 +133,118 @@ def api_watchers():
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "watchers": watchers,
     }
+
+
+# --- Wiki ----------------------------------------------------------------
+
+_FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
+
+
+def _parse_front_matter(text_content: str) -> tuple[dict, str]:
+    m = _FRONT_MATTER_RE.match(text_content)
+    if not m:
+        return {}, text_content
+    raw, body = m.group(1), m.group(2)
+    meta: dict = {}
+    for line in raw.splitlines():
+        if ":" in line and not line.startswith(" "):
+            k, _, v = line.partition(":")
+            meta[k.strip()] = v.strip()
+    return meta, body
+
+
+def _list_wiki_pages() -> list[dict]:
+    if not WIKI_DIR.exists():
+        return []
+    pages = []
+    for p in sorted(WIKI_DIR.glob("*.md")):
+        if p.name.startswith("_"):
+            continue
+        meta, _ = _parse_front_matter(p.read_text(encoding="utf-8"))
+        pages.append({
+            "slug": p.stem,
+            "title": meta.get("title", p.stem),
+            "updated_at": meta.get("updated_at", ""),
+        })
+    return pages
+
+
+_WIKI_TEMPLATE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>{title} · BountyGate Wiki</title>
+<link rel="stylesheet" href="/static/wiki/wiki.css">
+</head><body>
+<aside class="wiki-sidebar">
+  <a class="home-link" href="/">← Dashboard</a>
+  <h3>Pages</h3>
+  <ul>{sidebar_items}</ul>
+</aside>
+<main class="wiki-main">
+  <header class="wiki-header">
+    <h1>{title}</h1>
+    <div class="wiki-updated">{updated}</div>
+  </header>
+  {body}
+</main>
+{scripts}
+</body></html>
+"""
+
+
+def _sidebar_html(active_slug: Optional[str] = None) -> str:
+    parts = []
+    for p in _list_wiki_pages():
+        marker = " style=\"color:#a78bfa;\"" if p["slug"] == active_slug else ""
+        parts.append(f'<li><a href="/wiki/{p["slug"]}"{marker}>{p["title"]}</a></li>')
+    return "".join(parts) or '<li style="color:#8b95a8;">No pages yet</li>'
+
+
+@app.get("/wiki", response_class=HTMLResponse)
+def wiki_index():
+    pages = _list_wiki_pages()
+    if not pages:
+        body = '<p style="color:#8b95a8;">No wiki pages exist yet. Drop a markdown file into <code>wiki/</code> to get started.</p>'
+    else:
+        items = "".join(
+            f'<li><a href="/wiki/{p["slug"]}">{p["title"]}</a> '
+            f'<small style="color:#8b95a8;">{p["updated_at"]}</small></li>'
+            for p in pages
+        )
+        body = f'<p>Internal docs. {len(pages)} page(s):</p><ul>{items}</ul>'
+    return _WIKI_TEMPLATE.format(
+        title="Wiki",
+        sidebar_items=_sidebar_html(),
+        updated="",
+        body=body,
+        scripts="",
+    )
+
+
+@app.get("/wiki/{slug}", response_class=HTMLResponse)
+def wiki_page(slug: str):
+    if not re.fullmatch(r"[a-z0-9_-]+", slug):
+        raise HTTPException(404)
+    path = WIKI_DIR / f"{slug}.md"
+    if not path.exists():
+        raise HTTPException(404)
+    meta, body_md = _parse_front_matter(path.read_text(encoding="utf-8"))
+    body_html, has_reactflow = render_markdown(body_md)
+
+    scripts = (
+        '<script type="module">\n'
+        'import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";\n'
+        'mermaid.initialize({startOnLoad: true, theme: "dark"});\n'
+        '</script>\n'
+    )
+    if has_reactflow:
+        scripts += '<script src="/static/wiki/reactflow-bootstrap.js" defer></script>\n'
+
+    return _WIKI_TEMPLATE.format(
+        title=meta.get("title", slug),
+        sidebar_items=_sidebar_html(active_slug=slug),
+        updated=f'updated {meta.get("updated_at", "—")}',
+        body=body_html,
+        scripts=scripts,
+    )
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
