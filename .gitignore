@@ -36,6 +36,13 @@ arbitrage_executor/.venv/
 # Claude Code per-machine settings
 **/.claude/settings.local.json
 
+# Superpowers visual brainstorm artifacts
+.superpowers/
+
+# Wiki auto-update signal dirs (transient)
+wiki/.pending/
+wiki/.done/
+
 # IDE/editor
 .vscode/
 .idea/
