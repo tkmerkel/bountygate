@@ -6,4 +6,6 @@ audit_logs/
 traces/
 docs/
 .claude/
-*.md
+.superpowers/
+tests/
+/*.md

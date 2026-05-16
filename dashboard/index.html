@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Arb Execution Review</title>
+<title>BountyGate · Internal Dashboard</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -13,11 +13,13 @@
     --line: #2a2f3c;
     --ok: #51d088;
     --bad: #ff6e6e;
+    --warn: #ffc94d;
     --wasted: #4ea1ff;
     --selector: #ff9a3c;
     --slip: #ff4d6d;
     --auth: #b58bff;
     --stealth: #ffd86b;
+    --accent: #a78bfa;
   }
   * { box-sizing: border-box; }
   body {
@@ -36,39 +38,89 @@
   header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
   header .updated { color: var(--muted); font-size: 12px; }
   main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 14px;
-    margin-bottom: 24px;
-  }
-  .card {
+
+  section.panel {
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 14px 16px;
+    margin: 0 0 18px;
   }
-  .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
-  .card .value { font-size: 22px; font-weight: 600; margin-top: 6px; }
-  .card .value.small { font-size: 14px; font-weight: 500; line-height: 1.35; }
+  section.panel header.sec-header {
+    padding: 0;
+    border: none;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  section.panel header.sec-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  thead th {
+  /* Freshness pill */
+  .fresh-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
+    font-weight: 500; vertical-align: baseline;
+  }
+  .fresh-ok      { background: #0e3a26; color: #51d088; }
+  .fresh-amber   { background: #3a2d0e; color: #ffc94d; }
+  .fresh-red     { background: #3a0e12; color: #ff6e6e; }
+  .fresh-unknown { background: #2a2f3c; color: #8b95a8; }
+
+  /* Account cards grid */
+  #accounts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+  }
+  .book-card {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .book-card .book-name {
+    font-size: 11px; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .book-card .book-balance {
+    font-size: 20px; font-weight: 600; margin: 4px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .book-card .book-sub {
+    font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .book-card .book-pnl-positive { color: var(--ok); }
+  .book-card .book-pnl-negative { color: var(--bad); }
+  .book-card .book-error {
+    font-size: 10px; color: var(--bad); margin-top: 6px;
+  }
+
+  /* Watchers table */
+  table.watchers, table.runs { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.watchers thead th, table.runs thead th {
     text-align: left;
     color: var(--muted);
     font-weight: 500;
     text-transform: uppercase;
     font-size: 11px;
     letter-spacing: 0.6px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-bottom: 1px solid var(--line);
-    background: var(--panel-2);
   }
-  tbody tr { border-bottom: 1px solid var(--line); }
-  tbody tr:hover { background: rgba(255,255,255,0.02); }
-  tbody td { padding: 10px 12px; vertical-align: top; }
-  .outcome.ok { color: var(--ok); font-weight: 600; }
-  .outcome.bad { color: var(--bad); font-weight: 600; }
+  table.watchers tbody td, table.runs tbody td { padding: 8px 10px; vertical-align: top; }
+  table.watchers tbody tr, table.runs tbody tr { border-bottom: 1px solid var(--line); }
+  table.runs tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .status-dot-ok    { background: var(--ok); }
+  .status-dot-amber { background: var(--warn); }
+  .status-dot-red   { background: var(--bad); }
+
+  .outcome.success  { color: var(--ok); font-weight: 600; }
+  .outcome.failure  { color: var(--bad); font-weight: 600; }
+  .outcome.skipped  { color: var(--muted); font-weight: 600; }
+
   .tags { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag {
     font-size: 10px;
@@ -77,132 +129,204 @@
     background: rgba(255,255,255,0.06);
     border: 1px solid var(--line);
   }
-  .tag.wasted { color: var(--wasted); border-color: rgba(78,161,255,0.35); }
+  .tag.wasted   { color: var(--wasted);   border-color: rgba(78,161,255,0.35); }
   .tag.selector { color: var(--selector); border-color: rgba(255,154,60,0.35); }
-  .tag.slip { color: var(--slip); border-color: rgba(255,77,109,0.35); }
-  .tag.auth { color: var(--auth); border-color: rgba(181,139,255,0.35); }
-  .tag.stealth { color: var(--stealth); border-color: rgba(255,216,107,0.35); }
+  .tag.slip     { color: var(--slip);     border-color: rgba(255,77,109,0.35); }
+  .tag.auth     { color: var(--auth);     border-color: rgba(181,139,255,0.35); }
+  .tag.stealth  { color: var(--stealth);  border-color: rgba(255,216,107,0.35); }
+
   a { color: #6ea8ff; text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .empty { color: var(--muted); padding: 40px; text-align: center; font-size: 14px; }
+  .empty { color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }
   .top-finding { color: var(--text); }
   .ts { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Arb Execution Review</h1>
-  <span class="updated" id="updated">never updated</span>
+  <h1>BountyGate · Internal Dashboard</h1>
+  <span class="updated">
+    <a href="/wiki" style="margin-right:16px;">📚 Wiki</a>
+    <a href="/health">/health</a>
+  </span>
 </header>
 <main>
-  <div class="cards">
-    <div class="card"><div class="label">Runs analyzed</div><div class="value" id="total">0</div></div>
-    <div class="card"><div class="label">Last 24h</div><div class="value" id="last24">0</div></div>
-    <div class="card"><div class="label">Top recurring issue</div><div class="value small" id="top-issue">—</div></div>
-    <div class="card"><div class="label">Avg wasted wait (est)</div><div class="value" id="avg-wait">—</div></div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>When</th>
-        <th>Player</th>
-        <th>Market</th>
-        <th>Outcome</th>
-        <th>Dur</th>
-        <th>Issues</th>
-        <th>Top finding</th>
-        <th>Links</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
-  <div class="empty" id="empty">No runs analyzed yet. The watcher will populate this dashboard after the first execution.</div>
+
+  <section class="panel">
+    <header class="sec-header">
+      <h2>Accounts</h2>
+      <span id="accounts-fresh" class="fresh-pill fresh-unknown">no data</span>
+    </header>
+    <div id="accounts-grid"></div>
+    <div class="empty" id="accounts-empty">No account stats yet. The scraper will populate this once Phase B is deployed.</div>
+  </section>
+
+  <section class="panel">
+    <header class="sec-header">
+      <h2>Watchers</h2>
+      <span id="watchers-fresh" class="fresh-pill fresh-unknown">no data</span>
+    </header>
+    <table class="watchers">
+      <thead>
+        <tr><th>Name</th><th>Status</th><th>Backlog</th><th>Last tick</th><th>Last error</th></tr>
+      </thead>
+      <tbody id="watchers-rows"></tbody>
+    </table>
+    <div class="empty" id="watchers-empty">No watcher heartbeats yet. Watchers report on their first tick.</div>
+  </section>
+
+  <section class="panel">
+    <header class="sec-header">
+      <h2>Latest runs</h2>
+      <span id="runs-fresh" class="fresh-pill fresh-unknown">no data</span>
+    </header>
+    <table class="runs">
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Player</th>
+          <th>Market</th>
+          <th>Outcome</th>
+          <th>Dur</th>
+          <th>Issues</th>
+          <th>Top finding</th>
+          <th>Links</th>
+        </tr>
+      </thead>
+      <tbody id="runs-rows"></tbody>
+    </table>
+    <div class="empty" id="runs-empty">No runs yet.</div>
+  </section>
+
 </main>
 
 <script>
 const ISSUE_KEYS = [
-  ["wasted_wait", "wasted", "wait"],
+  ["wasted_wait",   "wasted",   "wait"],
   ["selector_miss", "selector", "selector"],
-  ["slip_state", "slip", "slip"],
-  ["auth_geo", "auth", "auth/geo"],
-  ["stealth", "stealth", "stealth"],
+  ["slip_state",    "slip",     "slip"],
+  ["auth_geo",      "auth",     "auth/geo"],
+  ["stealth",       "stealth",  "stealth"],
 ];
 
-async function load() {
-  try {
-    const res = await fetch("data.json?cb=" + Date.now());
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-    render(data);
-  } catch (e) {
-    document.getElementById("empty").textContent = "Could not load data.json: " + e.message;
-  }
+function freshnessClass(updatedAtIso, staleAfterMin) {
+  if (!updatedAtIso) return "fresh-unknown";
+  const ageMin = (Date.now() - new Date(updatedAtIso).getTime()) / 60000;
+  if (ageMin < staleAfterMin) return "fresh-ok";
+  if (ageMin < staleAfterMin * 2) return "fresh-amber";
+  return "fresh-red";
 }
-
+function freshnessLabel(updatedAtIso) {
+  if (!updatedAtIso) return "no data";
+  const ageSec = (Date.now() - new Date(updatedAtIso).getTime()) / 1000;
+  if (ageSec < 60) return Math.round(ageSec) + "s ago";
+  const ageMin = ageSec / 60;
+  if (ageMin < 60) return Math.round(ageMin) + "m ago";
+  const hours = ageMin / 60;
+  if (hours < 24) return hours.toFixed(1) + "h ago";
+  return (hours / 24).toFixed(1) + "d ago";
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
 function fmtTs(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleString();
+  return isNaN(d) ? iso : d.toLocaleString();
 }
 
-function render(data) {
-  const runs = (data.runs || []).slice().reverse(); // newest first
-  document.getElementById("updated").textContent = data.updated_at
-    ? "Updated " + fmtTs(data.updated_at)
-    : "never updated";
-  document.getElementById("total").textContent = runs.length;
-
-  const now = Date.now();
-  const last24 = runs.filter(r => {
-    const t = new Date(r.timestamp).getTime();
-    return !isNaN(t) && (now - t) < 24 * 3600 * 1000;
-  }).length;
-  document.getElementById("last24").textContent = last24;
-
-  // top recurring issue: count which axes have non-empty issue lists
-  const counts = { wasted_wait: 0, selector_miss: 0, slip_state: 0, auth_geo: 0, stealth: 0 };
-  let waitTotal = 0, waitN = 0;
-  for (const r of runs) {
-    const iss = r.issues || {};
-    for (const k of Object.keys(counts)) {
-      const v = iss[k];
-      if (Array.isArray(v) ? v.length > 0 : (v && v !== "none")) counts[k]++;
+async function refreshAccounts() {
+  try {
+    const r = await fetch("/api/account-stats?cb=" + Date.now());
+    const data = await r.json();
+    const fresh = document.getElementById("accounts-fresh");
+    fresh.className = "fresh-pill " + freshnessClass(data.updated_at, data.stale_after_minutes);
+    fresh.textContent = freshnessLabel(data.updated_at);
+    const grid = document.getElementById("accounts-grid");
+    grid.innerHTML = "";
+    const books = data.books || {};
+    const empty = document.getElementById("accounts-empty");
+    empty.style.display = Object.keys(books).length === 0 ? "block" : "none";
+    for (const [name, s] of Object.entries(books)) {
+      const ok = s.scrape_status === "ok";
+      const div = document.createElement("div");
+      div.className = "book-card";
+      const pnl = s.pnl_7d ?? 0;
+      const pnlClass = pnl >= 0 ? "book-pnl-positive" : "book-pnl-negative";
+      div.innerHTML = `
+        <div class="book-name">${esc(name)}</div>
+        <div class="book-balance">$${(s.balance ?? 0).toFixed(2)}</div>
+        <div class="book-sub">avail $${(s.available_liquidity ?? 0).toFixed(2)} · pending $${(s.pending_wagers ?? 0).toFixed(2)}</div>
+        <div class="book-sub ${pnlClass}">7d P&amp;L: $${pnl.toFixed(2)}</div>
+        ${!ok ? `<div class="book-error">⚠ ${esc(s.last_error || s.scrape_status)}</div>` : ""}
+      `;
+      grid.appendChild(div);
     }
-    if (typeof r.estimated_wasted_wait_s === "number") {
-      waitTotal += r.estimated_wasted_wait_s; waitN++;
-    }
-  }
-  const top = Object.entries(counts).sort((a,b) => b[1] - a[1])[0];
-  document.getElementById("top-issue").textContent = top && top[1] > 0
-    ? `${labelOf(top[0])} (${top[1]} runs)`
-    : "—";
-  document.getElementById("avg-wait").textContent = waitN > 0
-    ? (waitTotal / waitN).toFixed(1) + "s"
-    : "—";
-
-  const tbody = document.getElementById("rows");
-  tbody.innerHTML = "";
-  document.getElementById("empty").style.display = runs.length === 0 ? "block" : "none";
-
-  for (const r of runs.slice(0, 50)) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="ts">${fmtTs(r.timestamp)}</td>
-      <td>${esc(r.player)}</td>
-      <td>${esc(r.market)}</td>
-      <td class="outcome ${r.outcome === "success" ? "ok" : "bad"}">${esc(r.outcome || "—")}</td>
-      <td>${r.duration_s != null ? r.duration_s.toFixed(1) + "s" : "—"}</td>
-      <td><div class="tags">${tagsHtml(r.issues)}</div></td>
-      <td class="top-finding">${esc(r.top_finding || "")}</td>
-      <td>${linksHtml(r)}</td>
-    `;
-    tbody.appendChild(tr);
+  } catch (e) {
+    console.error("accounts fetch failed", e);
   }
 }
 
-function labelOf(key) {
-  return ISSUE_KEYS.find(k => k[0] === key)?.[2] || key;
+async function refreshWatchers() {
+  try {
+    const r = await fetch("/api/watchers?cb=" + Date.now());
+    const data = await r.json();
+    const fresh = document.getElementById("watchers-fresh");
+    fresh.className = "fresh-pill " + freshnessClass(data.checked_at, 1);
+    fresh.textContent = freshnessLabel(data.checked_at);
+    const tbody = document.getElementById("watchers-rows");
+    tbody.innerHTML = "";
+    const empty = document.getElementById("watchers-empty");
+    empty.style.display = data.watchers.length === 0 ? "block" : "none";
+    for (const w of data.watchers) {
+      const tr = document.createElement("tr");
+      const backlog = w.pending_count > 0
+        ? `${w.pending_count} pending` + (w.oldest_pending_age_s ? ` · oldest ${Math.round(w.oldest_pending_age_s / 60)}m` : "")
+        : "0 pending";
+      tr.innerHTML = `
+        <td><span class="status-dot status-dot-${esc(w.status)}"></span>${esc(w.name)}</td>
+        <td>${esc(w.status)}${w.is_running ? "" : " · idle"}</td>
+        <td>${backlog}</td>
+        <td>${freshnessLabel(w.last_tick_at)}</td>
+        <td>${esc(w.last_error || "—")}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error("watchers fetch failed", e);
+  }
+}
+
+async function refreshRuns() {
+  try {
+    const r = await fetch("/api/runs?limit=100&cb=" + Date.now());
+    const data = await r.json();
+    const fresh = document.getElementById("runs-fresh");
+    fresh.className = "fresh-pill " + freshnessClass(data.updated_at, data.stale_after_minutes);
+    fresh.textContent = freshnessLabel(data.updated_at);
+    const tbody = document.getElementById("runs-rows");
+    tbody.innerHTML = "";
+    const runs = data.runs || [];
+    document.getElementById("runs-empty").style.display = runs.length === 0 ? "block" : "none";
+    for (const r of runs.slice(0, 50)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="ts">${fmtTs(r.occurred_at)}</td>
+        <td>${esc(r.player)}</td>
+        <td>${esc(r.market)}</td>
+        <td class="outcome ${esc(r.outcome)}">${esc(r.outcome || "—")}</td>
+        <td>${r.duration_s != null ? r.duration_s.toFixed(1) + "s" : "—"}</td>
+        <td><div class="tags">${tagsHtml(r.issues)}</div></td>
+        <td class="top-finding">${esc(r.top_finding || "")}</td>
+        <td>${linksHtml(r)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error("runs fetch failed", e);
+  }
 }
 
 function tagsHtml(issues) {
@@ -218,20 +342,20 @@ function tagsHtml(issues) {
 
 function linksHtml(r) {
   const parts = [];
-  if (r.recording) parts.push(`<a href="${esc(r.recording)}">▶ video</a>`);
-  if (r.review) parts.push(`<a href="${esc(r.review)}">review</a>`);
+  if (r.video_url) parts.push(`<a href="${esc(r.video_url)}">▶ video</a>`);
+  if (r.review_url) parts.push(`<a href="${esc(r.review_url)}">review</a>`);
   return parts.join(" · ");
 }
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
+function refreshAll() {
+  refreshAccounts();
+  refreshWatchers();
+  refreshRuns();
 }
 
-load();
-window.addEventListener("focus", load);
-setInterval(load, 30000);
+refreshAll();
+window.addEventListener("focus", refreshAll);
+setInterval(refreshAll, 30000);
 </script>
 </body>
 </html>
