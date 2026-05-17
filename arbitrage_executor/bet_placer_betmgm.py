@@ -371,7 +371,181 @@ class BetmgmBetPlacer(BetPlacer):
         self._screenshot("alternate_tab_not_found")
 
     def clear_betslip(self):
-        raise NotImplementedError("migrated in Task C3")
+        """Empty the BetMGM betslip; fail if it remains non-empty."""
+        self._clear_betslip_betmgm_precheck()
+
+    def _clear_betslip_betmgm_precheck(self) -> None:
+        """Empty the BetMGM betslip if it isn't already.
+
+        Same rationale as the FanDuel version: stale items leave the
+        accordion-click path in an ambiguous state and cause toggle-off
+        side-effects. Best-effort, never raises.
+        """
+        try:
+            # BetMGM shows a "Bet slip (N)" pill at the bottom. If N == 0
+            # there's nothing to clear and the icon is just "Bet slip".
+            try:
+                slip_pill = self.page.locator(
+                    'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
+                )
+                text = ""
+                if slip_pill.count() > 0:
+                    text = (slip_pill.first.text_content() or "").strip()
+                # Match "(0)" -> empty; "(1)" -> has bets.
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m and int(m.group(1) or m.group(2)) == 0:
+                    print(f"[BETMGM] Slip already empty.")
+                    return
+            except Exception:
+                pass
+
+            clicked_clear_all = False
+
+            # Open the slip to access remove controls. The pill at the
+            # bottom is a non-button element ("0 Bet slip" / "1 Bet slip"
+            # in a span/div). Earlier `button:has-text("Bet slip")`
+            # selectors matched nothing and the subsequent "Clear all"
+            # click hit a wrong button on the page (or no-op'd) while
+            # bets accumulated across iterations.
+            self._open_betmgm_slip()
+
+            # "Remove all" sweep. In desktop right-rail layout the actual
+            # clickable Clear All element is a <span> (not a <button>).
+            # Mobile-layout variants render it as a button or div[role=button].
+            for sel in (
+                'span:has-text("Clear All")',
+                'button:has-text("Clear All")',
+                'button:has-text("Remove all")',
+                'button:has-text("Clear all")',
+                'button[aria-label*="remove all" i]',
+                'div[role="button"]:has-text("Clear All")',
+                '[role="button"]:has-text("Clear All")',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        print(f"[BETMGM] Clearing slip via {sel}")
+                        loc.first.click()
+                        self.page.wait_for_timeout(800)
+                        # Some BetMGM flows show a confirmation dialog.
+                        for confirm_sel in (
+                            'button:has-text("Yes")',
+                            'button:has-text("Remove")',
+                            'button:has-text("Confirm")',
+                        ):
+                            try:
+                                cloc = self.page.locator(confirm_sel)
+                                if cloc.count() > 0 and cloc.first.is_visible():
+                                    cloc.first.click()
+                                    self.page.wait_for_timeout(500)
+                                    break
+                            except Exception:
+                                continue
+                        clicked_clear_all = True
+                        break
+                except Exception:
+                    continue
+
+            # Otherwise individual remove icons.
+            if not clicked_clear_all:
+                for _ in range(10):
+                    removed = False
+                    for sel in (
+                        'bs-bet-slip-item button[aria-label*="remove" i]',
+                        'button[aria-label*="remove" i]',
+                        'button[aria-label*="delete" i]',
+                    ):
+                        try:
+                            loc = self.page.locator(sel)
+                            n = loc.count()
+                            for i in range(n):
+                                cand = loc.nth(i)
+                                try:
+                                    if cand.is_visible():
+                                        cand.click(timeout=2000)
+                                        self.page.wait_for_timeout(400)
+                                        removed = True
+                                        break
+                                except Exception:
+                                    continue
+                            if removed:
+                                break
+                        except Exception:
+                            continue
+                    if not removed:
+                        break
+            print(f"[BETMGM] Slip cleared (best-effort).")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Slip clear failed: {e} (continuing).")
+
+        # Post-clear verification: re-read the slip pill. If "(N)" with N > 0
+        # remains, the clear didn't take and we should halt before placing.
+        try:
+            slip_pill = self.page.locator(
+                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
+            )
+            if slip_pill.count() > 0:
+                text = (slip_pill.first.text_content() or "").strip()
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m and int(m.group(1) or m.group(2)) > 0:
+                    raise BetPlacerError(
+                        f"BetMGM slip-clear failed: pill still reads {text!r}"
+                    )
+        except BetPlacerError:
+            raise
+        except Exception:
+            pass
+
+    def _open_betmgm_slip(self) -> None:
+        """Click the bottom-docked Bet slip pill to expand the slip panel.
+
+        BetMGM's slip is collapsed by default after a bet is added —
+        the wager input doesn't exist in the DOM until the slip
+        expands. Tries multiple selectors (text variants seen in
+        production: 'pays out', 'to win', plain 'Bet slip').
+        Idempotent — if the slip is already open, returns silently.
+        """
+        try:
+            # If a stake input is already visible, slip is already expanded.
+            for probe in ('app-stake-input input', 'bs-stake-input input',
+                          'input[inputmode="decimal"]'):
+                try:
+                    loc = self.page.locator(probe)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        return
+                except Exception:
+                    continue
+
+            # Click any visible slip-pill affordance.
+            for sel in (
+                'div:has-text("pays out")',
+                'span:has-text("pays out")',
+                '*[role="button"]:has-text("Bet slip")',
+                'button:has-text("Bet slip")',
+                'a:has-text("Bet slip")',
+                'span:has-text("Bet slip")',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() == 0:
+                        continue
+                    # Pick the FIRST visible candidate; bottom-pill is
+                    # usually the only visible match.
+                    for i in range(min(loc.count(), 5)):
+                        cand = loc.nth(i)
+                        try:
+                            if cand.is_visible():
+                                print(f"[BETMGM] Opening slip via {sel}")
+                                cand.click()
+                                self.page.wait_for_timeout(1500)
+                                return
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            print("[BETMGM] ⚠ No slip-pill affordance found; continuing.")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Slip-open probe failed: {e} (continuing)")
 
     def assert_betslip_has_bet(self):
         raise NotImplementedError("migrated in Task C4")
