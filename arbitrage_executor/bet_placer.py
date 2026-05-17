@@ -74,10 +74,13 @@ class BetPlacer(ABC):
         # arguments — Python's __new__/__init__ contract requires the
         # same call signature reach both.
         if cls is BetPlacer:
-            # During migration: route to the legacy concrete class.
-            # Subsequent tasks will swap each site to its dedicated
-            # subclass.
-            return object.__new__(_LegacyBetPlacer)
+            if site == "fanduel":
+                from bet_placer_fanduel import FanduelBetPlacer
+                return object.__new__(FanduelBetPlacer)
+            if site == "betmgm":
+                # Not yet migrated — still served by legacy
+                return object.__new__(_LegacyBetPlacer)
+            raise BetPlacerError(f"Unknown site: {site}")
         return object.__new__(cls)
 
     def __init__(self, page, site, audit_dir):

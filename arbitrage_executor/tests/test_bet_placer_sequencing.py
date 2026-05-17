@@ -65,27 +65,11 @@ def test_fanduel_validation_accepts_current_remove_all_signal():
     placer.assert_betslip_has_bet()
 
 
-# ---- Unified-name wrapper tests (added in A3 of bet-placer-rewrite) ----
-
-def test_get_actual_odds_dispatches_to_fanduel(monkeypatch):
-    page = FakePage()
-    placer = BetPlacer(page, "fanduel", AUDIT_DIR)
-    called = []
-    monkeypatch.setattr(placer, "get_actual_odds_fanduel",
-                        lambda: called.append("fd") or 2.5)
-    assert placer.get_actual_odds() == 2.5
-    assert called == ["fd"]
-
-
-def test_get_actual_odds_dispatches_to_betmgm(monkeypatch):
-    page = FakePage()
-    placer = BetPlacer(page, "betmgm", AUDIT_DIR)
-    called = []
-    monkeypatch.setattr(placer, "get_actual_odds_betmgm",
-                        lambda: called.append("mgm") or 1.91)
-    assert placer.get_actual_odds() == 1.91
-    assert called == ["mgm"]
-
+# ---- Unified-name capability tests ----
+# A3 added wrapper dispatch tests as transitional scaffolding. Once a site
+# is migrated to its own class, the dispatch IS the class, so those tests
+# became circular. The remaining tests below cover the optional-capability
+# raise-on-wrong-site contract that survives the migration.
 
 def test_discover_max_wager_raises_on_betmgm():
     page = FakePage()
