@@ -96,6 +96,49 @@ class BetPlacer:
         else:
             raise BetPlacerError(f"Unknown site: {self.site}")
 
+    def clear_betslip(self) -> None:
+        """Clear the current site's betslip and fail if it remains non-empty."""
+        if self.site == "fanduel":
+            self._clear_betslip_fanduel()
+        elif self.site == "betmgm":
+            self._clear_betslip_betmgm_precheck()
+        else:
+            raise BetPlacerError(f"Unknown site: {self.site}")
+
+    def assert_betslip_has_bet(self) -> None:
+        """Assert a selected bet actually reached the slip.
+
+        Used by the selector validation harness. It intentionally stops before
+        wager entry or placement.
+        """
+        if self.site == "fanduel":
+            if not self._fanduel_slip_has_visible_selection():
+                self._screenshot("validation_slip_empty")
+                raise BetPlacerError("FanDuel slip is empty after bet click")
+            return
+        if self.site == "betmgm":
+            self._open_betmgm_slip()
+            if not self._betmgm_slip_has_bet():
+                self._screenshot("validation_slip_empty")
+                raise BetPlacerError("BetMGM slip is empty after bet click")
+            return
+        raise BetPlacerError(f"Unknown site: {self.site}")
+
+    def assert_betslip_empty(self) -> None:
+        """Assert the current site's slip is empty after cleanup."""
+        if self.site == "fanduel":
+            if not self._fanduel_slip_is_empty():
+                self._screenshot("validation_slip_not_empty")
+                raise BetPlacerError("FanDuel slip still appears to contain a bet")
+            return
+        if self.site == "betmgm":
+            self._open_betmgm_slip()
+            if self._betmgm_slip_has_bet():
+                self._screenshot("validation_slip_not_empty")
+                raise BetPlacerError("BetMGM slip still appears to contain a bet")
+            return
+        raise BetPlacerError(f"Unknown site: {self.site}")
+
     def _navigate_fanduel(self, opportunity: Dict):
         """Navigate FanDuel to player search results."""
         player_name = opportunity['player_name']
@@ -1029,6 +1072,8 @@ class BetPlacer:
             except Exception:
                 pass
 
+            clicked_clear_all = False
+
             # 1. Try a single "Remove all" / "Clear" affordance.
             # NOTE: the visible "Remove all selections" element is a
             # div[role="button"], NOT a <button> tag. Earlier
@@ -1052,38 +1097,40 @@ class BetPlacer:
                         print(f"[FANDUEL] Clearing slip via {sel}")
                         loc.first.click()
                         self.page.wait_for_timeout(800)
-                        return
+                        clicked_clear_all = True
+                        break
                 except Exception:
                     continue
 
             # 2. Otherwise, click individual remove buttons until empty.
-            for _ in range(10):  # safety cap
-                removed = False
-                for sel in (
-                    'button[aria-label*="remove" i]',
-                    'button[aria-label*="delete" i]',
-                    '[data-testid*="remove-selection" i]',
-                    '[data-test-id*="remove-selection" i]',
-                ):
-                    try:
-                        loc = self.page.locator(sel)
-                        n = loc.count()
-                        for i in range(n):
-                            cand = loc.nth(i)
-                            try:
-                                if cand.is_visible():
-                                    cand.click(timeout=2000)
-                                    self.page.wait_for_timeout(400)
-                                    removed = True
-                                    break
-                            except Exception:
-                                continue
-                        if removed:
-                            break
-                    except Exception:
-                        continue
-                if not removed:
-                    break
+            if not clicked_clear_all:
+                for _ in range(10):  # safety cap
+                    removed = False
+                    for sel in (
+                        'button[aria-label*="remove" i]',
+                        'button[aria-label*="delete" i]',
+                        '[data-testid*="remove-selection" i]',
+                        '[data-test-id*="remove-selection" i]',
+                    ):
+                        try:
+                            loc = self.page.locator(sel)
+                            n = loc.count()
+                            for i in range(n):
+                                cand = loc.nth(i)
+                                try:
+                                    if cand.is_visible():
+                                        cand.click(timeout=2000)
+                                        self.page.wait_for_timeout(400)
+                                        removed = True
+                                        break
+                                except Exception:
+                                    continue
+                            if removed:
+                                break
+                        except Exception:
+                            continue
+                    if not removed:
+                        break
             print(f"[FANDUEL] Slip cleared (best-effort).")
         except Exception as e:
             print(f"[FANDUEL] ⚠ Slip clear failed: {e} (continuing).")
@@ -1136,18 +1183,20 @@ class BetPlacer:
             # there's nothing to clear and the icon is just "Bet slip".
             try:
                 slip_pill = self.page.locator(
-                    'text=/^\\s*Bet slip\\s*\\(?\\s*\\d+\\s*\\)?\\s*$/'
+                    'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
                 )
                 text = ""
                 if slip_pill.count() > 0:
                     text = (slip_pill.first.text_content() or "").strip()
                 # Match "(0)" -> empty; "(1)" -> has bets.
-                m = re.search(r"\((\d+)\)", text)
-                if m and int(m.group(1)) == 0:
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m and int(m.group(1) or m.group(2)) == 0:
                     print(f"[BETMGM] Slip already empty.")
                     return
             except Exception:
                 pass
+
+            clicked_clear_all = False
 
             # Open the slip to access remove controls. The pill at the
             # bottom is a non-button element ("0 Bet slip" / "1 Bet slip"
@@ -1189,37 +1238,39 @@ class BetPlacer:
                                     break
                             except Exception:
                                 continue
-                        return
+                        clicked_clear_all = True
+                        break
                 except Exception:
                     continue
 
             # Otherwise individual remove icons.
-            for _ in range(10):
-                removed = False
-                for sel in (
-                    'bs-bet-slip-item button[aria-label*="remove" i]',
-                    'button[aria-label*="remove" i]',
-                    'button[aria-label*="delete" i]',
-                ):
-                    try:
-                        loc = self.page.locator(sel)
-                        n = loc.count()
-                        for i in range(n):
-                            cand = loc.nth(i)
-                            try:
-                                if cand.is_visible():
-                                    cand.click(timeout=2000)
-                                    self.page.wait_for_timeout(400)
-                                    removed = True
-                                    break
-                            except Exception:
-                                continue
-                        if removed:
-                            break
-                    except Exception:
-                        continue
-                if not removed:
-                    break
+            if not clicked_clear_all:
+                for _ in range(10):
+                    removed = False
+                    for sel in (
+                        'bs-bet-slip-item button[aria-label*="remove" i]',
+                        'button[aria-label*="remove" i]',
+                        'button[aria-label*="delete" i]',
+                    ):
+                        try:
+                            loc = self.page.locator(sel)
+                            n = loc.count()
+                            for i in range(n):
+                                cand = loc.nth(i)
+                                try:
+                                    if cand.is_visible():
+                                        cand.click(timeout=2000)
+                                        self.page.wait_for_timeout(400)
+                                        removed = True
+                                        break
+                                except Exception:
+                                    continue
+                            if removed:
+                                break
+                        except Exception:
+                            continue
+                    if not removed:
+                        break
             print(f"[BETMGM] Slip cleared (best-effort).")
         except Exception as e:
             print(f"[BETMGM] ⚠ Slip clear failed: {e} (continuing).")
@@ -1228,12 +1279,12 @@ class BetPlacer:
         # remains, the clear didn't take and we should halt before placing.
         try:
             slip_pill = self.page.locator(
-                'text=/^\\s*Bet slip\\s*\\(?\\s*\\d+\\s*\\)?\\s*$/'
+                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
             )
             if slip_pill.count() > 0:
                 text = (slip_pill.first.text_content() or "").strip()
-                m = re.search(r"\((\d+)\)", text)
-                if m and int(m.group(1)) > 0:
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m and int(m.group(1) or m.group(2)) > 0:
                     raise BetPlacerError(
                         f"BetMGM slip-clear failed: pill still reads {text!r}"
                     )
@@ -1265,6 +1316,119 @@ class BetPlacer:
         except Exception:
             pass
         return True
+
+    def _fanduel_slip_is_empty(self) -> bool:
+        """Return True only when FanDuel exposes a clear empty-slip signal."""
+        try:
+            for text in ("Betslip empty", "No bet selections"):
+                empty_marker = self.page.get_by_text(text, exact=False)
+                if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                    return True
+        except Exception:
+            pass
+        try:
+            for sel in (
+                'button[aria-label*="remove" i]',
+                '[data-testid*="remove-selection" i]',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return False
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return False
+
+    def _fanduel_slip_has_visible_selection(self) -> bool:
+        """Return True only when FanDuel exposes a concrete slip-selection signal."""
+        try:
+            if self._fanduel_slip_is_empty():
+                return False
+        except Exception:
+            pass
+
+        try:
+            wins_pattern = self.page.get_by_text(
+                re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
+            )
+            if wins_pattern.count() > 0 and wins_pattern.first.is_visible():
+                return True
+        except Exception:
+            pass
+
+        for sel in (
+            'button[aria-label*="remove" i]',
+            'div[role="button"]:has-text("Remove all selections")',
+            '[role="button"]:has-text("Remove all selections")',
+            '[data-testid*="remove-selection" i]',
+            '[data-test-id*="remove-selection" i]',
+            'input[aria-label*="wager" i]',
+            'input[name*="wager" i]',
+            'button:has-text("Place"):has-text("bet")',
+            'button:has-text("Place Bet")',
+        ):
+            try:
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+        return False
+
+    def _betmgm_slip_has_bet(self) -> bool:
+        """Return True if BetMGM's slip appears to contain at least one bet.
+
+        Conservative on ambiguous states: if the page exposes remove controls
+        or a non-zero slip pill, report True. If a clear empty marker is
+        visible, report False.
+        """
+        try:
+            for text in ("No bet selections", "Betslip empty"):
+                empty_marker = self.page.get_by_text(text, exact=False)
+                if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                    return False
+        except Exception:
+            pass
+
+        try:
+            slip_pill = self.page.locator(
+                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
+            )
+            if slip_pill.count() > 0:
+                text = (slip_pill.first.text_content() or "").strip()
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m:
+                    return int(m.group(1) or m.group(2)) > 0
+        except Exception:
+            pass
+
+        try:
+            for sel in (
+                'bs-bet-slip-item',
+                'bs-betslip-item',
+                'button[aria-label*="remove" i]',
+                'button[aria-label*="delete" i]',
+                'span:has-text("Clear All")',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return True
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        return False
 
     def _enter_wager_fanduel(self, amount: float) -> bool:
         """Enter wager on FanDuel.

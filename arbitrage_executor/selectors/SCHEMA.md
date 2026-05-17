@@ -51,6 +51,29 @@ These are written by `map_selectors.py` when a market is first mapped. They serv
 | `test_line` | map_selectors | Betting line used during interactive mapping |
 | `validated_at` | map_selectors | ISO timestamp of the last successful mapping |
 | `base_market` | map_selectors | For `_alternate` keys: the standard-market key this alternate pairs with |
+| `validation_status` | validate_selector | `passed`, `failed`, or `unknown`. `passed` means the executable harness clicked a real opportunity into the slip and cleared it. |
+| `validation` | validate_selector | Structured proof metadata: player, line, side, source table/hash, audit dir, and timestamp. |
+
+## Executable validation
+
+The preferred workflow is **not** hand-mapping a selector and assuming it will run. Use the executable validation harness:
+
+```bash
+cd arbitrage_executor
+python validate_selector.py --site fanduel --market batter_doubles_alternate
+python validate_selector.py --site betmgm --market player_assists --testing-mode
+```
+
+Passing validation means:
+
+1. A real recent opportunity was fetched from the same opportunity tables the bot uses.
+2. The bot navigated through the real runtime path.
+3. The requested site/market/side/player/line was clicked into the betslip.
+4. No wager was entered and no bet was placed.
+5. The betslip was cleared and verified empty.
+6. `validation_status: passed` and a `validation:` block were written to YAML.
+
+`map_selectors.py` is legacy discovery tooling. It can still help find label text, but it does not prove executability by itself.
 
 ## Canonical examples
 

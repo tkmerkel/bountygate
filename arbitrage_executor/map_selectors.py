@@ -2,6 +2,10 @@
 Semi-Automated Selector Mapping Tool
 Discovers and validates element selectors for sportsbook sites.
 
+Legacy note:
+    Prefer validate_selector.py for operational work. This tool can still help
+    discover label text, but it does not prove the saved YAML is executable.
+
 Usage:
     python map_selectors.py --site betmgm --market player_points
     python map_selectors.py --site fanduel --market player_assists

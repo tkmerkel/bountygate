@@ -3,6 +3,7 @@ Selector Finder Utilities
 Helper functions for discovering, validating, and managing element selectors.
 """
 
+import os
 import yaml
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -430,9 +431,18 @@ class SelectorManager:
     """Manages loading and saving selector configurations."""
 
     @staticmethod
+    def _selectors_dir() -> str:
+        """Return the selectors directory independent of caller CWD."""
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "selectors")
+
+    @staticmethod
+    def _market_config_path(site: str) -> str:
+        return os.path.join(SelectorManager._selectors_dir(), f"{site}_markets.yaml")
+
+    @staticmethod
     def load_market_config(site: str) -> Dict:
         """Load market configuration from YAML file."""
-        file_path = f"selectors/{site}_markets.yaml"
+        file_path = SelectorManager._market_config_path(site)
         try:
             with open(file_path, 'r') as f:
                 config = yaml.safe_load(f) or {}
@@ -447,14 +457,15 @@ class SelectorManager:
     @staticmethod
     def save_market_config(site: str, market_key: str, config: Dict) -> bool:
         """Save a market configuration to YAML file."""
-        file_path = f"selectors/{site}_markets.yaml"
+        file_path = SelectorManager._market_config_path(site)
 
         try:
             # Load existing config
             existing = SelectorManager.load_market_config(site)
 
-            # Add timestamp
-            config['validated_at'] = datetime.now().isoformat()
+            # Add timestamp for legacy mapping writes, but preserve the exact
+            # timestamp set by executable validation metadata.
+            config.setdefault('validated_at', datetime.now().isoformat())
 
             # Update with new market
             existing[market_key] = config
@@ -472,10 +483,46 @@ class SelectorManager:
             return False
 
     @staticmethod
+    def update_validation_status(
+        site: str,
+        market_key: str,
+        *,
+        status: str,
+        details: Optional[Dict] = None,
+    ) -> bool:
+        """Update validation metadata on an existing market config.
+
+        `status` is intentionally small and stringly for YAML readability:
+        "passed", "failed", or "unknown".
+        """
+        config = SelectorManager.get_market(site, market_key)
+        if not config:
+            print(f"Cannot update validation: {site}/{market_key} is not mapped")
+            return False
+
+        details = details or {}
+        config["validation_status"] = status
+        config["validated_at"] = datetime.now().isoformat()
+        config["validation"] = {
+            **details,
+            "status": status,
+            "validated_at": config["validated_at"],
+        }
+        return SelectorManager.save_market_config(site, market_key, config)
+
+    @staticmethod
     def has_market(site: str, market_key: str) -> bool:
         """Check if a market is already mapped."""
         config = SelectorManager.load_market_config(site)
         return market_key in config
+
+    @staticmethod
+    def is_market_executable(site: str, market_key: str) -> bool:
+        """Return True only for mappings proven by the validation harness."""
+        config = SelectorManager.get_market(site, market_key)
+        if not config:
+            return False
+        return config.get("validation_status") == "passed"
 
     @staticmethod
     def get_market(site: str, market_key: str) -> Optional[Dict]:
