@@ -150,7 +150,140 @@ class FanduelBetPlacer(BetPlacer):
             print(f"[FANDUEL] ⚠ Modal-dismiss probe failed: {e} (continuing)")
 
     def clear_betslip(self):
-        raise NotImplementedError("migrated in Task B3")
+        """Clear the FanDuel betslip and fail if it remains non-empty."""
+        self._clear_betslip_fanduel()
+
+    def _clear_betslip_fanduel(self) -> None:
+        """Empty the FanDuel betslip if it isn't already.
+
+        Best-effort. Stale bets in the slip cause the next bet-button click
+        to toggle the SAME bet OFF (the aria-label still says " Selected"),
+        leaving the slip empty when we go to enter a wager. Run this before
+        every search to start from a known-empty state.
+
+        Does not raise — if removal fails for any reason, we log and
+        continue. The downstream _fanduel_slip_has_bet check after the
+        click is the real safety net.
+        """
+        try:
+            # Open the slip first; the remove buttons live inside its panel.
+            try:
+                wins_pattern = self.page.get_by_text(
+                    re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
+                )
+                if wins_pattern.count() > 0 and wins_pattern.first.is_visible():
+                    wins_pattern.first.click()
+                    self.page.wait_for_timeout(600)
+            except Exception:
+                pass
+
+            # If already empty, bail.
+            try:
+                empty = self.page.get_by_text("Betslip empty", exact=False)
+                if empty.count() > 0 and empty.first.is_visible():
+                    print(f"[FANDUEL] Slip already empty.")
+                    return
+            except Exception:
+                pass
+
+            clicked_clear_all = False
+
+            # 1. Try a single "Remove all" / "Clear" affordance.
+            # NOTE: the visible "Remove all selections" element is a
+            # div[role="button"], NOT a <button> tag. Earlier
+            # button:has-text() selectors silently missed it across an
+            # entire session — every iteration's "slip cleared" log was
+            # a false positive while the slip retained a stale tease.
+            for sel in (
+                '[data-testid="remove-all-selections-button"]',
+                '[data-test-id="remove-all-selections-button"]',
+                'div[role="button"]:has-text("Remove all selections")',
+                'div[role="button"]:has-text("Remove all")',
+                '[role="button"]:has-text("Remove all selections")',
+                'button[aria-label*="remove all" i]',
+                'button[aria-label*="clear all" i]',
+                'button:has-text("Remove all")',
+                'button:has-text("Clear all")',
+            ):
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        print(f"[FANDUEL] Clearing slip via {sel}")
+                        loc.first.click()
+                        self.page.wait_for_timeout(800)
+                        clicked_clear_all = True
+                        break
+                except Exception:
+                    continue
+
+            # 2. Otherwise, click individual remove buttons until empty.
+            if not clicked_clear_all:
+                for _ in range(10):  # safety cap
+                    removed = False
+                    for sel in (
+                        'button[aria-label*="remove" i]',
+                        'button[aria-label*="delete" i]',
+                        '[data-testid*="remove-selection" i]',
+                        '[data-test-id*="remove-selection" i]',
+                    ):
+                        try:
+                            loc = self.page.locator(sel)
+                            n = loc.count()
+                            for i in range(n):
+                                cand = loc.nth(i)
+                                try:
+                                    if cand.is_visible():
+                                        cand.click(timeout=2000)
+                                        self.page.wait_for_timeout(400)
+                                        removed = True
+                                        break
+                                except Exception:
+                                    continue
+                            if removed:
+                                break
+                        except Exception:
+                            continue
+                    if not removed:
+                        break
+            print(f"[FANDUEL] Slip cleared (best-effort).")
+        except Exception as e:
+            print(f"[FANDUEL] ⚠ Slip clear failed: {e} (continuing).")
+
+        # Post-clear verification: if the slip still has bets, halt loud.
+        # A stale slip causes the next bet click to toggle OFF instead of ON,
+        # leaving wager entry against an empty slip — wastes the run and may
+        # leak browser state into subsequent attempts.
+        try:
+            empty_marker = self.page.get_by_text("Betslip empty", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return  # confirmed empty
+        except Exception:
+            pass
+        # Fallback signal: look for a non-zero count near "Bet slip (N)" or
+        # any remaining remove-selection button. Either is evidence of items.
+        try:
+            for sel in (
+                'button[aria-label*="remove" i]',
+                '[data-testid*="remove-selection" i]',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(loc.count()):
+                    try:
+                        if loc.nth(i).is_visible():
+                            raise BetPlacerError(
+                                f"FanDuel slip-clear failed: remove control "
+                                f"still present ({sel!r})"
+                            )
+                    except BetPlacerError:
+                        raise
+                    except Exception:
+                        continue
+        except BetPlacerError:
+            raise
+        except Exception:
+            # Verification probe itself failed — don't escalate; the original
+            # best-effort clear may have succeeded.
+            pass
 
     def assert_betslip_has_bet(self):
         raise NotImplementedError("migrated in Task B4")

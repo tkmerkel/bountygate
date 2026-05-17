@@ -45,3 +45,46 @@ def test_dismiss_modal_invisible_modal_is_noop():
     placer._dismiss_fanduel_modal()  # must not raise
 
     assert page.waits == []
+
+
+# ---- B3: slip-clearing tests ----
+
+def test_clear_slip_fast_path_when_already_empty(capsys):
+    page = FakePage(text_locators={
+        "Betslip empty": FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    placer._clear_betslip_fanduel()
+
+    captured = capsys.readouterr()
+    assert "Slip already empty." in captured.out
+
+
+def test_clear_slip_via_remove_all_button():
+    clear_all = FakeElement(visible=True)
+    page = FakePage(locators={
+        'div[role="button"]:has-text("Remove all selections")':
+            FakeLocator([clear_all]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    placer._clear_betslip_fanduel()
+
+    assert clear_all.clicked
+
+
+def test_clear_slip_post_clear_verification_raises_when_remove_button_remains():
+    clear_all = FakeElement(visible=True)
+    leftover_remove = FakeElement(visible=True)
+    page = FakePage(locators={
+        'div[role="button"]:has-text("Remove all selections")':
+            FakeLocator([clear_all]),
+        'button[aria-label*="remove" i]': FakeLocator([leftover_remove]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    with pytest.raises(BetPlacerError, match="FanDuel slip-clear failed"):
+        placer._clear_betslip_fanduel()
+
+    assert clear_all.clicked
