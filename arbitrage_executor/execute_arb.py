@@ -315,9 +315,9 @@ class ArbExecutor:
                     placer_fd.find_and_click_bet(self.opportunity, fd_direction, fd_config)
 
                     # Extract actual FanDuel odds
-                    fd_actual_odds = placer_fd.get_actual_odds_fanduel()
+                    fd_actual_odds = placer_fd.get_actual_odds()
 
-                    fd_max_wager, fd_max_text = placer_fd.discover_max_wager_fanduel()
+                    fd_max_wager, fd_max_text = placer_fd.discover_max_wager()
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
@@ -384,7 +384,7 @@ class ArbExecutor:
                     placer_mgm.find_and_click_bet(self.opportunity, mgm_direction, mgm_config)
 
                     # Extract actual BetMGM odds
-                    mgm_actual_odds = placer_mgm.get_actual_odds_betmgm()
+                    mgm_actual_odds = placer_mgm.get_actual_odds()
 
                     # === VERIFY ROI WITH ACTUAL ODDS ===
                     # Use actual odds if available, otherwise use original
@@ -442,7 +442,7 @@ class ArbExecutor:
                     placer_mgm.enter_wager(actual_mgm_stake)
 
                     # Check for BetMGM max limit alert
-                    limit_hit, adjusted_stake = placer_mgm.check_betmgm_limit_alert()
+                    limit_hit, adjusted_stake = placer_mgm.check_limit_alert()
 
                     if limit_hit:
                         if adjusted_stake is None:
