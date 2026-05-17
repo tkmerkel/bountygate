@@ -609,7 +609,185 @@ class BetmgmBetPlacer(BetPlacer):
         return False
 
     def find_and_click_bet(self, opportunity, direction, market_config):
-        raise NotImplementedError("migrated in Task C5")
+        """Find and click the bet for the specified player/line/direction."""
+        player_name = opportunity['player_name']
+        line = opportunity['over_line'] if direction == 'over' else opportunity['under_line']
+
+        print(f"[BETMGM] Finding bet: {player_name} {direction} {line}")
+
+        if self._click_betmgm_pick_for_player(player_name, line, direction):
+            # Expand viewport for betslip interaction
+            print(f"[BETMGM] Expanding viewport to 1920x945...")
+            self.page.set_viewport_size({"width": 1920, "height": 945})
+            self.page.wait_for_timeout(500)
+            return True
+
+        # Miss-path diagnostic + raise (mirrors legacy lines 686-734)
+        try:
+            aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
+            aria_dump = []
+            for i in range(min(aria_loc.count(), 10)):
+                try:
+                    aria_dump.append(aria_loc.nth(i).get_attribute("aria-label"))
+                except Exception:
+                    continue
+            print(f"[BETMGM] aria-labels mentioning {player_name!r} "
+                  f"({len(aria_dump)}): {aria_dump!r}")
+        except Exception:
+            pass
+        try:
+            btn_dump = []
+            btn_loc = self.page.locator(f'button:has-text("{player_name}")')
+            for i in range(min(btn_loc.count(), 10)):
+                try:
+                    txt = (btn_loc.nth(i).text_content() or "").strip()[:120]
+                    btn_dump.append(txt)
+                except Exception:
+                    continue
+            print(f"[BETMGM] buttons mentioning {player_name!r} "
+                  f"({len(btn_dump)}): {btn_dump!r}")
+        except Exception:
+            pass
+        try:
+            pick_loc = self.page.locator("ms-event-pick")
+            pick_count = pick_loc.count()
+            pick_dump = []
+            for i in range(min(pick_count, 20)):
+                try:
+                    txt = (pick_loc.nth(i).text_content() or "").strip()[:80]
+                    if player_name.lower() in txt.lower():
+                        pick_dump.append(txt)
+                except Exception:
+                    continue
+            print(f"[BETMGM] ms-event-pick elements mentioning "
+                  f"{player_name!r} ({len(pick_dump)}): {pick_dump!r}")
+        except Exception:
+            pass
+        self._screenshot("bet_not_found")
+        raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
+
+    def _click_betmgm_pick_for_player(self, player_name: str, line: float, direction: str) -> bool:
+        """Find and click the BetMGM ms-event-pick that matches this player+line+direction.
+
+        BetMGM's player-prop rows lay out as:
+            [avatar][player name][stat avg][chart icon][ms-event-pick: "O 11.5  2.00"]
+
+        The bet button (``ms-event-pick``) text contains only the direction
+        letter + line + odds (e.g. "O 11.5"). The player name lives in a
+        sibling/ancestor element.
+
+        Strategy: enumerate every ms-event-pick on the page, check its text
+        matches ``"<O|U> <line>"``, then walk up the DOM and pull the
+        innerText of each ancestor row container. The player-name match runs
+        Python-side via ``fuzzy_contains`` so apostrophe variants
+        (curly vs straight: "De'Aaron" vs "De'Aaron"), abbreviation forms,
+        and case differences all resolve cleanly.
+
+        Returns True on a successful click, False if no match found.
+        """
+        direction_letter = "O" if direction == "over" else "U"
+        target_text = f"{direction_letter} {line}"
+        target_text_alt = f"{direction_letter} {int(line)}" if float(line).is_integer() else None
+
+        # Best-effort: scroll the page to its bottom to coax virtual-scroll
+        # / lazy-load picks into the DOM. Some BetMGM pages keep below-fold
+        # picks unrendered until they enter the viewport — we previously
+        # missed Fox's Under-3.5 pick this way. Cheap, idempotent.
+        try:
+            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.wait_for_timeout(400)
+            self.page.evaluate("window.scrollTo(0, 0)")
+            self.page.wait_for_timeout(200)
+        except Exception:
+            pass
+
+        all_picks = self.page.locator("ms-event-pick")
+        pick_count = all_picks.count()
+        print(f"[BETMGM] scanning {pick_count} ms-event-pick(s) for "
+              f"{target_text!r} on player {player_name!r}")
+
+        # Walk-up returns each ancestor's innerText (with a length cap so we
+        # don't pay for serializing the whole document). Python-side, we
+        # apply fuzzy_contains across the returned texts — the JS-side
+        # `.includes(player)` is character-exact and silently misses curly-
+        # vs-straight-apostrophe rows like "De'Aaron Fox".
+        walkup_js = """
+        (el, args) => {
+            const max_depth = args.max_depth;
+            const max_text_len = args.max_text_len;
+            const out = [];
+            let cur = el;
+            for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
+                cur = cur.parentElement;
+                const text = (cur.innerText || cur.textContent || '').trim();
+                if (text.length <= max_text_len) out.push(text);
+            }
+            return out;
+        }
+        """
+
+        matched_option_id = None
+        matched_handle = None
+        matched_meta = None
+
+        for i in range(pick_count):
+            try:
+                pick = all_picks.nth(i)
+                # Deliberately NOT calling pick.is_visible() — the previous
+                # impl skipped DOM-attached but not-yet-rendered picks (e.g.
+                # below the fold), which is exactly how Fox's Under-3.5
+                # disappeared. Playwright's click() will auto-scroll into
+                # view, so unrendered-but-attached is fine here.
+                txt = (pick.text_content() or "").strip()
+                norm = " ".join(txt.split())
+                if target_text not in norm and (
+                    target_text_alt is None or target_text_alt not in norm
+                ):
+                    continue
+                # Pull ancestor texts; fuzzy-match the player Python-side.
+                ancestor_texts = pick.evaluate(
+                    walkup_js,
+                    {"max_depth": 15, "max_text_len": 600},
+                )
+                player_found = any(
+                    fuzzy_contains(t, player_name, threshold=90)
+                    for t in ancestor_texts
+                )
+                if not player_found:
+                    continue
+                option_id = pick.get_attribute("data-test-option-id")
+                matched_option_id = option_id
+                matched_handle = pick
+                matched_meta = f"text={norm!r} option_id={option_id!r}"
+                break
+            except Exception as e:
+                print(f"[BETMGM] pick #{i} scan error: {e}")
+                continue
+
+        if matched_handle is None:
+            print(f"[BETMGM] no ms-event-pick matched {target_text!r} for "
+                  f"{player_name!r} (scanned {pick_count})")
+            return False
+
+        print(f"[BETMGM] matched bet: {matched_meta}")
+        # Prefer clicking via the stable data-test-option-id selector when
+        # one is present — the locator handle can go stale across the click's
+        # auto-scroll if Angular re-renders the row.
+        try:
+            if matched_option_id:
+                target = self.page.locator(
+                    f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
+                )
+                target.first.click(timeout=10000)
+            else:
+                matched_handle.click(timeout=10000)
+            self.page.wait_for_timeout(1500)
+            self._screenshot("bet_clicked")
+            print(f"[BETMGM] ✓ Bet added to slip")
+            return True
+        except Exception as e:
+            self._screenshot("click_failed")
+            raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
     def enter_wager(self, amount):
         raise NotImplementedError("migrated in Task C6")

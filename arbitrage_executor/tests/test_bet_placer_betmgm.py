@@ -112,3 +112,15 @@ def test_assert_betslip_has_bet_raises_when_empty():
     placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
     with pytest.raises(BetPlacerError, match="BetMGM slip is empty"):
         placer.assert_betslip_has_bet()
+
+
+# ---- C5: find_and_click_bet tests ----
+
+def test_find_and_click_raises_when_no_pick_matches():
+    page = FakePage()
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    opp = {"player_name": "LeBron James", "over_line": 25.5, "under_line": 25.5}
+    with pytest.raises(BetPlacerError,
+                       match="No bet found for LeBron James over 25.5"):
+        placer.find_and_click_bet(opp, "over", {})
