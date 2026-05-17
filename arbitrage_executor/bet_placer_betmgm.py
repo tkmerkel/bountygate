@@ -548,10 +548,65 @@ class BetmgmBetPlacer(BetPlacer):
             print(f"[BETMGM] ⚠ Slip-open probe failed: {e} (continuing)")
 
     def assert_betslip_has_bet(self):
-        raise NotImplementedError("migrated in Task C4")
+        """Assert a selected bet actually reached the slip."""
+        self._open_betmgm_slip()
+        if not self._betmgm_slip_has_bet():
+            self._screenshot("validation_slip_empty")
+            raise BetPlacerError("BetMGM slip is empty after bet click")
 
     def assert_betslip_empty(self):
-        raise NotImplementedError("migrated in Task C4")
+        """Assert the slip is empty after cleanup."""
+        self._open_betmgm_slip()
+        if self._betmgm_slip_has_bet():
+            self._screenshot("validation_slip_not_empty")
+            raise BetPlacerError("BetMGM slip still appears to contain a bet")
+
+    def _betmgm_slip_has_bet(self) -> bool:
+        """Return True if BetMGM's slip appears to contain at least one bet.
+
+        Conservative on ambiguous states: if the page exposes remove controls
+        or a non-zero slip pill, report True. If a clear empty marker is
+        visible, report False.
+        """
+        try:
+            for text in ("No bet selections", "Betslip empty"):
+                empty_marker = self.page.get_by_text(text, exact=False)
+                if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                    return False
+        except Exception:
+            pass
+
+        try:
+            slip_pill = self.page.locator(
+                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
+            )
+            if slip_pill.count() > 0:
+                text = (slip_pill.first.text_content() or "").strip()
+                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
+                if m:
+                    return int(m.group(1) or m.group(2)) > 0
+        except Exception:
+            pass
+
+        try:
+            for sel in (
+                'bs-bet-slip-item',
+                'bs-betslip-item',
+                'button[aria-label*="remove" i]',
+                'button[aria-label*="delete" i]',
+                'span:has-text("Clear All")',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return True
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        return False
 
     def find_and_click_bet(self, opportunity, direction, market_config):
         raise NotImplementedError("migrated in Task C5")

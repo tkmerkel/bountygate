@@ -84,3 +84,31 @@ def test_open_slip_noop_when_stake_input_already_visible():
 
     # Should have returned early without clicking the pill
     assert page.waits == []
+
+
+# ---- C4: slip-inspection tests ----
+
+def test_slip_has_bet_false_when_empty_marker_visible():
+    page = FakePage(text_locators={
+        "No bet selections": FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer._betmgm_slip_has_bet() is False
+
+
+def test_slip_has_bet_true_when_pill_shows_count():
+    page = FakePage(locators={
+        'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i':
+            FakeLocator([FakeElement(visible=True, text="Bet slip (2)")]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer._betmgm_slip_has_bet() is True
+
+
+def test_assert_betslip_has_bet_raises_when_empty():
+    page = FakePage(text_locators={
+        "No bet selections": FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="BetMGM slip is empty"):
+        placer.assert_betslip_has_bet()
