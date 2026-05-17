@@ -211,3 +211,45 @@ def test_enter_wager_diagnostic_dump_on_miss_raises():
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
     with pytest.raises(BetPlacerError, match="Could not find FanDuel wager input"):
         placer._enter_wager_fanduel(10.00)
+
+
+# ---- B7: place_bet tests ----
+
+def test_place_bet_raises_when_button_not_found():
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="Place Bet button not found"):
+        placer._place_bet_fanduel()
+
+
+def test_place_bet_returns_accepted_on_success_text():
+    button = FakeElement(visible=True)
+    success_marker = FakeElement(visible=True, text="Bet placed")
+    page = FakePage(
+        role_locators={
+            ("button", r"Place\s*\$[\d.]+\s*bet"): FakeLocator([button]),
+        },
+        text_locators={
+            "Bet placed": FakeLocator([success_marker]),
+        },
+    )
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    status, message = placer._place_bet_fanduel()
+
+    assert status == "ACCEPTED"
+    assert button.clicked
+
+
+def test_place_bet_returns_unknown_when_no_signal():
+    button = FakeElement(visible=True)
+    page = FakePage(
+        role_locators={
+            ("button", r"Place\s*\$[\d.]+\s*bet"): FakeLocator([button]),
+        }
+    )
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    status, message = placer._place_bet_fanduel()
+
+    assert status == "UNKNOWN"
