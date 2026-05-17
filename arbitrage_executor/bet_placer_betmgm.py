@@ -920,10 +920,141 @@ class BetmgmBetPlacer(BetPlacer):
             raise BetPlacerError(f"Failed to enter wager: {e}")
 
     def place_bet(self):
-        raise NotImplementedError("migrated in Task C7")
+        """Click the Place Bet button and check for success/failure."""
+        print(f"[BETMGM] Placing bet...")
+        return self._place_bet_betmgm()
+
+    def _place_bet_betmgm(self) -> Tuple[str, str]:
+        """Place bet on BetMGM."""
+        try:
+            # BetMGM: button with "Place Bet" text
+            place_btn = self.page.get_by_role("button", name=re.compile(r"Place\s+Bet", re.I))
+
+            if place_btn.count() == 0:
+                self._screenshot("place_bet_not_found")
+                raise BetPlacerError("Place Bet button not found")
+
+            print(f"[BETMGM] Clicking Place Bet...")
+            place_btn.first.click()
+            self.page.wait_for_timeout(2000)
+
+            # Check for success/failure - poll for result
+            for _ in range(10):  # 5 seconds max
+                # Check for success: "Your bet has been accepted" in pc-richtext section
+                accepted_msg = self.page.get_by_text("Your bet has been accepted")
+                if accepted_msg.count() > 0 and accepted_msg.first.is_visible():
+                    self._screenshot("bet_placed_success")
+                    print(f"[BETMGM] ✓ Bet ACCEPTED")
+                    self._close_betslip_betmgm()
+                    return "ACCEPTED", "Your bet has been accepted"
+
+                # Alternative success messages
+                alt_success = self.page.get_by_text(re.compile(r"Bet Placed|Wager Accepted", re.I))
+                if alt_success.count() > 0 and alt_success.first.is_visible():
+                    self._screenshot("bet_placed_success")
+                    print(f"[BETMGM] ✓ Bet ACCEPTED")
+                    self._close_betslip_betmgm()
+                    return "ACCEPTED", "Bet placed successfully"
+
+                # Check for error messages
+                error_msg = self.page.get_by_text(re.compile(r"limit exceeded|Error|rejected", re.I))
+                if error_msg.count() > 0 and error_msg.first.is_visible():
+                    msg = error_msg.first.text_content() or "Unknown error"
+                    self._screenshot("bet_rejected")
+                    print(f"[BETMGM] ✗ Bet REJECTED: {msg}")
+                    return "REJECTED", msg
+
+                self.page.wait_for_timeout(500)
+
+            # Unknown state
+            self._screenshot("bet_status_unknown")
+            print(f"[BETMGM] ? Bet status UNKNOWN")
+            return "UNKNOWN", "Could not determine bet status"
+
+        except Exception as e:
+            self._screenshot("place_bet_failed")
+            raise BetPlacerError(f"Place bet failed: {e}")
+
+    def _close_betslip_betmgm(self):
+        """Close the betslip after a successful bet on BetMGM."""
+        try:
+            # From recording: aria/Close or bs-linear-result-summary button
+            close_selectors = [
+                'bs-linear-result-summary button',
+                '[aria-label="Close"]',
+            ]
+
+            for selector in close_selectors:
+                try:
+                    close_btn = self.page.locator(selector)
+                    if close_btn.count() > 0 and close_btn.first.is_visible():
+                        print(f"[BETMGM] Closing betslip...")
+                        close_btn.first.click()
+                        self.page.wait_for_timeout(500)
+                        print(f"[BETMGM] ✓ Betslip closed")
+                        return
+                except Exception:
+                    continue
+
+            print(f"[BETMGM] ⚠ Could not find close button, continuing anyway...")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error closing betslip: {e}")
 
     def get_actual_odds(self):
         raise NotImplementedError("migrated in Task C8")
 
     def check_limit_alert(self):
-        raise NotImplementedError("migrated in Task C7")
+        """Check if BetMGM shows the max limit alert and get adjusted stake.
+
+        When the requested bet exceeds BetMGM's limit, they show an alert:
+        "Your requested bet is over the allowed limit. The maximum stake has been adjusted..."
+
+        Returns:
+            (limit_hit: bool, adjusted_stake: float or None)
+        """
+        try:
+            # Check for the limit alert message
+            alert_selectors = [
+                'p.alert-content__message',
+                '.alert-content__message',
+                'p:has-text("over the allowed limit")',
+            ]
+
+            for selector in alert_selectors:
+                try:
+                    alert_elem = self.page.locator(selector)
+                    if alert_elem.count() > 0:
+                        alert_text = alert_elem.first.text_content() or ""
+                        if "over the allowed limit" in alert_text.lower():
+                            print(f"[BETMGM] ⚠ Max limit alert detected!")
+
+                            # Extract the adjusted stake from betslip summary
+                            stake_selectors = [
+                                'span.betslip-summary-value',
+                                '.betslip-summary-value',
+                            ]
+
+                            for stake_selector in stake_selectors:
+                                stake_elem = self.page.locator(stake_selector).first
+                                if stake_elem.count() > 0:
+                                    stake_text = stake_elem.text_content() or ""
+                                    # Parse "$6.76" format
+                                    stake_match = re.search(r'\$?([\d,]+\.?\d*)', stake_text)
+                                    if stake_match:
+                                        adjusted_stake = float(stake_match.group(1).replace(',', ''))
+                                        print(f"[BETMGM] Adjusted stake: ${adjusted_stake:.2f}")
+                                        self._screenshot("limit_alert_detected")
+                                        return True, adjusted_stake
+
+                            # Alert found but couldn't parse stake
+                            print(f"[BETMGM] ⚠ Could not parse adjusted stake")
+                            self._screenshot("limit_alert_no_stake")
+                            return True, None
+                except Exception:
+                    continue
+
+            return False, None
+
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error checking limit alert: {e}")
+            return False, None

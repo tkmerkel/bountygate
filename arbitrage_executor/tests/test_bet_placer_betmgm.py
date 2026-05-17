@@ -155,3 +155,36 @@ def test_enter_wager_picks_last_empty_when_multiple_inputs():
     assert not empty_b.clicked
     assert not filled_a.clicked
     assert not filled_d.clicked
+
+
+# ---- C7: place_bet + check_limit_alert tests ----
+
+def test_place_bet_raises_when_button_not_found():
+    page = FakePage()
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="Place Bet button not found"):
+        placer._place_bet_betmgm()
+
+
+def test_check_limit_alert_returns_false_false_when_no_alert():
+    page = FakePage()
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    limit_hit, adjusted = placer.check_limit_alert()
+    assert limit_hit is False
+    assert adjusted is None
+
+
+def test_check_limit_alert_parses_adjusted_stake():
+    alert = FakeElement(visible=True,
+                        text="Your requested bet is over the allowed limit. ...")
+    stake = FakeElement(visible=True, text="$6.76")
+    page = FakePage(locators={
+        'p.alert-content__message': FakeLocator([alert]),
+        'span.betslip-summary-value': FakeLocator([stake]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    limit_hit, adjusted = placer.check_limit_alert()
+
+    assert limit_hit is True
+    assert adjusted == 6.76
