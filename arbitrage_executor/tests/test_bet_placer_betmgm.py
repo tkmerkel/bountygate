@@ -124,3 +124,34 @@ def test_find_and_click_raises_when_no_pick_matches():
     with pytest.raises(BetPlacerError,
                        match="No bet found for LeBron James over 25.5"):
         placer.find_and_click_bet(opp, "over", {})
+
+
+# ---- C6: wager entry tests ----
+
+def test_enter_wager_raises_when_input_not_found():
+    page = FakePage()
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="Could not find BetMGM wager input"):
+        placer._enter_wager_betmgm(10.00)
+
+
+def test_enter_wager_picks_last_empty_when_multiple_inputs():
+    """Legacy invariant: when slip-clear has failed and multiple bets
+    accumulate, _enter_wager_betmgm must pick the LAST empty stake input
+    (the just-added bet), not the first or last filled."""
+    filled_a = FakeElement(visible=True, input_value="5.00")
+    empty_b = FakeElement(visible=True, input_value="")
+    empty_c = FakeElement(visible=True, input_value="")  # LAST empty — should be picked
+    filled_d = FakeElement(visible=True, input_value="3.00")
+    page = FakePage(locators={
+        'app-stake-input input': FakeLocator([filled_a, empty_b, empty_c, filled_d]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    placer._enter_wager_betmgm(10.00)
+
+    # The last empty (empty_c) should have been clicked
+    assert empty_c.clicked
+    assert not empty_b.clicked
+    assert not filled_a.clicked
+    assert not filled_d.clicked

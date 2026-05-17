@@ -790,7 +790,134 @@ class BetmgmBetPlacer(BetPlacer):
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
     def enter_wager(self, amount):
-        raise NotImplementedError("migrated in Task C6")
+        """Enter wager amount in the betslip."""
+        print(f"[BETMGM] Entering wager: ${amount:.2f}")
+        return self._enter_wager_betmgm(amount)
+
+    def _enter_wager_betmgm(self, amount: float) -> bool:
+        """Enter wager on BetMGM."""
+        try:
+            # BetMGM docks the slip at the bottom of the screen, collapsed
+            # to a "1 Bet slip — $X.XX pays out $Y.YY" pill. The wager
+            # input only mounts when the slip is expanded. Click the pill
+            # (or any visible "pays out"/"Bet slip" affordance) to expand.
+            self._open_betmgm_slip()
+
+            # BetMGM stake input — historically `app-stake-input input`,
+            # but the prefix and component name drift. Broaden the cascade
+            # to durable signals: inputmode=decimal, aria-label / placeholder
+            # patterns, and the data-testid families we've seen.
+            wager_selectors = [
+                'app-stake-input input',
+                'bs-stake-input input',
+                'input[inputmode="decimal"]',
+                'input[type="number"]',
+                'input[aria-label*="stake" i]',
+                'input[aria-label*="wager" i]',
+                'input[aria-label*="amount" i]',
+                'input[placeholder*="stake" i]',
+                'input[placeholder*="enter amount" i]',
+                '[data-testid*="stake" i] input',
+                'input[type="text"]',  # last-resort fallback
+            ]
+
+            # When slip-clear fails and multiple bets accumulate, the slip
+            # has multiple stake inputs and we must enter the wager into
+            # the one for the just-added bet. Heuristic: prefer the LAST
+            # visible EMPTY stake input (just-added bets have no value;
+            # previously-filled bets retain their value across iterations).
+            wager_input = None
+            for selector in wager_selectors:
+                try:
+                    locator = self.page.locator(selector)
+                    if locator.count() == 0:
+                        continue
+                    visible_inputs = []
+                    for i in range(locator.count()):
+                        elem = locator.nth(i)
+                        try:
+                            if not elem.is_visible():
+                                continue
+                            try:
+                                value = elem.input_value() or ""
+                            except Exception:
+                                value = ""
+                            visible_inputs.append((elem, value))
+                        except Exception:
+                            continue
+                    if not visible_inputs:
+                        continue
+                    empty_inputs = [el for el, v in visible_inputs if not v.strip()]
+                    if empty_inputs:
+                        wager_input = empty_inputs[-1]  # last empty = just-added bet
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(picked last empty of {len(visible_inputs)})")
+                    else:
+                        wager_input = visible_inputs[-1][0]  # last filled — best guess
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(all {len(visible_inputs)} filled; picked last)")
+                    break
+                except Exception:
+                    continue
+
+            if wager_input is None:
+                # Diagnostic dump on miss — what visible inputs DO exist?
+                try:
+                    inputs = self.page.locator("input")
+                    dump = []
+                    for i in range(min(inputs.count(), 12)):
+                        el = inputs.nth(i)
+                        try:
+                            if not el.is_visible():
+                                continue
+                            dump.append({
+                                "type": el.get_attribute("type"),
+                                "inputmode": el.get_attribute("inputmode"),
+                                "aria-label": el.get_attribute("aria-label"),
+                                "placeholder": el.get_attribute("placeholder"),
+                                "data-testid": el.get_attribute("data-testid"),
+                            })
+                        except Exception:
+                            continue
+                    print(f"[BETMGM] visible inputs ({len(dump)}): {dump!r}")
+                except Exception:
+                    pass
+                self._screenshot("wager_input_not_found")
+                raise BetPlacerError("Could not find BetMGM wager input")
+
+            # Enter the amount via individual keystrokes. BetMGM uses a
+            # custom Angular numpad widget; .fill() sets the input value
+            # in DOM but doesn't fire the keydown events the widget's
+            # form-state machine listens for, so the Place Bet button
+            # stays aria-disabled='true'. .pw_type() generates real
+            # keystroke events that the widget accepts.
+            wager_input.click()
+            self.page.wait_for_timeout(200)
+            # Clear any existing content first (Ctrl+A, Delete) so the
+            # new digits don't get appended.
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Delete")
+            self.page.wait_for_timeout(200)
+            amount_str = f"{amount:.2f}"
+            # Use keyboard.type with a small per-char delay so each
+            # digit triggers a clean keypress that the numpad widget
+            # processes individually.
+            self.page.keyboard.type(amount_str, delay=80)
+            self.page.wait_for_timeout(500)
+
+            # Press Tab/ArrowDown to blur the input and trigger validation
+            # — needed so the Place Bet button transitions from disabled
+            # to enabled.
+            self.page.keyboard.press("Tab")
+            self.page.wait_for_timeout(1000)
+
+            self._screenshot("wager_entered")
+            print(f"[BETMGM] ✓ Wager entered: ${amount:.2f}")
+            return True
+
+        except Exception as e:
+            self._screenshot("wager_entry_failed")
+            raise BetPlacerError(f"Failed to enter wager: {e}")
 
     def place_bet(self):
         raise NotImplementedError("migrated in Task C7")
