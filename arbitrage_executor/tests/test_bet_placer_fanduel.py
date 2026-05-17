@@ -175,3 +175,39 @@ def test_find_and_click_routes_batter_market_to_alternate_path(monkeypatch):
     placer.find_and_click_bet(opp, "over", {"is_alternate": False})
 
     assert routed_alt == [("Jake Fraley", 0.5)]
+
+
+# ---- B6: wager entry + max-wager discovery tests ----
+
+def test_discover_max_wager_returns_99999_when_no_alert(monkeypatch):
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    monkeypatch.setattr(placer, "_enter_wager_fanduel", lambda amount: True)
+
+    amount, text = placer.discover_max_wager()
+
+    assert amount == 99999.00
+    assert "No limit" in text
+
+
+def test_discover_max_wager_parses_dollar_amount(monkeypatch):
+    max_wager_elem = FakeElement(visible=True, text="MAX WAGER $250.00")
+    page = FakePage(text_locators={
+        # text_locators is keyed by .pattern when a regex is passed; the
+        # legacy code uses re.compile(r"MAX\s*WAGER", re.I).
+        r"MAX\s*WAGER": FakeLocator([max_wager_elem]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    monkeypatch.setattr(placer, "_enter_wager_fanduel", lambda amount: True)
+
+    amount, text = placer.discover_max_wager()
+
+    assert amount == 250.00
+    assert "MAX WAGER" in text
+
+
+def test_enter_wager_diagnostic_dump_on_miss_raises():
+    page = FakePage()  # no inputs anywhere
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="Could not find FanDuel wager input"):
+        placer._enter_wager_fanduel(10.00)
