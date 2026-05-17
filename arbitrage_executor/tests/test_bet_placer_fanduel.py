@@ -21,3 +21,27 @@ def test_threshold_one_labels_singular_and_plural_agree():
 def test_rbi_uses_an_article():
     _, article, _ = FANDUEL_THRESHOLD_ONE_LABELS["RBI"]
     assert article == "An"
+
+
+# ---- B2: navigation method tests ----
+
+def test_dismiss_modal_is_noop_when_no_modal():
+    page = FakePage()  # no modal locator
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    placer._dismiss_fanduel_modal()  # must not raise
+
+    assert page.waits == []
+
+
+def test_dismiss_modal_invisible_modal_is_noop():
+    page = FakePage(locators={
+        'div[role="dialog"][aria-modal="true"]': FakeLocator(
+            [FakeElement(visible=False)]
+        ),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    placer._dismiss_fanduel_modal()  # must not raise
+
+    assert page.waits == []
