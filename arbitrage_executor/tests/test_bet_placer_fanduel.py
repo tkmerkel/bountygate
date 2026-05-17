@@ -88,3 +88,46 @@ def test_clear_slip_post_clear_verification_raises_when_remove_button_remains():
         placer._clear_betslip_fanduel()
 
     assert clear_all.clicked
+
+
+# ---- B4: slip-inspection tests ----
+
+def test_slip_has_bet_returns_false_when_betslip_empty_marker_visible():
+    page = FakePage(text_locators={
+        "Betslip empty": FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    assert placer._fanduel_slip_has_bet() is False
+
+
+def test_slip_has_bet_returns_true_when_no_empty_marker():
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    assert placer._fanduel_slip_has_bet() is True
+
+
+def test_assert_betslip_has_bet_raises_on_ambiguous_slip_state():
+    # No empty marker AND no positive-selection signal -> raise (per
+    # _fanduel_slip_has_visible_selection's contract)
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    with pytest.raises(BetPlacerError, match="FanDuel slip is empty"):
+        placer.assert_betslip_has_bet()
+
+
+def test_assert_betslip_has_bet_passes_with_remove_all_signal():
+    page = FakePage(locators={
+        'div[role="button"]:has-text("Remove all selections")':
+            FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    # Should not raise
+    placer.assert_betslip_has_bet()
+
+
+def test_slip_is_empty_recognizes_no_bet_selections_marker():
+    page = FakePage(text_locators={
+        "No bet selections": FakeLocator([FakeElement(visible=True)]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    assert placer._fanduel_slip_is_empty() is True

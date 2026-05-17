@@ -286,10 +286,110 @@ class FanduelBetPlacer(BetPlacer):
             pass
 
     def assert_betslip_has_bet(self):
-        raise NotImplementedError("migrated in Task B4")
+        """Assert a selected bet actually reached the slip.
+
+        Used by the selector validation harness. It intentionally stops
+        before wager entry or placement.
+        """
+        if not self._fanduel_slip_has_visible_selection():
+            self._screenshot("validation_slip_empty")
+            raise BetPlacerError("FanDuel slip is empty after bet click")
 
     def assert_betslip_empty(self):
-        raise NotImplementedError("migrated in Task B4")
+        """Assert the slip is empty after cleanup."""
+        if not self._fanduel_slip_is_empty():
+            self._screenshot("validation_slip_not_empty")
+            raise BetPlacerError("FanDuel slip still appears to contain a bet")
+
+    def _fanduel_slip_has_bet(self) -> bool:
+        """Return True if the FanDuel betslip currently holds at least one
+        bet. Used to verify a click actually targeted a bet button — an
+        aria-label without button-restriction can match a player profile
+        link, which navigates away without populating the slip.
+
+        Conservative on the True side: if we can't determine state cleanly,
+        return True so the calling flow proceeds (better to attempt wager
+        entry and fail there than to mis-claim an empty-slip condition).
+        """
+        try:
+            empty_marker = self.page.get_by_text("Betslip empty", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return False
+        except Exception:
+            pass
+        try:
+            empty_marker = self.page.get_by_text("No bet selections", exact=False)
+            if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                return False
+        except Exception:
+            pass
+        return True
+
+    def _fanduel_slip_is_empty(self) -> bool:
+        """Return True only when FanDuel exposes a clear empty-slip signal."""
+        try:
+            for text in ("Betslip empty", "No bet selections"):
+                empty_marker = self.page.get_by_text(text, exact=False)
+                if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                    return True
+        except Exception:
+            pass
+        try:
+            for sel in (
+                'button[aria-label*="remove" i]',
+                '[data-testid*="remove-selection" i]',
+            ):
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return False
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return False
+
+    def _fanduel_slip_has_visible_selection(self) -> bool:
+        """Return True only when FanDuel exposes a concrete slip-selection signal."""
+        try:
+            if self._fanduel_slip_is_empty():
+                return False
+        except Exception:
+            pass
+
+        try:
+            wins_pattern = self.page.get_by_text(
+                re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
+            )
+            if wins_pattern.count() > 0 and wins_pattern.first.is_visible():
+                return True
+        except Exception:
+            pass
+
+        for sel in (
+            'button[aria-label*="remove" i]',
+            'div[role="button"]:has-text("Remove all selections")',
+            '[role="button"]:has-text("Remove all selections")',
+            '[data-testid*="remove-selection" i]',
+            '[data-test-id*="remove-selection" i]',
+            'input[aria-label*="wager" i]',
+            'input[name*="wager" i]',
+            'button:has-text("Place"):has-text("bet")',
+            'button:has-text("Place Bet")',
+        ):
+            try:
+                loc = self.page.locator(sel)
+                for i in range(min(loc.count(), 5)):
+                    try:
+                        if loc.nth(i).is_visible():
+                            return True
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+        return False
 
     def find_and_click_bet(self, opportunity, direction, market_config):
         raise NotImplementedError("migrated in Task B5")
