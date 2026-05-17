@@ -63,3 +63,39 @@ def test_fanduel_validation_accepts_current_remove_all_signal():
     placer = BetPlacer(page, "fanduel", AUDIT_DIR)
 
     placer.assert_betslip_has_bet()
+
+
+# ---- Unified-name wrapper tests (added in A3 of bet-placer-rewrite) ----
+
+def test_get_actual_odds_dispatches_to_fanduel(monkeypatch):
+    page = FakePage()
+    placer = BetPlacer(page, "fanduel", AUDIT_DIR)
+    called = []
+    monkeypatch.setattr(placer, "get_actual_odds_fanduel",
+                        lambda: called.append("fd") or 2.5)
+    assert placer.get_actual_odds() == 2.5
+    assert called == ["fd"]
+
+
+def test_get_actual_odds_dispatches_to_betmgm(monkeypatch):
+    page = FakePage()
+    placer = BetPlacer(page, "betmgm", AUDIT_DIR)
+    called = []
+    monkeypatch.setattr(placer, "get_actual_odds_betmgm",
+                        lambda: called.append("mgm") or 1.91)
+    assert placer.get_actual_odds() == 1.91
+    assert called == ["mgm"]
+
+
+def test_discover_max_wager_raises_on_betmgm():
+    page = FakePage()
+    placer = BetPlacer(page, "betmgm", AUDIT_DIR)
+    with pytest.raises(NotImplementedError, match="max-wager discovery"):
+        placer.discover_max_wager()
+
+
+def test_check_limit_alert_raises_on_fanduel():
+    page = FakePage()
+    placer = BetPlacer(page, "fanduel", AUDIT_DIR)
+    with pytest.raises(NotImplementedError, match="limit-alert check"):
+        placer.check_limit_alert()

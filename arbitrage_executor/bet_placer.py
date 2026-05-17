@@ -2251,6 +2251,31 @@ class BetPlacer:
             print(f"[BETMGM] ⚠ Error checking limit alert: {e}")
             return False, None
 
+    # ---- New unified names (forward to site-suffixed methods) ----
+    # Added 2026-05-17 as part of bet-placer-rewrite. After the per-site
+    # split lands, these become the abstract methods and the suffixed
+    # versions are deleted.
+    def get_actual_odds(self):
+        if self.site == "fanduel":
+            return self.get_actual_odds_fanduel()
+        if self.site == "betmgm":
+            return self.get_actual_odds_betmgm()
+        raise BetPlacerError(f"Unknown site: {self.site}")
+
+    def discover_max_wager(self):
+        if self.site == "fanduel":
+            return self.discover_max_wager_fanduel()
+        raise NotImplementedError(
+            f"{self.site} does not support max-wager discovery"
+        )
+
+    def check_limit_alert(self):
+        if self.site == "betmgm":
+            return self.check_betmgm_limit_alert()
+        raise NotImplementedError(
+            f"{self.site} does not support limit-alert check"
+        )
+
     def _american_to_decimal(self, american_odds: int) -> float:
         """Convert American odds to decimal odds.
 
