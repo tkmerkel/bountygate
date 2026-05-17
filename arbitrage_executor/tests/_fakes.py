@@ -62,6 +62,12 @@ class FakeElement:
     def wait_for(self, **kwargs):
         return None
 
+    def count(self):
+        # Real Playwright .first returns a Locator that still has count();
+        # our FakeLocator.first returns a FakeElement, but production code
+        # sometimes chains .first.count() — keep that working.
+        return 1
+
 
 class FakeLocator:
     def __init__(self, elements=None):
