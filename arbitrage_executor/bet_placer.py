@@ -78,8 +78,8 @@ class BetPlacer(ABC):
                 from bet_placer_fanduel import FanduelBetPlacer
                 return object.__new__(FanduelBetPlacer)
             if site == "betmgm":
-                # Not yet migrated — still served by legacy
-                return object.__new__(_LegacyBetPlacer)
+                from bet_placer_betmgm import BetmgmBetPlacer
+                return object.__new__(BetmgmBetPlacer)
             raise BetPlacerError(f"Unknown site: {site}")
         return object.__new__(cls)
 
