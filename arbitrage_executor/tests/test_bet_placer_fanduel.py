@@ -131,3 +131,47 @@ def test_slip_is_empty_recognizes_no_bet_selections_marker():
     })
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
     assert placer._fanduel_slip_is_empty() is True
+
+
+# ---- B5: find_and_click_bet tests ----
+
+def test_find_and_click_raises_when_no_candidates(monkeypatch):
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    # Stub SelectorFinder to return no candidates
+    import bet_placer_fanduel
+    monkeypatch.setattr(
+        bet_placer_fanduel.SelectorFinder, "find_candidates_by_text",
+        staticmethod(lambda *a, **k: [])
+    )
+
+    opp = {
+        "player_name": "Jake Fraley",
+        "over_line": 0.5, "under_line": 0.5,
+        "market_key": "player_points",
+    }
+    with pytest.raises(BetPlacerError, match="No bet found for Jake Fraley over 0.5"):
+        placer.find_and_click_bet(opp, "over", {"display_names": ["Points"]})
+
+
+def test_find_and_click_routes_batter_market_to_alternate_path(monkeypatch):
+    """MLB batter_ markets MUST go through the alternate (threshold) path
+    even when market_config doesn't say is_alternate=True. This is a
+    load-bearing invariant of the FanDuel migration."""
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    routed_alt = []
+    monkeypatch.setattr(
+        placer, "_find_and_click_alternate_bet_fanduel",
+        lambda opp, dir, mc, pn, ln: routed_alt.append((pn, ln)) or True
+    )
+
+    opp = {
+        "player_name": "Jake Fraley",
+        "over_line": 0.5, "under_line": 0.5,
+        "market_key": "batter_hits",
+    }
+    placer.find_and_click_bet(opp, "over", {"is_alternate": False})
+
+    assert routed_alt == [("Jake Fraley", 0.5)]
