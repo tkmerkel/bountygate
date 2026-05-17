@@ -1001,7 +1001,43 @@ class BetmgmBetPlacer(BetPlacer):
             print(f"[BETMGM] ⚠ Error closing betslip: {e}")
 
     def get_actual_odds(self):
-        raise NotImplementedError("migrated in Task C8")
+        """Extract actual odds from BetMGM betslip.
+
+        BetMGM displays decimal odds in: span.odds-indicator__lite--default
+
+        Returns:
+            Decimal odds as float, or None if not found
+        """
+        try:
+            # Primary selector for BetMGM odds
+            odds_selectors = [
+                'span.odds-indicator__lite--default',
+                'span[class*="odds-indicator"]',
+                '.odds-indicator',
+            ]
+
+            for selector in odds_selectors:
+                try:
+                    odds_elem = self.page.locator(selector)
+                    if odds_elem.count() > 0:
+                        text = odds_elem.first.text_content() or ""
+                        text = text.strip()
+
+                        # Parse decimal odds (e.g., "1.75")
+                        decimal_match = re.search(r'(\d+\.?\d*)', text)
+                        if decimal_match:
+                            decimal_odds = float(decimal_match.group(1))
+                            print(f"[BETMGM] Extracted odds: {decimal_odds:.3f}")
+                            return decimal_odds
+                except Exception:
+                    continue
+
+            print(f"[BETMGM] ⚠ Could not extract odds from betslip")
+            return None
+
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error extracting odds: {e}")
+            return None
 
     def check_limit_alert(self):
         """Check if BetMGM shows the max limit alert and get adjusted stake.

@@ -188,3 +188,20 @@ def test_check_limit_alert_parses_adjusted_stake():
 
     assert limit_hit is True
     assert adjusted == 6.76
+
+
+# ---- C8: get_actual_odds tests ----
+
+def test_get_actual_odds_parses_decimal():
+    odds_elem = FakeElement(visible=True, text="1.75")
+    page = FakePage(locators={
+        'span.odds-indicator__lite--default': FakeLocator([odds_elem]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer.get_actual_odds() == 1.75
+
+
+def test_get_actual_odds_returns_none_when_not_found():
+    page = FakePage()
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer.get_actual_odds() is None
