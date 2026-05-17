@@ -253,3 +253,25 @@ def test_place_bet_returns_unknown_when_no_signal():
     status, message = placer._place_bet_fanduel()
 
     assert status == "UNKNOWN"
+
+
+# ---- B8: get_actual_odds tests ----
+
+def test_get_actual_odds_parses_aria_label():
+    odds_elem = FakeElement(
+        visible=True,
+        attributes={"aria-label": "Odds 2.94"},
+        text="2.94",
+    )
+    page = FakePage(locators={
+        '[aria-label^="Odds "]': FakeLocator([odds_elem]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    assert placer.get_actual_odds() == 2.94
+
+
+def test_get_actual_odds_returns_none_when_not_found():
+    page = FakePage()
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    assert placer.get_actual_odds() is None

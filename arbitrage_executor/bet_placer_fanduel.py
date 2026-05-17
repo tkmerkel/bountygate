@@ -1070,4 +1070,47 @@ class FanduelBetPlacer(BetPlacer):
             raise BetPlacerError(f"Place bet failed: {e}")
 
     def get_actual_odds(self):
-        raise NotImplementedError("migrated in Task B8")
+        """Extract actual odds from FanDuel betslip.
+
+        FanDuel displays odds in a span with aria-label="Odds X.XX"
+        Example: <span aria-label="Odds 2.94" class="...">2.94</span>
+
+        Returns:
+            Decimal odds as float, or None if not found
+        """
+        try:
+            # Primary method: Look for span with aria-label="Odds X.XX"
+            odds_selectors = [
+                '[aria-label^="Odds "]',  # aria-label starts with "Odds "
+                'span[aria-label^="Odds "]',
+            ]
+
+            for selector in odds_selectors:
+                try:
+                    odds_elem = self.page.locator(selector)
+                    if odds_elem.count() > 0:
+                        # Try aria-label first (more reliable)
+                        aria_label = odds_elem.first.get_attribute("aria-label") or ""
+                        odds_match = re.search(r'Odds\s+(\d+\.?\d*)', aria_label)
+                        if odds_match:
+                            decimal_odds = float(odds_match.group(1))
+                            print(f"[FANDUEL] Extracted odds from aria-label: {decimal_odds:.3f}")
+                            return decimal_odds
+
+                        # Fallback to text content
+                        text = odds_elem.first.text_content() or ""
+                        text = text.strip()
+                        decimal_match = re.search(r'(\d+\.?\d*)', text)
+                        if decimal_match:
+                            decimal_odds = float(decimal_match.group(1))
+                            print(f"[FANDUEL] Extracted odds from text: {decimal_odds:.3f}")
+                            return decimal_odds
+                except Exception:
+                    continue
+
+            print(f"[FANDUEL] ⚠ Could not extract odds from betslip")
+            return None
+
+        except Exception as e:
+            print(f"[FANDUEL] ⚠ Error extracting odds: {e}")
+            return None
