@@ -205,6 +205,10 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
     """
     Fetch a real opportunity from DB for the specified market and bookmaker.
 
+    Reads the unified ``bg_arbitrage_opportunities`` table (produced by the
+    bg_arb_pipeline DAG). Matches ``market_key`` against either per-leg
+    column so std/alt pairings are both reachable.
+
     Args:
         market_key: Market to fetch (e.g., 'player_points')
         bookmaker: Bookmaker to filter for (e.g., 'fanduel', 'betmgm')
@@ -212,22 +216,23 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
     Returns:
         Opportunity dict or None if not found
     """
-    # Query for recent opportunity with this market and bookmaker
     query = f"""
     SELECT player_name,
            sport_title,
            home_team,
            away_team,
-           market_key,
+           canonical_market    AS market_key,
+           under_market_key,
+           over_market_key,
            under_line,
            over_line,
-           under_bookmaker_key,
-           over_bookmaker_key,
+           under_book          AS under_bookmaker_key,
+           over_book           AS over_bookmaker_key,
            under_price,
            over_price
-    FROM bg_arbitrage_player_props
-    WHERE market_key = '{market_key}'
-      AND (under_bookmaker_key = '{bookmaker}' OR over_bookmaker_key = '{bookmaker}')
+    FROM bg_arbitrage_opportunities
+    WHERE (under_market_key = '{market_key}' OR over_market_key = '{market_key}')
+      AND (under_book = '{bookmaker}' OR over_book = '{bookmaker}')
       AND fetched_at_utc >= (now() AT TIME ZONE 'utc') - INTERVAL '4 hours'
       AND hours_until_commence > 0
       AND sport_title IN ('NBA', 'NHL', 'NFL', 'MLB')
@@ -236,15 +241,6 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
 
     print(f"Fetching opportunity for market: {market_key}, bookmaker: {bookmaker}")
     df = fetch_data(query)
-
-    if df is None or df.empty:
-        # Try alt table — separate under_market_key/over_market_key columns there.
-        # Project under_market_key AS market_key so downstream dict access keeps working.
-        query_alt = (query
-            .replace("bg_arbitrage_player_props", "bg_arbitrage_player_props_alt")
-            .replace("           market_key,", "           under_market_key AS market_key,")
-            .replace("WHERE market_key = ", "WHERE under_market_key = "))
-        df = fetch_data(query_alt)
 
     if df is None or df.empty:
         print(f"❌ No recent opportunities found for market: {market_key}, bookmaker: {bookmaker}")
