@@ -1,14 +1,11 @@
 """BetMGM-specific bet placement implementation."""
 
-import os
 import re
-from datetime import datetime
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
-from execution_logger import ExecutionLogger
+from selector_finder import calculate_alternate_tab_value
 from text_match import fuzzy_score, fuzzy_contains
 from bet_placer import BetPlacer, BetPlacerError
 from _bet_placer_helpers import _ACCORDION_FUZZY_THRESHOLD

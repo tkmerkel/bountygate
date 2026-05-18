@@ -1,15 +1,9 @@
 """FanDuel-specific bet placement implementation."""
 
-import os
 import re
-from datetime import datetime
-from typing import Dict, Tuple, Optional
-
-from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
+from typing import Dict, Tuple
 
 from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
-from execution_logger import ExecutionLogger
-from text_match import fuzzy_score, fuzzy_contains
 from bet_placer import BetPlacer, BetPlacerError
 
 
