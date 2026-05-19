@@ -247,6 +247,47 @@ def _first_visible(page: Page, selectors) -> Optional[Locator]:
     return None
 
 
+def _dismiss_blocking_modal(page: Page, site: str) -> None:
+    """Dismiss a non-credential modal that blocks login/header clicks.
+
+    FanDuel can show a responsible-gambling modal before the login link is
+    clickable. Do not close dialogs that already contain login fields; those
+    are the credential form we need to fill.
+    """
+    try:
+        modal = page.locator(
+            'div[role="dialog"][aria-modal="true"], '
+            '.ReactModal__Overlay.ReactModal__Overlay--after-open'
+        )
+        if modal.count() == 0 or not modal.first.is_visible():
+            return
+
+        if modal.first.locator("input").count() > 0:
+            return
+
+        buttons = modal.first.locator("button")
+        if buttons.count() == 0:
+            return
+
+        for label in ("Done", "Got it", "OK", "Close"):
+            try:
+                named = modal.first.get_by_role("button", name=label)
+                if named.count() > 0 and named.first.is_visible():
+                    print(f"[AUTH] {site}: dismissing blocking modal via {label!r}")
+                    named.first.click()
+                    page.wait_for_timeout(1000)
+                    return
+            except Exception:
+                continue
+
+        if buttons.count() == 1 and buttons.first.is_visible():
+            print(f"[AUTH] {site}: dismissing blocking modal via sole button")
+            buttons.first.click()
+            page.wait_for_timeout(1000)
+    except Exception as e:
+        print(f"[AUTH] {site}: modal-dismiss probe failed: {e}")
+
+
 def _looks_logged_in(page: Page) -> bool:
     """Heuristic: not on a login URL AND no log-in button visible."""
     url = (page.url or "").lower()
@@ -300,6 +341,7 @@ def _do_login(
     submit_selectors,
 ) -> bool:
     print(f"[AUTH] {site}: logging in as {_mask_username(user)}")
+    _dismiss_blocking_modal(page, site)
 
     # If we're not on a login-shaped URL, try clicking a "Log In" button to
     # navigate there. The home page typically has one in the header.
@@ -413,6 +455,7 @@ def ensure_logged_in(page: Page, site: str, audit_dir: str) -> bool:
         raise LoginError(f"{site}: warm-up navigation failed: {e}")
 
     page.wait_for_timeout(2500)
+    _dismiss_blocking_modal(page, site)
 
     if _looks_logged_in(page):
         print(f"[AUTH] {site}: session valid (already logged in)")

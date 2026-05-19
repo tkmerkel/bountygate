@@ -124,13 +124,21 @@ def check_selectors_mapped(opportunity: Dict) -> tuple[bool, Optional[str]]:
     over_book = opportunity['over_bookmaker_key']
     under_book = opportunity['under_bookmaker_key']
     over_market_key, under_market_key = get_market_keys(opportunity)
+    require_executable = os.getenv("REQUIRE_EXECUTABLE_SELECTORS", "false").lower() == "true"
 
     missing = []
 
-    if not SelectorManager.has_market(over_book, over_market_key):
+    if require_executable:
+        over_ok = SelectorManager.is_market_executable(over_book, over_market_key)
+        under_ok = SelectorManager.is_market_executable(under_book, under_market_key)
+    else:
+        over_ok = SelectorManager.has_market(over_book, over_market_key)
+        under_ok = SelectorManager.has_market(under_book, under_market_key)
+
+    if not over_ok:
         missing.append(f"{over_book} - {over_market_key}")
 
-    if not SelectorManager.has_market(under_book, under_market_key):
+    if not under_ok:
         missing.append(f"{under_book} - {under_market_key}")
 
     if missing:
@@ -307,9 +315,9 @@ class ArbExecutor:
                     placer_fd.find_and_click_bet(self.opportunity, fd_direction, fd_config)
 
                     # Extract actual FanDuel odds
-                    fd_actual_odds = placer_fd.get_actual_odds_fanduel()
+                    fd_actual_odds = placer_fd.get_actual_odds()
 
-                    fd_max_wager, fd_max_text = placer_fd.discover_max_wager_fanduel()
+                    fd_max_wager, fd_max_text = placer_fd.discover_max_wager()
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
@@ -376,7 +384,7 @@ class ArbExecutor:
                     placer_mgm.find_and_click_bet(self.opportunity, mgm_direction, mgm_config)
 
                     # Extract actual BetMGM odds
-                    mgm_actual_odds = placer_mgm.get_actual_odds_betmgm()
+                    mgm_actual_odds = placer_mgm.get_actual_odds()
 
                     # === VERIFY ROI WITH ACTUAL ODDS ===
                     # Use actual odds if available, otherwise use original
@@ -434,7 +442,7 @@ class ArbExecutor:
                     placer_mgm.enter_wager(actual_mgm_stake)
 
                     # Check for BetMGM max limit alert
-                    limit_hit, adjusted_stake = placer_mgm.check_betmgm_limit_alert()
+                    limit_hit, adjusted_stake = placer_mgm.check_limit_alert()
 
                     if limit_hit:
                         if adjusted_stake is None:
@@ -556,6 +564,17 @@ class ArbExecutor:
                     },
                     self.audit_dir
                 )
+
+                # === SCRAPE: account balances ===
+                # Best-effort: reuses the warm pages we already have. Failures
+                # are logged and surfaced via the dashboard's Accounts card
+                # but never break the success path of a placed bet.
+                try:
+                    from account_scraper import scrape_all
+                    scrape_all(page_fd=page_fd, page_mgm=page_mgm)
+                    print("  ✓ Account stats scraped")
+                except Exception as scrape_err:
+                    print(f"  ⚠ Account scrape failed (non-fatal): {scrape_err}")
 
                 # === CLEANUP: Close browser tabs ===
                 print("Closing browser tabs...")

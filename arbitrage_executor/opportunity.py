@@ -56,108 +56,72 @@ MIN_ROI_THRESHOLD = float(os.getenv("MIN_ROI_THRESHOLD", "0.005"))
 WAGER_SCALE_FACTOR = float(os.getenv("WAGER_SCALE_FACTOR", "0.01"))
 TESTING_MODE = os.getenv("TESTING_MODE", "false").lower() == "true"
 
-table_name = "bg_arbitrage_player_props"
-alt_table_name = "bg_arbitrage_player_props_alt"
+# Source table — produced by the bg_arb_pipeline DAG. Carries per-leg
+# market_key columns, so std/alt pairings appear in a single table instead
+# of the legacy two-table split (bg_arbitrage_player_props + _alt).
+OPPORTUNITIES_TABLE = "bg_arbitrage_opportunities"
 
 
-def _build_query(table: str, testing_mode: bool = False) -> str:
+def _build_query(testing_mode: bool = False) -> str:
+    """Build query for fetching opportunities from the unified arb table.
+
+    SELECT aliases the new schema's ``under_book`` / ``over_book`` /
+    ``canonical_market`` to the legacy column names downstream callers
+    expect (``under_bookmaker_key`` / ``over_bookmaker_key`` /
+    ``market_key``), keeping the executor's opportunity-dict shape stable.
     """
-    Build query for fetching arbitrage opportunities.
-
-    Args:
-        table: Table name to query
-        testing_mode: If True, removes strict filters for testing
-    """
-    # Base query
-    # Exclude player+market pairs already executed today.
-    executed_today_filter = """
-        AND NOT EXISTS (
-            SELECT 1 FROM bg_executed_opportunities eo
-            WHERE eo.player_name = {tbl}.player_name
-            AND eo.market_key = {tbl}.market_key
+    base_query = f"""
+    SELECT player_name,
+           sport_title,
+           home_team,
+           away_team,
+           canonical_market    AS market_key,
+           under_market_key,
+           over_market_key,
+           under_line,
+           over_line,
+           under_book          AS under_bookmaker_key,
+           over_book           AS over_bookmaker_key,
+           under_price,
+           over_price,
+           wager_under,
+           wager_over,
+           payout,
+           arb_ev,
+           roi,
+           hours_until_commence,
+           fetched_at_utc
+    FROM {OPPORTUNITIES_TABLE} bao
+    WHERE under_line = over_line
+      AND under_book IN ('fanduel', 'betmgm')
+      AND over_book IN ('fanduel', 'betmgm')
+      AND sport_title IN ('NBA', 'NHL', 'NFL', 'MLB')
+      AND NOT EXISTS (
+          SELECT 1 FROM bg_executed_opportunities eo
+          WHERE eo.player_name = bao.player_name
+            AND (eo.under_market_key = bao.under_market_key
+                 OR eo.over_market_key = bao.over_market_key)
             AND eo.executed_at_utc >= CURRENT_DATE
-        )
+      )
     """
-
-    if table == "bg_arbitrage_player_props":
-        base_query = f"""
-    SELECT player_name,
-            sport_title,
-            home_team,
-            away_team,
-            market_key AS under_market_key,
-            market_key AS over_market_key,
-            under_line,
-            over_line,
-            under_bookmaker_key,
-            over_bookmaker_key,
-            under_price,
-            over_price,
-            wager_under,
-            wager_over,
-            payout,
-            arb_ev,
-            roi,
-            hours_until_commence,
-            fetched_at_utc
-    FROM {table}
-    WHERE under_line = over_line
-        AND under_bookmaker_key  IN ('fanduel', 'betmgm')
-        AND over_bookmaker_key  IN ('fanduel', 'betmgm')
-        AND under_bookmaker_key != over_bookmaker_key
-        AND sport_title IN ('NBA', 'NHL', 'NFL', 'MLB')
-    """ + executed_today_filter.format(tbl=table)
-    elif table == "bg_arbitrage_player_props_alt":
-        base_query = f"""
-    SELECT player_name,
-            sport_title,
-            home_team,
-            away_team,
-            under_market_key,
-            over_market_key,
-            under_line,
-            over_line,
-            under_bookmaker_key,
-            over_bookmaker_key,
-            under_price,
-            over_price,
-            wager_under,
-            wager_over,
-            payout,
-            arb_ev,
-            roi,
-            hours_until_commence,
-            fetched_at_utc
-    FROM {table}
-    WHERE under_line = over_line
-        AND under_bookmaker_key  IN ('fanduel', 'betmgm')
-        AND over_bookmaker_key  IN ('fanduel', 'betmgm')
-        AND under_bookmaker_key != over_bookmaker_key
-        AND sport_title IN ('NBA', 'NHL', 'NFL', 'MLB')
-    """ + executed_today_filter.format(tbl=table)
-       
+    # under_book != over_book is enforced by the builder; no need to re-check.
 
     if testing_mode:
-        # Testing mode: relaxed filters
-        query = base_query + f"""
-    AND fetched_at_utc >= (now() AT TIME ZONE 'utc') - INTERVAL '4 hours'
-    AND hours_until_commence > 0
-    AND hours_until_commence < 72
+        return base_query + """
+      AND fetched_at_utc >= (now() AT TIME ZONE 'utc') - INTERVAL '4 hours'
+      AND hours_until_commence > 0
+      AND hours_until_commence < 72
 ORDER BY fetched_at_utc DESC, roi DESC
 LIMIT 20;
 """
-    else:
-        # Production mode: strict filters
-        query = base_query + f"""
-    AND fetched_at_utc >= (now() AT TIME ZONE 'utc') - INTERVAL '10 minutes'
-    AND hours_until_commence > 0.03
-    AND hours_until_commence < 24
-    AND roi >= {MIN_ROI_THRESHOLD}
+    return base_query + f"""
+      AND fetched_at_utc >= (now() AT TIME ZONE 'utc') - INTERVAL '10 minutes'
+      AND hours_until_commence > 0.03
+      AND hours_until_commence < 24
+      AND roi >= {MIN_ROI_THRESHOLD}
 ORDER BY roi DESC
 LIMIT 10;
 """
-
-    return query
 
 
 def _fetch_best_opportunity(testing_mode: bool = None) -> dict:
@@ -175,24 +139,14 @@ def _fetch_best_opportunity(testing_mode: bool = None) -> dict:
 
     print(f"Fetching opportunities (testing_mode={testing_mode})...")
 
-    df_primary = fetch_data(_build_query(table_name, testing_mode))
-    df_alt = fetch_data(_build_query(alt_table_name, testing_mode))
+    df_all = fetch_data(_build_query(testing_mode))
 
-    dfs = []
-    if df_primary is not None and not df_primary.empty:
-        df_primary = df_primary.copy()
-        df_primary["source_table"] = table_name
-        dfs.append(df_primary)
-    if df_alt is not None and not df_alt.empty:
-        df_alt = df_alt.copy()
-        df_alt["source_table"] = alt_table_name
-        dfs.append(df_alt)
-
-    if not dfs:
-        print("No data returned from either table.")
+    if df_all is None or df_all.empty:
+        print(f"No data returned from {OPPORTUNITIES_TABLE}.")
         return {}
 
-    df_all = pd.concat(dfs, ignore_index=True)
+    df_all = df_all.copy()
+    df_all["source_table"] = OPPORTUNITIES_TABLE
     df_all["roi"] = pd.to_numeric(df_all.get("roi"), errors="coerce")
     df_all = df_all.dropna(subset=["roi"])
 
@@ -244,24 +198,14 @@ def fetch_all_opportunities(testing_mode: bool = None) -> list:
 
     print(f"Fetching opportunities (testing_mode={testing_mode})...")
 
-    df_primary = fetch_data(_build_query(table_name, testing_mode))
-    df_alt = fetch_data(_build_query(alt_table_name, testing_mode))
+    df_all = fetch_data(_build_query(testing_mode))
 
-    dfs = []
-    if df_primary is not None and not df_primary.empty:
-        df_primary = df_primary.copy()
-        df_primary["source_table"] = table_name
-        dfs.append(df_primary)
-    if df_alt is not None and not df_alt.empty:
-        df_alt = df_alt.copy()
-        df_alt["source_table"] = alt_table_name
-        dfs.append(df_alt)
-
-    if not dfs:
-        print("No data returned from either table.")
+    if df_all is None or df_all.empty:
+        print(f"No data returned from {OPPORTUNITIES_TABLE}.")
         return []
 
-    df_all = pd.concat(dfs, ignore_index=True)
+    df_all = df_all.copy()
+    df_all["source_table"] = OPPORTUNITIES_TABLE
     df_all["roi"] = pd.to_numeric(df_all.get("roi"), errors="coerce")
     df_all = df_all.dropna(subset=["roi"])
 

@@ -17,11 +17,18 @@ def _shared_on_path() -> None:
 
 
 _shared_on_path()
-from bountygate.utils import db_connection as dbc  # type: ignore  # noqa: E402
+try:
+    from bountygate.utils import db_connection as dbc  # type: ignore  # noqa: E402
+except ImportError:
+    dbc = None  # type: ignore[assignment]
 
 
 def get_engine_url() -> str:
-    return os.environ.get("DATABASE_URL") or getattr(dbc, "DATABASE_URL", "")
+    fallback = getattr(dbc, "DATABASE_URL", "") if dbc is not None else ""
+    url = os.environ.get("DATABASE_URL") or fallback
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    return url
 
 
 def ensure_migrations_table(conn) -> None:
