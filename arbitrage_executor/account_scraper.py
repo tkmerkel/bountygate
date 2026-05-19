@@ -14,10 +14,12 @@ Public API:
 CSS SELECTOR NOTE
 -----------------
 The selectors below are placeholders. The real selectors must be captured
-against each book's live account page (use map_selectors.py-style workflow
-or DevTools inspection). Until the placeholders are replaced, each scrape
-will fail and write scrape_status='error' to the dashboard — visible in the
-Watchers + Accounts cards.
+against each book's live account page — ask Claude Code (with Playwright /
+Chrome DevTools MCP attached to the existing Chrome on port 9223) to walk
+the DOM and propose stable selectors, then hand-edit them in below. Until
+the placeholders are replaced, each scrape will fail and write
+scrape_status='error' to the dashboard — visible in the Watchers + Accounts
+cards.
 """
 from __future__ import annotations
 

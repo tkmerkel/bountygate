@@ -78,13 +78,13 @@ class ExecutionLogger:
             "player_name": opportunity.get("player_name"),
             "sport": opportunity.get("sport_title"),
             "event": f"{opportunity.get('away_team')} @ {opportunity.get('home_team')}",
-            "suggestion": f"Run: python map_selectors.py --site {site} --market {market_key}"
+            "suggestion": f"Add {site}/{market_key} to selectors/{site}_markets.yaml — see SOP.md § Mapping; then `python validate_selector.py --site {site} --market {market_key}`"
         }
 
         ExecutionLogger._log_entry(ExecutionLogger.UNMAPPED_MARKETS_LOG, message, data)
         notify(
             f"Unmapped market — {site}/{market_key}\n{_opportunity_summary(opportunity)}\n"
-            f"Fix: python map_selectors.py --site {site} --market {market_key}",
+            f"Fix: see SOP.md § Mapping (Claude Code + Playwright MCP), then `python validate_selector.py --site {site} --market {market_key}`",
             level="warning",
             source=_SOURCE,
         )

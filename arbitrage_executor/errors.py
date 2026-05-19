@@ -46,8 +46,9 @@ class SelectorMissing(BetPlacerError):
     """The market has no entry in ``selectors/{site}_markets.yaml``.
 
     This is a *configuration* failure, not a UI failure. The market was never
-    mapped in the first place. Fix by running
-    ``python map_selectors.py --site <site> --market <key>``.
+    mapped in the first place. Fix by adding an entry to the YAML (see SOP.md
+    § "Mapping a new selector with Claude Code") and then validate with
+    ``python validate_selector.py --site <site> --market <key>``.
 
     Severity: WARNING. Opportunity is skipped; no bet was placed on either
     leg.
@@ -66,7 +67,8 @@ class SelectorMatchedNothing(BetPlacerError):
 
     This is the classic "UI changed" signal — the YAML was valid, the market
     is in scope, but the sportsbook redesigned or renamed the element. Fix
-    by re-running ``map_selectors.py`` for the affected market (see SOP.md).
+    by re-mapping the broken element (see SOP.md § "Mapping a new selector
+    with Claude Code") and re-validating with ``validate_selector.py``.
 
     Severity depends on which leg we're on:
 
