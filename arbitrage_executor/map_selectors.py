@@ -216,6 +216,9 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
     Returns:
         Opportunity dict or None if not found
     """
+    # Cast NUMERIC columns to float8 — psycopg2 returns NUMERIC as Decimal,
+    # which downstream tooling expects as a Python float. See opportunity.py
+    # for the same fix on the same table.
     query = f"""
     SELECT player_name,
            sport_title,
@@ -224,12 +227,12 @@ def fetch_opportunity_for_market(market_key: str, bookmaker: str) -> Optional[Di
            canonical_market    AS market_key,
            under_market_key,
            over_market_key,
-           under_line,
-           over_line,
+           under_line::float8  AS under_line,
+           over_line::float8   AS over_line,
            under_book          AS under_bookmaker_key,
            over_book           AS over_bookmaker_key,
-           under_price,
-           over_price
+           under_price::float8 AS under_price,
+           over_price::float8  AS over_price
     FROM bg_arbitrage_opportunities
     WHERE (under_market_key = '{market_key}' OR over_market_key = '{market_key}')
       AND (under_book = '{bookmaker}' OR over_book = '{bookmaker}')
