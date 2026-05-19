@@ -154,7 +154,7 @@ The bot's hot path is not test-driven (the value is in real Playwright runs agai
 
 - Bot stopped placing bets → `arbitrage_executor/SOP.md` (UI-break recovery runbook).
 - Stuck task in `RUNNING` → `python toolkit/rescue_stuck_tasks.py`.
-- New market not mapped → `python arbitrage_executor/map_selectors.py --site <site> --market <market>`.
+- New market not mapped → `arbitrage_executor/SOP.md § 2` (Claude Code + Playwright/CDP MCP), then `python arbitrage_executor/validate_selector.py --site <site> --market <market>`.
 - DAG not producing opportunities → check Airflow UI; data in `bg_arbitrage_player_props*` tables.
 - Discord alerts → see `arbitrage_executor/CLAUDE.md` § "Operator runbook (Discord alerts)".
 

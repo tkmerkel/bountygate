@@ -46,22 +46,17 @@ Cross-reference the last log line in `logs/execution_failures.log` with the scre
 
 ---
 
-## 2. Reproduce the failure locally
+## 2. Map the broken selector with Claude Code
 
-Re-run just the affected market in isolation to confirm the theory:
+With Chrome already running on port 9223 (your bot's existing CDP instance, logged into FD/MGM), open Claude Code in the repo. The repo-level `.mcp.json` attaches both Playwright MCP and Chrome DevTools MCP to that exact Chrome session — your sportsbook logins are reused; no fresh browser spawns.
 
-```bash
-cd arbitrage_executor
-python map_selectors.py --site <site> --market <market_key>
-```
+Ask Claude Code something like:
 
-- `<site>` is `fanduel` or `betmgm`.
-- `<market_key>` is exactly as it appears in `bg_arbitrage_player_props.market` and in `selectors/{site}_markets.yaml`.
-- This tool fetches a real recent opportunity from the DB, navigates to the live event, and walks through the selector discovery interactively.
+> "On [site], walk to the [market] page for [a real recent opportunity — player + event]. The current YAML at `selectors/{site}_markets.yaml` is `<paste the entry>`. The audit screenshot at `audit_logs/.../{prefix}.png` shows the page state when the bot failed. Propose a stable selector for the broken element ([accordion / All Wagers link / search input / etc.])."
 
-If the tool itself fails to find the accordion / the player / the bet button, you've confirmed the break.
+Claude will use the MCP tools to inspect the live DOM, try selector candidates, and report which one uniquely matches. **Hand-edit the YAML** with the chosen value — the only fields the bot reads at runtime are listed in `selectors/SCHEMA.md` § LIVE fields.
 
-If the tool succeeds (the DOM loads correctly), the break may be transient. Check:
+If the live page actually looks fine and the selector wouldn't change, the break may be transient. Check:
 
 - Was the failed event suspended or finished when the bot tried? (Check the game status.)
 - Was Chrome in a weird state — logged out, MFA prompt, geolocation prompt? (Look for those in the audit screenshot.)
@@ -69,46 +64,34 @@ If the tool succeeds (the DOM loads correctly), the break may be transient. Chec
 
 ---
 
-## 3. Re-map the selector
+## 3. Validate the new selector
 
-When `map_selectors.py` confirms the break, run it to remap:
+Before resuming automated execution, prove the new selector with the executable harness:
 
 ```bash
-python map_selectors.py --site <site> --market <market_key>
+cd arbitrage_executor
+python validate_selector.py --site <site> --market <market_key>
 ```
 
-The tool will:
+`validate_selector.py` fetches a real recent opportunity, navigates through the full runtime code path, clicks the bet into the slip, asserts the slip has it, then clears the slip without placing. On success it writes `validation_status: passed` and a `validation:` audit block back to the YAML.
 
-1. Prompt you that the market is already mapped. Answer `y` to re-map.
-2. Open a real opportunity in Chrome.
-3. Walk through discovery — you watch the browser and confirm which element is the right one.
-4. Write the updated YAML back to `selectors/{site}_markets.yaml`.
-
-**Consult `selectors/SCHEMA.md`** for what each YAML field means. You do not need to hand-edit the YAML — let the tool write it — but understanding the schema helps when the tool asks you to choose between candidates.
-
----
-
-## 4. Validate the new selector
-
-Before resuming automated execution:
+If validation passes, optionally run one real cycle:
 
 ```bash
 python execute_arb.py
 ```
 
-This runs a single execution cycle against the best current opportunity. Watch:
+Watch:
 
 - Did it find the market? (Check `logs/unmapped_markets.log` stays empty.)
-- Did it place a real bet or dry-run correctly? (Check `bg_executed_opportunities` table in Postgres.)
+- Did it place a real bet? (Check `bg_executed_opportunities` table in Postgres.)
 - Any new screenshot in `audit_logs/` with `_failed` in the name?
 
-If execution succeeds, the selector is fixed.
-
-If not, go back to step 2 with more care — it's likely a second DOM change you missed (e.g., the accordion name changed AND the player row container changed).
+If validation or execution fails, go back to step 2 — it's likely a second DOM change you missed (e.g. the accordion name changed AND the player row container changed). Ask Claude Code to inspect the *next* broken element in the same audit dir.
 
 ---
 
-## 5. Restart the worker
+## 4. Restart the worker
 
 If the worker was halted by a CRITICAL alert:
 
@@ -122,7 +105,7 @@ If the worker was never halted (a plain WARNING), it will pick up the fixed mark
 
 ---
 
-## 6. Record what you did
+## 5. Record what you did
 
 Leave a one-line commit message:
 
@@ -143,14 +126,14 @@ This creates a searchable history the next contractor can learn from.
 ## Common pitfalls
 
 - **Don't edit `chrome_helpers.py`.** The launch flags and profile handling defeat bot detection — see `CLAUDE.md` warning. If Chrome is misbehaving, the fix is almost never in that file.
-- **Don't run `map_selectors.py` without a recent opportunity in the DB.** The tool fetches the test player/line from Postgres; if the analytics pipeline hasn't produced opportunities recently (check Airflow), the tool has nothing to walk through.
-- **Don't delete the `selector_pattern` / `selector_type` / `validated_at` metadata fields** when hand-editing YAML. They're not used at runtime but they're your audit trail.
+- **Don't let the MCP plugins spawn their own Chrome.** The repo-level `.mcp.json` pins both Playwright MCP and Chrome DevTools MCP to `http://127.0.0.1:9223` — the existing bot Chrome with the FD/MGM logins. If you see a fresh, logged-out browser open, the attach-mode flag isn't taking effect; don't try to log in there, fix the MCP config.
+- **Don't add YAML fields that aren't documented in `selectors/SCHEMA.md` § LIVE fields.** The schema is the contract; extra fields are silently ignored at runtime and confuse later edits.
 - **Don't mark queue rows COMPLETED without confirming the bet state on both books.** The FAILED status is the bot's way of asking for human eyes.
 
 ## When to escalate
 
 Open a GitHub issue and tag the owner if:
 
-- `map_selectors.py` fails for three different markets on the same book in one session — likely a larger UI redesign, not a per-market break.
+- Three different markets on the same book break in one session — likely a larger UI redesign, not a per-market break.
 - You see repeated `FAILED_LEGGING` even after remapping — Chrome/CDP integrity issue, beyond this runbook's scope.
 - Discord fires `🚨 CRITICAL` more than twice in 24 hours — the bot is structurally unhealthy; pause it and investigate.

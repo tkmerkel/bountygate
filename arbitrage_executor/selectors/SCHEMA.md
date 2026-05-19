@@ -20,9 +20,9 @@ Two shapes, distinguished by a `_alternate` suffix on the market key:
 
 `selector_finder.is_alternate_market(key)` and `get_base_market_key(key)` are the authoritative helpers for this distinction.
 
-## Fields — which are LIVE vs. METADATA
+## Fields
 
-Fields fall into two buckets. **Live** fields are read by `bet_placer.py` at bet time — if they're wrong or missing, placement fails. **Metadata** fields are written by `map_selectors.py` during interactive mapping; they're kept for human debugging and re-mapping but are *not* consumed during a live bet.
+Every documented field below is either read by `bet_placer.py` at runtime or written by `validate_selector.py`. Anything else does not belong in the YAML.
 
 ### LIVE fields (consumed by bet_placer.py)
 
@@ -33,30 +33,19 @@ Fields fall into two buckets. **Live** fields are read by `bet_placer.py` at bet
 | `is_alternate` | bool | both | Triggers alternate-market code path. Also set implicitly by the `_alternate` key suffix — both work, both are checked |
 | `has_threshold_tabs` | bool | betmgm | BetMGM alternates only. When true, bot clicks a threshold tab before scraping the player list |
 | `tab_selector_pattern` | str template | betmgm | Template with `{threshold}` placeholder, e.g. `'button:has-text("{threshold}+")'`. Bot substitutes `calculate_alternate_tab_value(line)` at runtime |
+| `sub_tab_label` | str | betmgm | Optional. When the market sits behind a secondary tab inside its accordion ("Combo stats", "Assists"), the exact tab label to click before scraping. No-op if absent. |
 
-### METADATA fields (bookkeeping / debug only)
-
-These are written by `map_selectors.py` when a market is first mapped. They serve as a snapshot of *how* the selector was validated — useful when a contractor needs to re-map a broken market. **Do not delete them**, and keep them roughly in sync when re-mapping, but understand they don't affect live bets.
+### Validation fields (written by validate_selector.py)
 
 | Field | Written by | What it records |
 |-------|------------|-----------------|
-| `selector_type` | map_selectors | High-level pattern family — `aria_label` (FanDuel), `ms_event_pick` (BetMGM) |
-| `selector_pattern` | map_selectors | Example working selector string at mapping time. Contains a baked-in test player name, not used at runtime |
-| `search_strategy` | map_selectors | Named strategy chosen by the operator: `aria_label_match`, `player_container_then_line`, `alternate_threshold_match`, `alternate_tab_then_player` |
-| `accordion_selector` | map_selectors | Pre-built accordion selector string. Bot reconstructs this at runtime from `accordion_name`, so this field is purely for reference |
-| `show_more_selector` | map_selectors | BetMGM pagination selector. Hardcoded at runtime in `bet_placer.py:280` — this YAML field is reference only |
-| `bet_element_type` | map_selectors | Tag name of the clickable bet element (`ms-event-pick` on BetMGM) |
-| `search_validated` | map_selectors | Boolean: did the operator confirm the mapping produced a live bet on the betslip |
-| `test_player` | map_selectors | Player name used during interactive mapping |
-| `test_line` | map_selectors | Betting line used during interactive mapping |
-| `validated_at` | map_selectors | ISO timestamp of the last successful mapping |
-| `base_market` | map_selectors | For `_alternate` keys: the standard-market key this alternate pairs with |
 | `validation_status` | validate_selector | `passed`, `failed`, or `unknown`. `passed` means the executable harness clicked a real opportunity into the slip and cleared it. |
+| `validated_at` | validate_selector | ISO timestamp of the last validation attempt. |
 | `validation` | validate_selector | Structured proof metadata: player, line, side, source table/hash, audit dir, and timestamp. |
 
 ## Executable validation
 
-The preferred workflow is **not** hand-mapping a selector and assuming it will run. Use the executable validation harness:
+Selector mapping itself is hand-edited YAML; ask Claude Code (with the repo-level Playwright + Chrome DevTools MCP plugins attached to your bot's Chrome on port 9223) to walk the live DOM and propose the values. Then prove the mapping executes end-to-end:
 
 ```bash
 cd arbitrage_executor
@@ -73,7 +62,7 @@ Passing validation means:
 5. The betslip was cleared and verified empty.
 6. `validation_status: passed` and a `validation:` block were written to YAML.
 
-`map_selectors.py` is legacy discovery tooling. It can still help find label text, but it does not prove executability by itself.
+See `SOP.md § 2 — Map the broken selector with Claude Code` for the recovery flow when a sportsbook UI changes.
 
 ## Canonical examples
 
@@ -81,16 +70,9 @@ Passing validation means:
 
 ```yaml
 player_points:
-  # LIVE
   display_names:
   - Points
   - Player Points
-  # METADATA (from map_selectors.py)
-  selector_type: aria_label
-  selector_pattern: '[aria-label*="Svi Mykhailiuk"][aria-label*="Points"][aria-label*="7.5"]'
-  search_strategy: aria_label_match
-  test_player: Svi Mykhailiuk
-  test_line: 7.5
   validated_at: '2026-01-22T13:22:32.409618'
 ```
 
@@ -98,58 +80,43 @@ player_points:
 
 ```yaml
 player_points_alternate:
-  # LIVE
   display_names:
   - Points
   is_alternate: true
-  # METADATA
-  selector_type: aria_label
-  search_strategy: alternate_threshold_match
-  base_market: player_points
 ```
 
 ### BetMGM standard (O/U)
 
 ```yaml
 player_points:
-  # LIVE
   accordion_name: Player points O/U
-  # METADATA
-  accordion_selector: button[dsaccordiontoggle]:has-text("Player points O/U")
-  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
-  bet_element_type: ms-event-pick
-  search_strategy: player_container_then_line
-  search_validated: true
-  test_player: P.J. Washington
-  test_line: 14.5
   validated_at: '2026-01-22T12:39:24.673621'
+```
+
+### BetMGM standard with sub-tab
+
+```yaml
+player_assists:
+  accordion_name: Player assists O/U
+  sub_tab_label: Assists
+  validated_at: '2026-01-22T13:17:27.231320'
 ```
 
 ### BetMGM alternate (with threshold tabs)
 
 ```yaml
 player_points_alternate:
-  # LIVE
   accordion_name: Points
   is_alternate: true
   has_threshold_tabs: true
   tab_selector_pattern: 'button:has-text("{threshold}+")'
-  # METADATA
-  accordion_selector: 'button[dsaccordiontoggle]:has-text("Points")'
-  show_more_selector: ms-option-panel-bottom-action:has-text("Show More")
-  bet_element_type: ms-event-pick
-  search_strategy: alternate_tab_then_player
-  base_market: player_points
 ```
 
 ## Rules of thumb when adding a new market
 
-1. Keep the market key identical across both YAML files and to the DB column value (`bg_arbitrage_player_props.market`).
-2. Always run `python map_selectors.py --site <site> --market <key>` to populate **both** live and metadata fields. Do not hand-edit unless you understand what's live vs metadata.
-3. For BetMGM markets, the only way to know the exact `accordion_name` text is to look at the live page — it changes per sport and sometimes per season.
+1. Keep the market key identical across both YAML files and to the DB column value (`canonical_market` in `bg_arbitrage_opportunities`).
+2. Hand-edit only the fields documented above. Anything extra is silently ignored at runtime and just adds confusion.
+3. For BetMGM markets, the only way to know the exact `accordion_name` text is to look at the live page — it changes per sport and sometimes per season. Ask Claude Code to inspect the page via the Playwright MCP and report it.
 4. For FanDuel, `display_names[0]` should match the exact text that appears in aria-labels; alternate entries handle display variations.
-5. The `_alternate` suffix on the key is load-bearing (`is_alternate_market()` relies on it). Don't rename an alternate market without also updating the base_market reference.
-
-## Fields this doc does NOT describe
-
-Anything not listed above is either undocumented legacy or a field used only by `map_selectors.py` internally. If you see a field in a YAML that isn't here, grep for it in `bet_placer.py` first — if nothing references it at bet time, it's metadata.
+5. The `_alternate` suffix on the key is load-bearing (`is_alternate_market()` relies on it). Don't rename an alternate market without updating the matching alternate references in `bet_placer_*.py`.
+6. After hand-editing, run `python validate_selector.py --site <site> --market <key>` and confirm it writes `validation_status: passed`.
