@@ -70,26 +70,31 @@ def _build_query(testing_mode: bool = False) -> str:
     expect (``under_bookmaker_key`` / ``over_bookmaker_key`` /
     ``market_key``), keeping the executor's opportunity-dict shape stable.
     """
+    # NUMERIC columns are cast to float8 in the SELECT — psycopg2 returns
+    # NUMERIC as Decimal, which doesn't multiply against Python floats
+    # (WAGER_SCALE_FACTOR) in the downstream pandas arithmetic. The legacy
+    # bg_arbitrage_player_props schema used DOUBLE PRECISION so the issue
+    # only surfaced once we pointed at this table.
     base_query = f"""
     SELECT player_name,
            sport_title,
            home_team,
            away_team,
-           canonical_market    AS market_key,
+           canonical_market           AS market_key,
            under_market_key,
            over_market_key,
-           under_line,
-           over_line,
-           under_book          AS under_bookmaker_key,
-           over_book           AS over_bookmaker_key,
-           under_price,
-           over_price,
-           wager_under,
-           wager_over,
-           payout,
-           arb_ev,
-           roi,
-           hours_until_commence,
+           under_line::float8         AS under_line,
+           over_line::float8          AS over_line,
+           under_book                 AS under_bookmaker_key,
+           over_book                  AS over_bookmaker_key,
+           under_price::float8        AS under_price,
+           over_price::float8         AS over_price,
+           wager_under::float8        AS wager_under,
+           wager_over::float8         AS wager_over,
+           payout::float8             AS payout,
+           arb_ev::float8             AS arb_ev,
+           roi::float8                AS roi,
+           hours_until_commence::float8 AS hours_until_commence,
            fetched_at_utc
     FROM {OPPORTUNITIES_TABLE} bao
     WHERE under_line = over_line
