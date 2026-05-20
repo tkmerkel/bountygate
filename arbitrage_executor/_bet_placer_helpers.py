@@ -12,12 +12,6 @@ from typing import Iterable, Optional
 
 from playwright.sync_api import Page, Locator
 
-# Accordion-header fuzzy threshold. Lower than the player-name threshold (90)
-# because UI labels can be reworded more than player names ("Player points O/U"
-# -> "Player Points Over/Under") without changing semantics.
-_ACCORDION_FUZZY_THRESHOLD = 80
-
-
 def screenshot(page: Page, audit_dir: str, site: str, tag: str) -> str:
     """Save screenshot for audit trail. Never raises — logs and returns
     the intended path even if capture fails."""

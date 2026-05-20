@@ -6,14 +6,9 @@ import pytest
 
 from _fakes import FakeElement, FakeLocator, FakePage
 from _bet_placer_helpers import (
-    _ACCORDION_FUZZY_THRESHOLD,
     screenshot,
     first_visible,
 )
-
-
-def test_accordion_threshold_constant():
-    assert _ACCORDION_FUZZY_THRESHOLD == 80
 
 
 def test_first_visible_returns_first_matching_visible_locator():
