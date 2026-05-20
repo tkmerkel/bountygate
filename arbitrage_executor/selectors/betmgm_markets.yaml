@@ -180,3 +180,17 @@ player_points_q1:
 player_shots_on_goal:
   accordion_name: player_shots_on_goal
   validated_at: '2026-05-15T09:07:38.545928'
+player_turnovers:
+  accordion_name: Player turnovers O/U
+player_turnovers_alternate:
+  accordion_name: Turnovers
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_goals:
+  accordion_name: Player goals O/U
+player_goals_alternate:
+  accordion_name: Goals
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")

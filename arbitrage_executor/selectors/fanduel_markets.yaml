@@ -199,3 +199,21 @@ player_shots_on_goal:
   - Shots on Goal
   - 60 Min
   validated_at: '2026-05-15T09:14:59.724833'
+player_turnovers:
+  display_names:
+  - Turnovers
+  - Player Turnovers
+player_turnovers_alternate:
+  display_names:
+  - Turnovers
+  is_alternate: true
+player_goals:
+  display_names:
+  - 60 Min Goals
+  - Goals
+  - Player Goals
+player_goals_alternate:
+  display_names:
+  - 60 Min Goals
+  - Goals
+  is_alternate: true
