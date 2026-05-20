@@ -51,14 +51,22 @@ def applied_versions(conn) -> set[str]:
 
 def read_statements(sql_path: Path) -> List[str]:
     sql = sql_path.read_text(encoding="utf-8")
-    # naive split on ';' since our migrations are simple (no functions/DO blocks)
+    # Strip '--' line-comments BEFORE splitting on ';'. A ';' inside a
+    # comment (e.g. "Detection-only v1; bot executor integration ...")
+    # otherwise becomes a statement separator, both producing an
+    # all-comments chunk on one side and a chunk that starts with the
+    # post-';' comment text (now un-prefixed) on the other — which
+    # psycopg2 rejects as a syntax error. Our migrations don't put '--'
+    # inside string literals, so this is safe.
+    sql = "\n".join(
+        line.split("--", 1)[0] if "--" in line else line
+        for line in sql.splitlines()
+    )
     stmts = []
     for part in sql.split(";"):
         stmt = part.strip()
-        if not stmt:
-            continue
-        # restore the semicolon the executor expects per statement
-        stmts.append(stmt)
+        if stmt:
+            stmts.append(stmt)
     return stmts
 
 
