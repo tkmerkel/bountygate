@@ -69,6 +69,17 @@ class FanduelBetPlacer(BetPlacer):
         # and the slip ends up empty when we expect it populated.
         self._clear_betslip_fanduel()
 
+        # FanDuel's "Remove all selections" click can open the betslip in a
+        # full-screen takeover view that hides the search input (URL stays
+        # /search but the search header is no longer rendered). Observed in
+        # audit_logs/.../fanduel_search_input_not_found_*.png on 2026-05-19
+        # when McCarthy's stale slip got cleared at the start of the next
+        # attempt. Re-navigate to /search to reset to a known DOM regardless
+        # of whether the slip was actually dirty — one extra request per FD
+        # phase, cheap insurance.
+        self.page.goto("https://mo.sportsbook.fanduel.com/search", wait_until="domcontentloaded")
+        self.page.wait_for_timeout(2000)
+
         # Find search input. Scope to visible text-typed inputs only —
         # the bare `div.aq input` fallback can match hidden checkbox
         # inputs left over from the slip-clear overlay.
