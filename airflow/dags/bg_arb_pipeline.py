@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import pandas as pd
 from airflow.decorators import dag, task
 from airflow.sdk import Asset
+from sqlalchemy import create_engine, text
 
 # Ensure the per-package library is importable inside Airflow runtime.
 _dag_dir = os.path.dirname(os.path.abspath(__file__))
@@ -37,12 +38,21 @@ arb_opportunities_ready_asset = Asset("bg_arbitrage_opportunities_ready")
 STAGE_TABLE = "bg_arb_stage_lines"
 OPP_TABLE = "bg_arbitrage_opportunities"
 HISTORY_TABLE = "bg_arb_opportunities_history"
+QUEUE_TABLE = "bot_execution_queue"
 BASE_WAGER = 100.0
+
+# Executor-side filter — must match arbitrage_executor/opportunity.py.
+# Only opportunities that satisfy these conditions are bet-eligible (FD×MGM
+# only; DK/Caesars rows from PR #8 flow into the opps table for price
+# comparison but are gated out of execution).
+MIN_QUALIFYING_ROI = 0.005
+EXECUTABLE_BOOKS = ("fanduel", "betmgm")
+EXECUTABLE_SPORTS = ("NBA", "NHL", "NFL", "MLB")
 
 
 @dag(
     dag_id="bg_arb_pipeline",
-    schedule="*/10 * * * *",  # every 10 minutes; tune via Airflow UI
+    schedule="*/5 * * * *",  # every 5 minutes; tune via Airflow UI
     catchup=False,
     max_active_runs=1,  # one run at a time — bulk_replace TRUNCATEs the table
     start_date=datetime(2026, 5, 15, tzinfo=timezone.utc),
@@ -96,9 +106,70 @@ def bg_arb_pipeline_dag():
         print(f"[history] appended {inserted} new rows")
         return int(inserted)
 
+    @task()
+    def enqueue_opportunities_task(opportunity_count: int) -> int:
+        """Insert a PENDING row into bot_execution_queue when a fresh FD×MGM arb
+        exists and the queue isn't already backed up.
+
+        Replaces the queue-insert task from the retired bg_arbitrage_player_props
+        DAG (asset-trigger no longer fires after PR #2). Strategy:
+
+          1. If no opportunities at all this run, nothing to do.
+          2. If no FD×MGM-executable opportunity above MIN_QUALIFYING_ROI in
+             the eligible time window, nothing to do — the executor would
+             skip it anyway.
+          3. If a PENDING row already exists, nothing to do — task_worker
+             hasn't drained the previous tick yet, no point piling up.
+          4. Otherwise, insert one PENDING row. task_worker picks it up
+             within 15s and runs execute_arb against the current opps table.
+
+        Returns the number of PENDING rows inserted (0 or 1).
+        """
+        if opportunity_count == 0:
+            return 0
+
+        books_sql = ",".join(f"'{b}'" for b in EXECUTABLE_BOOKS)
+        sports_sql = ",".join(f"'{s}'" for s in EXECUTABLE_SPORTS)
+        eligible_query = f"""
+            SELECT COUNT(*) AS n FROM {OPP_TABLE}
+            WHERE under_book IN ({books_sql})
+              AND over_book IN ({books_sql})
+              AND sport_title IN ({sports_sql})
+              AND roi >= {MIN_QUALIFYING_ROI}
+              AND hours_until_commence BETWEEN 0.03 AND 24
+        """
+        df = fetch_data(eligible_query)
+        n_eligible = int(df.iloc[0, 0]) if df is not None and not df.empty else 0
+        if n_eligible == 0:
+            print("[enqueue] no FD×MGM executable arbs; not enqueuing")
+            return 0
+
+        pending_query = f"SELECT COUNT(*) AS n FROM {QUEUE_TABLE} WHERE status = 'PENDING'"
+        df = fetch_data(pending_query)
+        n_pending = int(df.iloc[0, 0]) if df is not None and not df.empty else 0
+        if n_pending > 0:
+            print(f"[enqueue] {n_pending} PENDING already; not piling up")
+            return 0
+
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            from bountygate.utils.db_connection import DATABASE_URL as _DB
+            database_url = _DB
+        engine = create_engine(database_url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"INSERT INTO {QUEUE_TABLE} (status) VALUES ('PENDING')"
+                ))
+            print(f"[enqueue] inserted 1 PENDING row ({n_eligible} eligible arb(s) waiting)")
+            return 1
+        finally:
+            engine.dispose()
+
     stage_count = ingest_odds_task()
     opp_count = build_opportunities_task(stage_count)
     record_history_task(opp_count)
+    enqueue_opportunities_task(opp_count)
 
 
 dag = bg_arb_pipeline_dag()
