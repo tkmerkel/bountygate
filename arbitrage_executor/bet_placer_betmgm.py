@@ -77,91 +77,75 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             raise BetPlacerError(f"Search failed: {e}")
 
-        # Find and click "All Wagers" in the correct event card
-        # Prefer cards with BOTH team names (skips Futures which only have one team)
+        # Navigate to the event page.
+        #
+        # BetMGM removed the "All Wagers" intermediate link from event cards
+        # in mid-2026 — the whole card is now a single
+        # <a href="/en/sports/events/<slug>-<id>"> anchor. The previous code
+        # path of "find the All Wagers span inside the card" stopped finding
+        # anything; the fallback that hunted `ms-event-footer` likewise
+        # misses because that footer element no longer ships.
+        #
+        # New strategy: scan every `a[href*="/sports/events/"]` on the page,
+        # pick the one whose text contains both team names (or whose href
+        # slug matches both), and navigate to its href directly. This skips
+        # the click-and-wait dance and is more robust to layout changes
+        # (search-results, team-detail page, betfinder grid all share the
+        # same anchor pattern).
         try:
-            clicked = False
-
-            # Check if we already landed on the event page (common for MLB suggestions)
             current_url = self.page.url.lower()
             home_slug = home_team.lower().replace(" ", "-")
             away_slug = away_team.lower().replace(" ", "-")
+
             if "/events/" in current_url and (home_slug in current_url or away_slug in current_url):
                 print(f"[BETMGM] Already on event page: {current_url}")
-                clicked = True
+            else:
+                anchors = self.page.locator('a[href*="/sports/events/"]')
+                n = anchors.count()
+                print(f"[BETMGM] Scanning {n} event anchor(s) for {away_team} @ {home_team}")
 
-            if not clicked:
-                # Try multiple selectors for result cards (search result card or standard event card)
-                result_cards = self.page.locator('ms-grid-search-result-card, ms-event, ms-event-card, .event-card')
-                card_count = result_cards.count()
-                print(f"[BETMGM] Found {card_count} result card(s)")
+                target_href = None
+                best_score = 0
+                home_l = home_team.lower()
+                away_l = away_team.lower()
 
-                # Score cards: 2 = both teams, 1 = one team, 0 = neither
-                # Also skip cards containing "futures" text
-                scored_cards = []
-                for i in range(card_count):
-                    card = result_cards.nth(i)
-                    card_text = (card.text_content() or "").lower()
-
-                    if "future" in card_text:
-                        print(f"[BETMGM] Skipping futures card #{i+1}")
-                        continue
-
-                    has_home = home_team.lower() in card_text
-                    has_away = away_team.lower() in card_text
-                    score = int(has_home) + int(has_away)
-                    if score > 0:
-                        scored_cards.append((score, i, card))
-
-                # Sort by score descending — prefer cards with both teams
-                scored_cards.sort(key=lambda x: x[0], reverse=True)
-
-                for score, idx, card in scored_cards:
-                    print(f"[BETMGM] Trying event card #{idx+1} (score={score})...")
-                    # Try multiple selectors for "All Wagers" link
-                    all_wagers_selectors = [
-                        'span.title:has-text("All Wagers")',
-                        'ms-event-footer span:has-text("All Wagers")',
-                        'ms-event-footer > div > span',
-                        'span:has-text("All Wagers")',
-                        'ms-event-footer a', # Fallback to any link in footer
-                    ]
-                    for aw_selector in all_wagers_selectors:
-                        all_wagers = card.locator(aw_selector)
-                        if all_wagers.count() > 0:
-                            print(f"[BETMGM] Found 'All Wagers' using: {aw_selector}")
-                            all_wagers.first.click()
-                            self.page.wait_for_timeout(2000)
-                            clicked = True
-                            break
-                    if clicked:
-                        break
-
-            # Fallback: try clicking "All Wagers" directly in the overlay (betfinder modal)
-            if not clicked:
-                print(f"[BETMGM] Card-scoped search failed, trying overlay-scoped fallback...")
-                overlay_selectors = [
-                    'div.cdk-overlay-container ms-event-footer > div > span',
-                    'div.cdk-overlay-container ms-event-footer span:has-text("All Wagers")',
-                    'div.cdk-overlay-container span:has-text("All Wagers")',
-                ]
-                for ov_selector in overlay_selectors:
+                for i in range(n):
+                    a = anchors.nth(i)
                     try:
-                        ov_loc = self.page.locator(ov_selector)
-                        if ov_loc.count() > 0 and ov_loc.first.is_visible():
-                            print(f"[BETMGM] Found 'All Wagers' in overlay using: {ov_selector}")
-                            ov_loc.first.click()
-                            self.page.wait_for_timeout(2000)
-                            clicked = True
-                            break
+                        text = (a.text_content() or "").lower()
+                        href = a.get_attribute("href") or ""
                     except Exception:
                         continue
+                    if "future" in text:
+                        continue
+                    score = int(home_l in text) + int(away_l in text)
+                    href_l = href.lower()
+                    if home_slug in href_l:
+                        score += 1
+                    if away_slug in href_l:
+                        score += 1
+                    if score > best_score:
+                        best_score = score
+                        target_href = href
 
-            if not clicked:
-                self._screenshot("all_wagers_not_found")
-                raise BetPlacerError(f"Could not find event: {away_team} @ {home_team}")
+                # Require both teams represented somewhere (text or href slug).
+                # Score >= 2 covers: both names in text, OR one name in text +
+                # one slug in href, OR both slugs in href.
+                if not target_href or best_score < 2:
+                    self._screenshot("event_link_not_found")
+                    raise BetPlacerError(
+                        f"Could not find event link: {away_team} @ {home_team} "
+                        f"(scanned {n} anchors, best score={best_score})"
+                    )
 
-            # Navigate to full player props page
+                # Normalize relative href; BetMGM mixes absolute and relative.
+                if target_href.startswith("/"):
+                    target_href = "https://www.mo.betmgm.com" + target_href
+                print(f"[BETMGM] Navigating to event: {target_href}")
+                self.page.goto(target_href, wait_until="domcontentloaded")
+                self.page.wait_for_timeout(2000)
+
+            # Add ?market=PlayerProps to land directly on the full props view.
             current_url = self.page.url
             if "market=PlayerProps" not in current_url:
                 new_url = current_url + ("&" if "?" in current_url else "?") + "market=PlayerProps"
@@ -169,6 +153,8 @@ class BetmgmBetPlacer(BetPlacer):
                 self.page.goto(new_url, wait_until="domcontentloaded")
                 self.page.wait_for_timeout(2000)
 
+        except BetPlacerError:
+            raise
         except Exception as e:
             self._screenshot("navigation_failed")
             raise BetPlacerError(f"Event navigation failed: {e}")
