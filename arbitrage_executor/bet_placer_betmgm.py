@@ -26,14 +26,48 @@ class BetmgmBetPlacer(BetPlacer):
         accordion_name = market_config.get('accordion_name', '')
         is_alternate = market_config.get('is_alternate', False) or market_config.get('has_threshold_tabs', False)
 
-        print(f"[BETMGM] Navigating to event... (sport: {sport})")
-        self.page.goto("https://www.mo.betmgm.com/en/sports?popup=betfinder", wait_until="domcontentloaded")
+        # Start on the regular homepage, not the betfinder popup. The
+        # ?popup=betfinder querystring overlays a search modal on top of
+        # the slip widget, which makes the subsequent slip-clear race
+        # against the modal (observed: slip-clear silently no-op'd while
+        # the modal sat on top, leaving stale bets in the slip). From the
+        # plain /en/sports page the slip pill at the bottom is reliably
+        # clickable and the page state is unambiguous. The betfinder
+        # popup opens later, after the slip is clean.
+        print(f"[BETMGM] Loading homepage... (sport: {sport})")
+        self.page.goto("https://www.mo.betmgm.com/en/sports", wait_until="domcontentloaded")
         self.page.wait_for_timeout(2000)
+
+        # Auth-and-render probe: when the BetMGM session is dead, the
+        # homepage renders a "Log in" link in the header instead of the
+        # account/balance widget. Cheap visual check — if the link is
+        # there, we'd otherwise click around as logged-out and the run
+        # would degrade silently. Fail loud, let the operator log back in.
+        try:
+            login_link = self.page.locator('a[href*="/login"]:has-text("Log in")')
+            if login_link.count() > 0 and login_link.first.is_visible():
+                self._screenshot("session_expired")
+                raise BetPlacerError(
+                    "BetMGM session expired (Log in link visible on homepage)"
+                )
+        except BetPlacerError:
+            raise
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Auth probe failed: {e} (continuing — assuming logged in)")
 
         # Clear any leftover bets from a previous failed run. The slip
         # icon at the bottom shows "(N)" when items are queued — those
-        # must come out before our click adds a new one cleanly.
+        # must come out before our click adds a new one cleanly. Done
+        # from the homepage so the slip drawer isn't fighting the search
+        # modal for pointer events.
         self._clear_betslip_betmgm_precheck()
+
+        # Now open the betfinder popup for the actual team lookup. After
+        # this nav the page renders the search modal on top of the
+        # (already-cleaned) homepage.
+        print(f"[BETMGM] Opening betfinder search...")
+        self.page.goto("https://www.mo.betmgm.com/en/sports?popup=betfinder", wait_until="domcontentloaded")
+        self.page.wait_for_timeout(2000)
 
         # Search for team — MLB needs autocomplete suggestion click, others use Enter
         try:
