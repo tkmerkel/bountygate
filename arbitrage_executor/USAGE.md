@@ -12,27 +12,13 @@ Your arbitrage bot uses a **tease-probe-execute** strategy to safely place bet p
 
 ### 1. Map Selectors (One-Time Setup)
 
-Before you can execute bets, you need to map each market on each site:
+Selector mapping is hand-edited YAML at `selectors/{site}_markets.yaml`. To add a new market or fix a broken one, open Claude Code in this repo and ask it to walk the live DOM via the Playwright + Chrome DevTools MCP plugins (already attached to your bot's Chrome on port 9223). See `SOP.md § 2 — Map the broken selector with Claude Code` for the exact procedure.
+
+Then prove it executes end-to-end:
 
 ```bash
-# Map BetMGM markets
-python map_selectors.py --site betmgm --market player_points
-python map_selectors.py --site betmgm --market player_assists
-python map_selectors.py --site betmgm --market player_rebounds
-
-# Map FanDuel markets
-python map_selectors.py --site fanduel --market player_points
-python map_selectors.py --site fanduel --market player_assists
-python map_selectors.py --site fanduel --market player_rebounds
+python validate_selector.py --site <site> --market <market_key>
 ```
-
-The script will:
-- Fetch a real opportunity for that market
-- Navigate to the site
-- Expand accordions (BetMGM) or search player (FanDuel)
-- Show you candidate selectors
-- Let you test-click to verify
-- Save to `selectors/{site}_markets.yaml`
 
 ### 2. Execute Arbitrage
 
@@ -61,8 +47,8 @@ The script will:
 dev_bg_browser/
 ├── execute_arb.py              # Main orchestrator
 ├── bet_placer.py               # Site-specific bet placement logic
-├── selector_finder.py          # Selector discovery utilities
-├── map_selectors.py            # Selector mapping tool
+├── selector_finder.py          # Selector YAML loader + validation writer
+├── validate_selector.py        # Executable validation harness
 ├── opportunity.py              # DB fetching logic
 ├── execution_logger.py         # Logging utilities
 ├── selectors/
@@ -135,16 +121,13 @@ If execution encounters an unmapped market:
 Logged to: logs/unmapped_markets.log
 ```
 
-To map it:
-```bash
-python map_selectors.py --site betmgm --market player_threes
-```
+To map it: follow `SOP.md § 2 — Map the broken selector with Claude Code`, then validate with `python validate_selector.py --site betmgm --market player_threes`.
 
 ## Troubleshooting
 
 ### "Could not find search input"
 - Viewport may be wrong size (should be 943x944 for FanDuel, 958x944 for BetMGM)
-- Site UI may have changed - re-run mapping tool
+- Site UI may have changed — see `SOP.md § 2`
 
 ### "Accordion not found"
 - Market name in YAML may not match site display name

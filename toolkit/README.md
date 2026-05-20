@@ -35,5 +35,5 @@ They read `DATABASE_URL` from `.env` via the same bootstrap `arbitrage_executor/
 
 - No orphan recovery tool. That decision sits with you.
 - No test-bet placer. Would defeat the hedge safety model.
-- No selector editor. `arbitrage_executor/map_selectors.py` already does that job.
+- No selector editor. Selector mapping is hand-edited YAML with Claude Code + Playwright/Chrome DevTools MCP doing the live DOM walking (see `arbitrage_executor/SOP.md § 2`).
 - No web dashboard. Discord is the established surface.
