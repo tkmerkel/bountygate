@@ -1,35 +1,126 @@
 # BETMGM Market Selector Configuration
-# Last updated: 2026-05-15 09:07:38
+# Last updated: 2026-05-20 (post-NBA-rename MCP walk)
+#
+# 2026-05-20 schema change: BetMGM dropped the "O/U" suffix from every
+# player_* accordion across NBA, NHL, and NFL. Standard and alternate are
+# now the SAME accordion for NBA player props — the threshold tabs
+# (e.g. "10+", "15+") live inside the merged accordion. NBA picks inside
+# threshold-tab accordions display as "Yes <price>" instead of
+# "O <line> <price>" — executor's _click_betmgm_pick_for_player still
+# expects the old format and needs an alt-pick branch before NBA std/alt
+# bets can actually place (see task #26).
+#
+# NHL accordions kept std O/U pick format; just renamed (drop "O/U" suffix).
+# MLB (batter_*, pitcher_*) was already correct per PR #12 — unchanged.
 
+# ─────────────────────────── NBA ────────────────────────────
+# All NBA player_* markets except Player blocks now use the merged
+# alt-only accordion with threshold tabs. has_threshold_tabs is set on
+# std entries too so the executor clicks the correct threshold tab
+# matching the opp's line via calculate_alternate_tab_value().
 player_points:
-  accordion_name: Player points O/U
-  validated_at: '2026-01-22T12:39:24.673621'
+  accordion_name: Player points
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
 player_assists:
-  accordion_name: Player assists O/U
-  sub_tab_label: Assists
-  validated_at: '2026-01-22T13:17:27.231320'
+  accordion_name: Player assists
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
 player_rebounds:
-  accordion_name: Player rebounds O/U
-  validated_at: '2026-01-22T13:07:30.682828'
-player_rebounds_assists:
-  accordion_name: Player rebounds + assists O/U
-  validated_at: '2026-01-22T13:27:53.850195'
-player_receptions:
-  accordion_name: Receptions made
-  validated_at: '2026-01-24T15:22:00.501281'
-player_points_assists:
-  accordion_name: Player points + assists O/U
-  validated_at: '2026-01-24T16:51:19.043464'
+  accordion_name: Player rebounds
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
 player_threes:
-  accordion_name: Player three-pointers O/U
-  validated_at: '2026-01-26T09:03:19.770577'
+  accordion_name: Player three-pointers
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_points_assists:
+  accordion_name: Player points + assists
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_points_rebounds:
+  accordion_name: Player points + rebounds
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_rebounds_assists:
+  accordion_name: Player rebounds + assists
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+# Player blocks is the lone holdout — still std O/U pick format on the
+# expanded accordion (no threshold tabs, only team-filter tabs which the
+# executor leaves on the default "All" selection).
 player_blocks:
   accordion_name: Player blocks
-  validated_at: '2026-01-26T10:06:39.051091'
-player_points_rebounds:
-  accordion_name: Player points + rebounds O/U
-  sub_tab_label: Combo stats
-  validated_at: '2026-01-26T11:44:34.684658'
+player_turnovers:
+  accordion_name: Player turnovers
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+# 1st-quarter markets still use std O/U on a non-merged accordion.
+# player_points_q1 was confirmed working in the 2026-05-20 worker run.
+player_points_q1:
+  accordion_name: 'Player points: 1st quarter'
+
+# Legacy NBA _alternate entries — kept for backward compatibility with
+# upstream feeds that still emit `_alternate`-suffixed market_keys. They
+# point at the SAME accordion as the std entry above; has_threshold_tabs
+# drives the tab click.
+player_points_alternate:
+  accordion_name: Player points
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_assists_alternate:
+  accordion_name: Player assists
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_rebounds_alternate:
+  accordion_name: Player rebounds
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_threes_alternate:
+  accordion_name: Player three-pointers
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_blocks_alternate:
+  accordion_name: Player blocks
+  is_alternate: true
+player_turnovers_alternate:
+  accordion_name: Player turnovers
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+
+# ─────────────────────────── NFL ────────────────────────────
+player_receptions:
+  accordion_name: Receptions made
+
+# ─────────────────────────── NHL ────────────────────────────
+# NHL kept the std O/U pick format. Just dropped "O/U" suffix from
+# accordion labels. "Player shots" replaces the never-validated
+# `player_shots_on_goal` placeholder. Note: NHL "Player points",
+# "Player assists" share accordion names with NBA — single YAML entries
+# above resolve both because the executor's threshold-tab click degrades
+# gracefully when the tab isn't found (NHL's team-filter tabs are left
+# on the default "All").
+player_shots_on_goal:
+  accordion_name: Player shots
+player_blocked_shots:
+  accordion_name: Player blocked shots
+player_power_play_points:
+  accordion_name: Player power play points
+goalie_saves:
+  accordion_name: Goalie saves
+# `player_goals` removed: BetMGM no longer carries a std-line Player goals
+# accordion. Goals are split into "Anytime goalscorer" (price-only Yes/No)
+# and "Player to score 2+/3+ goals" (also price-only). Upstream opps for
+# this market have no BetMGM-side line to match; executor was logging
+# "Accordion not found: 'Player goals O/U'" for every opp.
+
+# ─────────────────────────── MLB ────────────────────────────
+# Validated 2026-05-19 via MCP walk of Phillies @ Reds (PR #12).
 batter_hits:
   accordion_name: Batter hits O/U
 batter_singles:
@@ -64,36 +155,9 @@ pitcher_outs:
   accordion_name: Pitcher outs O/U
 pitcher_earned_runs:
   accordion_name: Pitcher earned runs O/U
-player_points_alternate:
-  accordion_name: Points
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
-player_assists_alternate:
-  accordion_name: Assists
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
-player_rebounds_alternate:
-  accordion_name: Rebounds
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
-player_threes_alternate:
-  accordion_name: Three-pointers
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
-player_blocks_alternate:
-  accordion_name: Blocks
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
-player_steals_alternate:
-  accordion_name: Steals
-  tab_selector_pattern: button:has-text("{threshold}+")
-  is_alternate: true
-  has_threshold_tabs: true
+
+# MLB alternate markets — separate accordions named just "<Stat>" (no
+# "Player"/"Batter" prefix). Use `+` threshold tabs.
 batter_hits_alternate:
   accordion_name: Hits
   tab_selector_pattern: button:has-text("{threshold}+")
@@ -174,23 +238,3 @@ pitcher_earned_runs_alternate:
   tab_selector_pattern: button:has-text("{threshold}+")
   is_alternate: true
   has_threshold_tabs: true
-player_points_q1:
-  accordion_name: 'Player points: 1st quarter'
-  validated_at: '2026-05-15T08:53:34.502785'
-player_shots_on_goal:
-  accordion_name: player_shots_on_goal
-  validated_at: '2026-05-15T09:07:38.545928'
-player_turnovers:
-  accordion_name: Player turnovers O/U
-player_turnovers_alternate:
-  accordion_name: Turnovers
-  is_alternate: true
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
-player_goals:
-  accordion_name: Player goals O/U
-player_goals_alternate:
-  accordion_name: Goals
-  is_alternate: true
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
