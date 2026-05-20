@@ -305,11 +305,28 @@ def claim_pending_task(table_name: str = EXECUTION_QUEUE_TABLE) -> int | None:
         engine.dispose()
 
 
-def complete_task(task_id: int, success: bool, error_msg: str | None = None,
+_VALID_TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "SKIPPED"})
+
+
+def complete_task(task_id: int, status: str, error_msg: str | None = None,
                   table_name: str = EXECUTION_QUEUE_TABLE) -> None:
-    """Mark a task as COMPLETED or FAILED."""
+    """Mark a task with a terminal status.
+
+    ``status`` must be one of:
+      - ``COMPLETED`` — bet placed (success)
+      - ``FAILED``    — real execution failure (bet attempted, error raised)
+      - ``SKIPPED``   — no viable candidate; nothing to bet, not an error
+
+    The earlier signature accepted ``success: bool``; that conflated SKIPPED
+    with FAILED in the queue table and made queue stats misleading (today's
+    25 ``FAILED`` rows were really 3 real failures + 22 no-viables).
+    """
+    if status not in _VALID_TERMINAL_STATUSES:
+        raise ValueError(
+            f"complete_task: status must be one of {sorted(_VALID_TERMINAL_STATUSES)}, "
+            f"got {status!r}"
+        )
     engine = create_engine(DATABASE_URL)
-    status = "COMPLETED" if success else "FAILED"
     try:
         with engine.begin() as conn:
             conn.execute(

@@ -130,13 +130,28 @@ def bg_arb_pipeline_dag():
 
         books_sql = ",".join(f"'{b}'" for b in EXECUTABLE_BOOKS)
         sports_sql = ",".join(f"'{s}'" for s in EXECUTABLE_SPORTS)
+        # Mirror the executor's NOT EXISTS dedup in arbitrage_executor/
+        # opportunity.py — without it we'd enqueue PENDING rows for opps
+        # the executor immediately deduplicates (a successful bet today
+        # gets recorded in bg_executed_opportunities; same player+market
+        # opp later that day is skipped by the executor but would still
+        # have woken the worker for nothing). Per-leg OR match because a
+        # successful bet's (under_market_key, over_market_key) pair should
+        # block ANY future opp sharing either side.
         eligible_query = f"""
-            SELECT COUNT(*) AS n FROM {OPP_TABLE}
+            SELECT COUNT(*) AS n FROM {OPP_TABLE} bao
             WHERE under_book IN ({books_sql})
               AND over_book IN ({books_sql})
               AND sport_title IN ({sports_sql})
               AND roi >= {MIN_QUALIFYING_ROI}
               AND hours_until_commence BETWEEN 0.03 AND 24
+              AND NOT EXISTS (
+                  SELECT 1 FROM bg_executed_opportunities eo
+                  WHERE eo.player_name = bao.player_name
+                    AND (eo.under_market_key = bao.under_market_key
+                         OR eo.over_market_key = bao.over_market_key)
+                    AND eo.executed_at_utc >= CURRENT_DATE
+              )
         """
         df = fetch_data(eligible_query)
         n_eligible = int(df.iloc[0, 0]) if df is not None and not df.empty else 0

@@ -154,19 +154,21 @@ def run_worker() -> None:
             success, attempted = execute_arb_main()
             if success:
                 counters["succeeded"] += 1
-                complete_task(task_id, success=True)
+                complete_task(task_id, status="COMPLETED")
                 logger.info("Task %s completed successfully", task_id)
             elif attempted:
                 failure_kind = "attempted"
                 counters["errored"] += 1
                 last_failure_summary = "execute_arb attempted a viable candidate and returned failure"
-                complete_task(task_id, success=False, error_msg=last_failure_summary)
+                complete_task(task_id, status="FAILED", error_msg=last_failure_summary)
                 logger.warning("Task %s — execution attempted but failed", task_id)
             else:
                 # No viable candidates (all unmapped, wrong book pair, etc.).
                 # This is normal on quiet windows — do NOT trip the breaker.
+                # Marked SKIPPED (not FAILED) so queue stats reflect that
+                # nothing went wrong, just nothing to bet.
                 counters["no_opportunity"] += 1
-                complete_task(task_id, success=False, error_msg="No viable opportunity")
+                complete_task(task_id, status="SKIPPED", error_msg="No viable opportunity")
                 logger.info("Task %s — no viable candidates", task_id)
         except OrphanedBetError as e:
             err_msg = (
@@ -175,7 +177,7 @@ def run_worker() -> None:
                 "for the CRITICAL alert with manual-hedge instructions, resolve "
                 "the bet on FanDuel by hand, then restart the worker."
             )
-            complete_task(task_id, success=False, error_msg=err_msg)
+            complete_task(task_id, status="FAILED", error_msg=err_msg)
             logger.critical("Task %s ORPHANED BET — worker halting:\n%s", task_id, err_msg)
             sys.exit(1)
         except WorkerHaltError as e:
@@ -184,7 +186,7 @@ def run_worker() -> None:
             # worker just has to stop polling so we don't pile up failed
             # login attempts that could lock the account.
             err_msg = f"Worker halt requested: {e}"
-            complete_task(task_id, success=False, error_msg=err_msg)
+            complete_task(task_id, status="FAILED", error_msg=err_msg)
             logger.critical("Task %s halt requested: %s", task_id, err_msg)
             sys.exit(1)
         except Exception:
@@ -192,7 +194,7 @@ def run_worker() -> None:
             counters["errored"] += 1
             tb = traceback.format_exc()
             last_failure_summary = tb.strip().splitlines()[-1] if tb.strip() else "uncaught exception"
-            complete_task(task_id, success=False, error_msg=tb)
+            complete_task(task_id, status="FAILED", error_msg=tb)
             logger.error("Task %s failed:\n%s", task_id, tb)
 
         # Circuit breaker bookkeeping
