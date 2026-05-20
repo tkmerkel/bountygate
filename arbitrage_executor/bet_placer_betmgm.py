@@ -634,13 +634,59 @@ class BetmgmBetPlacer(BetPlacer):
         return False
 
     def find_and_click_bet(self, opportunity, direction, market_config):
-        """Find and click the bet for the specified player/line/direction."""
+        """Find and click the bet for the specified player/line/direction.
+
+        Dispatches between two pick-matching strategies based on what
+        BetMGM actually rendered in the (already-expanded) accordion
+        panel:
+
+        * **std O/U** — picks read ``O 11.5 1.92`` / ``U 11.5 1.92``.
+          The pick's own text contains the line, so we filter to the
+          target line first, then walk up to find the matching player
+          row. This is the original path; covers NHL, MLB std, NFL,
+          and NBA Player blocks / quarter markets.
+
+        * **alt Yes-only** — picks read ``Yes 1.07`` (or just a price
+          for some Yes/No markets). No line in the pick text — there's
+          one ``Yes`` pick per player row at the currently-selected
+          threshold tab. Find the matching player row and click its
+          lone pick.
+
+        ``has_threshold_tabs: true`` in the market config is a *hint*
+        that the alt path is plausible, but we still confirm by
+        inspecting the rendered picks. NHL player_points sets this
+        flag too (the threshold tab click degrades gracefully when
+        there's no ``5+`` tab), and the panel comes up showing std
+        O/U picks — we'd misclick if we blindly trusted the flag.
+        """
         player_name = opportunity['player_name']
         line = opportunity['over_line'] if direction == 'over' else opportunity['under_line']
+        accordion_name = market_config.get('accordion_name', '')
 
         print(f"[BETMGM] Finding bet: {player_name} {direction} {line}")
 
-        if self._click_betmgm_pick_for_player(player_name, line, direction):
+        pick_format = 'std'
+        if market_config.get('has_threshold_tabs') or market_config.get('is_alternate'):
+            pick_format = self._detect_pick_format(accordion_name)
+            print(f"[BETMGM] Detected pick format: {pick_format!r}")
+
+        if pick_format == 'alt':
+            if direction != 'over':
+                # BetMGM alt-only accordions ship one Yes pick per row
+                # (= "achieves the threshold"). There is no symmetric
+                # "No" pick, so under-direction can't be expressed here.
+                # If the arb pipeline produced such an opp, something's
+                # wrong upstream — fail loud rather than misclick.
+                self._screenshot("alt_under_direction")
+                raise BetPlacerError(
+                    f"BetMGM alt-only accordion can't take direction={direction!r}; "
+                    f"only 'over' (Yes pick) is supported. Market: {accordion_name!r}"
+                )
+            clicked = self._click_betmgm_alt_yes_pick_for_player(player_name, accordion_name)
+        else:
+            clicked = self._click_betmgm_pick_for_player(player_name, line, direction)
+
+        if clicked:
             # Expand viewport for betslip interaction
             print(f"[BETMGM] Expanding viewport to 1920x945...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
@@ -813,6 +859,136 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             self._screenshot("click_failed")
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
+
+    def _accordion_panel_scope(self, accordion_name: str) -> str:
+        """Return a CSS selector that scopes inside one accordion's panel.
+
+        Picks elsewhere on the page (other expanded accordions, the
+        team-leaderboard widget, etc.) would otherwise match a global
+        ``ms-event-pick`` lookup. ``:has()`` lets us scope to the
+        ``ds-accordion`` that contains the toggle button with the exact
+        accordion_name, then descend into the rendered panel.
+        """
+        return (
+            f'ds-accordion:has(button[dsaccordiontoggle]:text-is("{accordion_name}")) '
+            f'ds-accordion-content'
+        )
+
+    def _detect_pick_format(self, accordion_name: str) -> str:
+        """Inspect the first few picks in the panel to decide ``'std'``
+        vs ``'alt'``.
+
+        Returns ``'std'`` if any pick starts with ``O `` or ``U `` (a
+        line is in the pick text); ``'alt'`` otherwise. ``'std'`` is the
+        default when no picks are visible — that route raises a useful
+        downstream error if the accordion is genuinely empty, while
+        defaulting to ``'alt'`` would silently misclick under direction
+        on a panel that just hadn't rendered yet.
+        """
+        panel = self._accordion_panel_scope(accordion_name)
+        picks = self.page.locator(f"{panel} ms-event-pick")
+        n = picks.count()
+        if n == 0:
+            print(f"[BETMGM] _detect_pick_format: 0 picks inside {accordion_name!r}; defaulting to 'std'")
+            return 'std'
+        # Sample up to 5 picks; even one std-format pick is enough to
+        # commit to the std path (NHL panels rarely mix formats).
+        for i in range(min(n, 5)):
+            try:
+                txt = (picks.nth(i).text_content() or "").strip()
+                norm = " ".join(txt.split())
+                if re.match(r'^[OU]\s', norm):
+                    return 'std'
+            except Exception:
+                continue
+        return 'alt'
+
+    def _click_betmgm_alt_yes_pick_for_player(self, player_name: str, accordion_name: str) -> bool:
+        """Click the lone ``Yes <price>`` pick on the row for ``player_name``.
+
+        Used when the expanded accordion ships alternate-only picks
+        (NBA Player points, Player assists, etc. with the threshold tab
+        already selected by ``_select_alternate_tab_betmgm``). Each
+        player row has exactly one ``ms-event-pick`` — find the row
+        whose ancestor text contains ``player_name`` and click that
+        pick.
+
+        Returns True on a successful click, False if no match found.
+        Raises BetPlacerError if a matching pick was found but the click
+        itself failed (mirrors the std path's behavior).
+        """
+        panel = self._accordion_panel_scope(accordion_name)
+        all_picks = self.page.locator(f"{panel} ms-event-pick")
+        pick_count = all_picks.count()
+        print(f"[BETMGM] alt-mode: scanning {pick_count} pick(s) inside "
+              f"{accordion_name!r} for player {player_name!r}")
+
+        # Same walkup helper as the std path — fuzzy-match the player
+        # name against ancestor row text to absorb apostrophe variants
+        # (curly vs straight) and casing differences.
+        walkup_js = """
+        (el, args) => {
+            const max_depth = args.max_depth;
+            const max_text_len = args.max_text_len;
+            const out = [];
+            let cur = el;
+            for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
+                cur = cur.parentElement;
+                const text = (cur.innerText || cur.textContent || '').trim();
+                if (text.length <= max_text_len) out.push(text);
+            }
+            return out;
+        }
+        """
+
+        matched_handle = None
+        matched_option_id = None
+        matched_meta = None
+
+        for i in range(pick_count):
+            try:
+                pick = all_picks.nth(i)
+                txt = (pick.text_content() or "").strip()
+                ancestor_texts = pick.evaluate(
+                    walkup_js,
+                    {"max_depth": 15, "max_text_len": 600},
+                )
+                player_found = any(
+                    fuzzy_contains(t, player_name, threshold=90)
+                    for t in ancestor_texts
+                )
+                if not player_found:
+                    continue
+                option_id = pick.get_attribute("data-test-option-id")
+                matched_handle = pick
+                matched_option_id = option_id
+                matched_meta = f"text={txt!r} option_id={option_id!r}"
+                break
+            except Exception as e:
+                print(f"[BETMGM] alt pick #{i} scan error: {e}")
+                continue
+
+        if matched_handle is None:
+            print(f"[BETMGM] alt-mode: no row matched {player_name!r} "
+                  f"(scanned {pick_count} pick(s))")
+            return False
+
+        print(f"[BETMGM] alt-mode matched: {matched_meta}")
+        try:
+            if matched_option_id:
+                target = self.page.locator(
+                    f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
+                )
+                target.first.click(timeout=10000)
+            else:
+                matched_handle.click(timeout=10000)
+            self.page.wait_for_timeout(1500)
+            self._screenshot("alt_bet_clicked")
+            print(f"[BETMGM] ✓ Alt-mode bet added to slip")
+            return True
+        except Exception as e:
+            self._screenshot("alt_click_failed")
+            raise BetPlacerError(f"Failed to click BetMGM alt bet: {e}")
 
     def enter_wager(self, amount):
         """Enter wager amount in the betslip."""

@@ -126,6 +126,70 @@ def test_find_and_click_raises_when_no_pick_matches():
         placer.find_and_click_bet(opp, "over", {})
 
 
+# ---- C5a: pick-format detection + alt-yes dispatch ----
+
+def _alt_panel_scope(accordion_name: str) -> str:
+    return (
+        f'ds-accordion:has(button[dsaccordiontoggle]:text-is("{accordion_name}")) '
+        f'ds-accordion-content'
+    )
+
+
+def test_detect_pick_format_returns_std_for_over_under_picks():
+    """NHL panel: picks read 'O 4.5 2.25' / 'U 4.5 1.57' → std path."""
+    page = FakePage(locators={
+        f'{_alt_panel_scope("Player shots")} ms-event-pick':
+            FakeLocator([
+                FakeElement(visible=True, text="O 4.5 2.25"),
+                FakeElement(visible=True, text="U 4.5 1.57"),
+            ]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer._detect_pick_format("Player shots") == "std"
+
+
+def test_detect_pick_format_returns_alt_for_yes_picks():
+    """NBA panel: picks read 'Yes 1.07' → alt path."""
+    page = FakePage(locators={
+        f'{_alt_panel_scope("Player points")} ms-event-pick':
+            FakeLocator([
+                FakeElement(visible=True, text="Yes 1.07"),
+                FakeElement(visible=True, text="Yes 1.279"),
+            ]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer._detect_pick_format("Player points") == "alt"
+
+
+def test_detect_pick_format_defaults_to_std_when_panel_empty():
+    """Empty panel should NOT route to alt — alt path would silently
+    misclick under-direction bets. Default to std so the std path's loud
+    'No bet found' error surfaces."""
+    page = FakePage()  # no scoped locator → empty FakeLocator
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    assert placer._detect_pick_format("Player points") == "std"
+
+
+def test_find_and_click_raises_loud_on_alt_under_direction():
+    """BetMGM alt-only accordions only ship a Yes pick per row — there
+    is no symmetric No pick, so direction='under' on a confirmed-alt
+    panel cannot be expressed. Fail loud instead of silently misclicking."""
+    page = FakePage(locators={
+        f'{_alt_panel_scope("Player points")} ms-event-pick':
+            FakeLocator([FakeElement(visible=True, text="Yes 1.07")]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    opp = {"player_name": "Shai Gilgeous-Alexander",
+           "over_line": 19.5, "under_line": 19.5}
+    market_config = {
+        "accordion_name": "Player points",
+        "has_threshold_tabs": True,
+    }
+    with pytest.raises(BetPlacerError,
+                       match="alt-only accordion can't take direction='under'"):
+        placer.find_and_click_bet(opp, "under", market_config)
+
+
 # ---- C6: wager entry tests ----
 
 def test_enter_wager_raises_when_input_not_found():
