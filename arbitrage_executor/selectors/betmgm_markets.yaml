@@ -31,29 +31,29 @@ player_points_rebounds:
   sub_tab_label: Combo stats
   validated_at: '2026-01-26T11:44:34.684658'
 batter_hits:
-  accordion_name: Player hits O/U
+  accordion_name: Batter hits O/U
 batter_singles:
-  accordion_name: Player singles O/U
+  accordion_name: Batter singles O/U
 batter_doubles:
-  accordion_name: Player doubles O/U
+  accordion_name: Batter doubles O/U
 batter_triples:
-  accordion_name: Player triples O/U
+  accordion_name: Batter triples O/U
 batter_home_runs:
-  accordion_name: Player home runs O/U
+  accordion_name: Batter home runs O/U
 batter_total_bases:
-  accordion_name: Player total bases O/U
+  accordion_name: Batter total bases O/U
 batter_rbis:
-  accordion_name: Player RBIs O/U
+  accordion_name: Batter RBIs O/U
 batter_runs:
-  accordion_name: Player runs O/U
+  accordion_name: Batter runs O/U
 batter_stolen_bases:
   accordion_name: Batter stolen bases O/U
 batter_strikeouts:
   accordion_name: Batter strikeouts O/U
 batter_walks:
-  accordion_name: Player walks O/U
+  accordion_name: Batter walks O/U
 batter_hits_runs_rbis:
-  accordion_name: Player hits + runs + RBIs
+  accordion_name: Batter hits + runs + RBIs O/U
 pitcher_strikeouts:
   accordion_name: Pitcher strikeouts O/U
 pitcher_hits_allowed:

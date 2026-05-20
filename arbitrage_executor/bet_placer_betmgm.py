@@ -378,6 +378,30 @@ class BetmgmBetPlacer(BetPlacer):
                     self.page.wait_for_timeout(1000)
                     print(f"[BETMGM] ✓ Tab {tab_text} selected")
                     self._screenshot("alternate_tab_selected")
+                    # Tab selection re-renders the player list to the first ~5
+                    # players. The next bet-find step looks for a specific
+                    # player by aria-label; if that player isn't in the first
+                    # render, the lookup misses. Click Show More until the
+                    # full list is on the page. Mirrors the post-expand Show
+                    # More loop in _expand_accordion_betmgm.
+                    show_more_selector = (
+                        'ms-option-panel-bottom-action:has-text("Show More")'
+                    )
+                    attempts = 0
+                    while attempts < 5:
+                        show_more = self.page.locator(show_more_selector)
+                        if show_more.count() == 0:
+                            break
+                        try:
+                            if not show_more.first.is_visible():
+                                break
+                            show_more.first.click()
+                            self.page.wait_for_timeout(1000)
+                        except Exception:
+                            break
+                        attempts += 1
+                    if attempts:
+                        print(f"[BETMGM] ✓ Expanded player list ({attempts}× Show More)")
                     return
             except Exception as e:
                 print(f"[BETMGM] Tab selector failed: {selector} - {e}")
