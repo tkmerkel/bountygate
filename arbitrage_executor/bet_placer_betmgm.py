@@ -6,9 +6,8 @@ from typing import Dict, Tuple
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from selector_finder import calculate_alternate_tab_value
-from text_match import fuzzy_score, fuzzy_contains
+from text_match import fuzzy_contains
 from bet_placer import BetPlacer, BetPlacerError
-from _bet_placer_helpers import _ACCORDION_FUZZY_THRESHOLD
 
 
 class BetmgmBetPlacer(BetPlacer):
@@ -214,25 +213,20 @@ class BetmgmBetPlacer(BetPlacer):
             if accordion.count() > 0:
                 target = accordion.first
             else:
-                # Fuzzy fallback: score every accordion button and pick the
-                # best match above threshold. partial_ratio returns 100 for
-                # any substring containment, so e.g. "Player rebounds" and
-                # "Player rebounds O/U" both score 100 against
-                # "Player rebounds O/U". Break ties on a *match-quality*
-                # rank that prefers (1) an exact normalized match, then
-                # (2) the candidate that *contains* the needle (more
-                # specific label), over (3) a candidate the needle
-                # contains (less specific label). Old code preferred the
-                # shorter text, which silently picked the alternate
-                # "Player rebounds" accordion over the standard
-                # "Player rebounds O/U" — landed on the wrong tab strip
-                # and the bet was never findable.
+                # No fuzzy fallback. The previous fuzzy-score path silently
+                # masked YAML/UI drift — e.g. PR #12 found 10 batter_*
+                # YAML entries with a wrong "Player" prefix that fuzzy-
+                # matched onto neighboring accordions, putting the bot in
+                # the wrong market context and surfacing two layers later
+                # as a misleading "No bet found for X under 0.5" error.
+                #
+                # Instead: iterate visible accordions with a normalized
+                # exact match (whitespace + case insensitive) to absorb
+                # BetMGM's minor label wobble, and on miss raise loudly
+                # with the full visible list so the operator's next move
+                # is one obvious YAML edit.
                 need_norm = " ".join((accordion_name or "").lower().split())
-                best_btn = None
-                best_text = None
-                best_score = 0
-                best_quality = -1
-                all_texts = []
+                visible_names: list = []
                 for btn in self.page.locator('button[dsaccordiontoggle]').all():
                     try:
                         btn_text = (btn.text_content() or "").strip()
@@ -240,30 +234,20 @@ class BetmgmBetPlacer(BetPlacer):
                         continue
                     if not btn_text:
                         continue
-                    all_texts.append(btn_text)
-                    score = fuzzy_score(btn_text, accordion_name)
-                    btn_norm = " ".join(btn_text.lower().split())
-                    if btn_norm == need_norm:
-                        quality = 2  # exact match (post-normalize)
-                    elif need_norm and need_norm in btn_norm:
-                        quality = 1  # btn contains needle (more specific)
-                    else:
-                        quality = 0  # needle contains btn (less specific) / partial
-                    if (score, quality) > (best_score, best_quality):
-                        best_score = score
-                        best_quality = quality
-                        best_btn = btn
-                        best_text = btn_text
+                    visible_names.append(btn_text)
+                    if " ".join(btn_text.lower().split()) == need_norm:
+                        target = btn
+                        break
 
-                if best_btn is None or best_score < _ACCORDION_FUZZY_THRESHOLD:
-                    print(f"[BETMGM] accordion '{accordion_name}' not found. "
-                          f"Visible accordions ({len(all_texts)}): {all_texts!r}")
-                    raise BetPlacerError(f"Accordion not found: {accordion_name}")
-
-                print(f"[BETMGM] ⚠ Exact accordion miss; best fuzzy match "
-                      f"'{best_text}' (score={best_score}, quality={best_quality}) "
-                      f"for expected '{accordion_name}'")
-                target = best_btn
+                if target is None:
+                    self._screenshot("accordion_not_found")
+                    raise BetPlacerError(
+                        f"BetMGM accordion not found: {accordion_name!r}. "
+                        f"Visible ({len(visible_names)}): "
+                        f"{sorted(set(visible_names))!r}. "
+                        f"Update selectors/betmgm_markets.yaml to match one "
+                        f"of these."
+                    )
 
             # Accordion buttons are toggles — if a prior session left it
             # expanded, clicking again COLLAPSES. Check aria-expanded and

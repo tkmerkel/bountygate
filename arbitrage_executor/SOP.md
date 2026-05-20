@@ -56,6 +56,16 @@ Ask Claude Code something like:
 
 Claude will use the MCP tools to inspect the live DOM, try selector candidates, and report which one uniquely matches. **Hand-edit the YAML** with the chosen value — the only fields the bot reads at runtime are listed in `selectors/SCHEMA.md` § LIVE fields.
 
+### Shortcut: when the bot already tells you what's on the page
+
+If the failure was a BetMGM accordion miss, the error message already lists every accordion the page shipped:
+
+```
+BetMGM accordion not found: 'Player singles O/U'. Visible (15): ['Batter hits O/U', 'Batter singles O/U', ...]. Update selectors/betmgm_markets.yaml to match one of these.
+```
+
+Pick the entry that matches the market you're trying to bet (in the example: `Batter singles O/U`), update `selectors/betmgm_markets.yaml` directly, run `python validate_selector.py --site betmgm --market <market_key>` to confirm. No live walk needed — the error already enumerated BetMGM's current labels.
+
 If the live page actually looks fine and the selector wouldn't change, the break may be transient. Check:
 
 - Was the failed event suspended or finished when the bot tried? (Check the game status.)
