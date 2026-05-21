@@ -128,36 +128,48 @@ def test_find_and_click_raises_when_no_pick_matches():
 
 # ---- C5a: pick-format detection + alt-yes dispatch ----
 
-def _alt_panel_scope(accordion_name: str) -> str:
-    return (
-        f'ds-accordion:has(button[dsaccordiontoggle]:text-is("{accordion_name}")) '
-        f'ds-accordion-content'
-    )
+class _FakeAccordionLocator:
+    """Mimic the Locator returned by ``_accordion_root_locator``.
+
+    Production: ``acc.locator('ms-event-pick')`` to find picks inside
+    the specific market panel. Tests inject a fixed list of picks.
+    """
+    def __init__(self, picks):
+        self._picks = picks
+
+    def locator(self, selector):
+        if selector == 'ms-event-pick':
+            return FakeLocator(self._picks)
+        return FakeLocator()
+
+
+def _stub_accordion_root(placer, picks):
+    """Monkey-patch ``_accordion_root_locator`` to return picks directly,
+    sidestepping the live ``:has-text`` + ``xpath=ancestor::`` chain.
+    Use ``picks=None`` to simulate "no accordion found"."""
+    if picks is None:
+        placer._accordion_root_locator = lambda name: None
+    else:
+        placer._accordion_root_locator = lambda name: _FakeAccordionLocator(picks)
 
 
 def test_detect_pick_format_returns_std_for_over_under_picks():
     """NHL panel: picks read 'O 4.5 2.25' / 'U 4.5 1.57' → std path."""
-    page = FakePage(locators={
-        f'{_alt_panel_scope("Player shots")} ms-event-pick':
-            FakeLocator([
-                FakeElement(visible=True, text="O 4.5 2.25"),
-                FakeElement(visible=True, text="U 4.5 1.57"),
-            ]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    placer = BetmgmBetPlacer(FakePage(), "betmgm", AUDIT_DIR)
+    _stub_accordion_root(placer, [
+        FakeElement(visible=True, text="O 4.5 2.25"),
+        FakeElement(visible=True, text="U 4.5 1.57"),
+    ])
     assert placer._detect_pick_format("Player shots") == "std"
 
 
 def test_detect_pick_format_returns_alt_for_yes_picks():
     """NBA panel: picks read 'Yes 1.07' → alt path."""
-    page = FakePage(locators={
-        f'{_alt_panel_scope("Player points")} ms-event-pick':
-            FakeLocator([
-                FakeElement(visible=True, text="Yes 1.07"),
-                FakeElement(visible=True, text="Yes 1.279"),
-            ]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    placer = BetmgmBetPlacer(FakePage(), "betmgm", AUDIT_DIR)
+    _stub_accordion_root(placer, [
+        FakeElement(visible=True, text="Yes 1.07"),
+        FakeElement(visible=True, text="Yes 1.279"),
+    ])
     assert placer._detect_pick_format("Player points") == "alt"
 
 
@@ -165,8 +177,19 @@ def test_detect_pick_format_defaults_to_std_when_panel_empty():
     """Empty panel should NOT route to alt — alt path would silently
     misclick under-direction bets. Default to std so the std path's loud
     'No bet found' error surfaces."""
-    page = FakePage()  # no scoped locator → empty FakeLocator
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    placer = BetmgmBetPlacer(FakePage(), "betmgm", AUDIT_DIR)
+    _stub_accordion_root(placer, [])
+    assert placer._detect_pick_format("Player points") == "std"
+
+
+def test_detect_pick_format_defaults_to_std_when_no_accordion_match():
+    """If the toggle button can't be found at all (page not ready,
+    accordion name typo'd in YAML), default to std so the std path's
+    loud 'No bet found' diagnostic surfaces. The earlier scoped-string
+    selector silently returned 0 picks AND defaulted to std on every
+    BetMGM call — this guard ensures the dispatch is testable."""
+    placer = BetmgmBetPlacer(FakePage(), "betmgm", AUDIT_DIR)
+    _stub_accordion_root(placer, None)
     assert placer._detect_pick_format("Player points") == "std"
 
 
@@ -174,11 +197,8 @@ def test_find_and_click_raises_loud_on_alt_under_direction():
     """BetMGM alt-only accordions only ship a Yes pick per row — there
     is no symmetric No pick, so direction='under' on a confirmed-alt
     panel cannot be expressed. Fail loud instead of silently misclicking."""
-    page = FakePage(locators={
-        f'{_alt_panel_scope("Player points")} ms-event-pick':
-            FakeLocator([FakeElement(visible=True, text="Yes 1.07")]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+    placer = BetmgmBetPlacer(FakePage(), "betmgm", AUDIT_DIR)
+    _stub_accordion_root(placer, [FakeElement(visible=True, text="Yes 1.07")])
     opp = {"player_name": "Shai Gilgeous-Alexander",
            "over_line": 19.5, "under_line": 19.5}
     market_config = {

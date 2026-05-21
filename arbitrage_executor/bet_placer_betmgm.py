@@ -860,19 +860,47 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("click_failed")
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
-    def _accordion_panel_scope(self, accordion_name: str) -> str:
-        """Return a CSS selector that scopes inside one accordion's panel.
+    def _accordion_root_locator(self, accordion_name: str):
+        """Return a Locator scoped to the ``ds-accordion`` whose toggle
+        button text equals ``accordion_name`` (normalized).
 
-        Picks elsewhere on the page (other expanded accordions, the
-        team-leaderboard widget, etc.) would otherwise match a global
-        ``ms-event-pick`` lookup. ``:has()`` lets us scope to the
-        ``ds-accordion`` that contains the toggle button with the exact
-        accordion_name, then descend into the rendered panel.
+        Why this exists instead of a plain string selector:
+
+        Playwright's ``:text-is()`` and ``:text-matches("^X$")``
+        engines don't match BetMGM's toggle buttons reliably — the
+        button's rendered text contains hidden child content (avatars,
+        period chips, etc.) that breaks Playwright's text
+        normalization. Verified 2026-05-20 against Spurs @ Thunder:
+        ``button[dsaccordiontoggle]:text-is("Player points")`` returns
+        0 matches even though ``button.innerText.trim() === "Player
+        points"`` in the JS evaluator.
+
+        The accordion expander already works around this by iterating
+        ``button[dsaccordiontoggle]`` and filtering by normalized
+        ``text_content`` on the Python side. We do the same here, then
+        walk up to the surrounding ``ds-accordion`` via
+        ``xpath=ancestor::``. Picks scoped to that accordion are
+        guaranteed to live inside one market panel, not bleed across
+        siblings.
+
+        Returns ``None`` if no matching button is found.
         """
-        return (
-            f'ds-accordion:has(button[dsaccordiontoggle]:text-is("{accordion_name}")) '
-            f'ds-accordion-content'
+        need_norm = " ".join((accordion_name or "").lower().split())
+        candidates = self.page.locator(
+            f'button[dsaccordiontoggle]:has-text("{accordion_name}")'
         )
+        try:
+            count = candidates.count()
+        except Exception:
+            return None
+        for i in range(count):
+            try:
+                txt = (candidates.nth(i).text_content() or "").strip()
+            except Exception:
+                continue
+            if " ".join(txt.lower().split()) == need_norm:
+                return candidates.nth(i).locator('xpath=ancestor::ds-accordion[1]')
+        return None
 
     def _detect_pick_format(self, accordion_name: str) -> str:
         """Inspect the first few picks in the panel to decide ``'std'``
@@ -885,11 +913,16 @@ class BetmgmBetPlacer(BetPlacer):
         defaulting to ``'alt'`` would silently misclick under direction
         on a panel that just hadn't rendered yet.
         """
-        panel = self._accordion_panel_scope(accordion_name)
-        picks = self.page.locator(f"{panel} ms-event-pick")
+        acc = self._accordion_root_locator(accordion_name)
+        if acc is None:
+            print(f"[BETMGM] _detect_pick_format: no accordion match for "
+                  f"{accordion_name!r}; defaulting to 'std'")
+            return 'std'
+        picks = acc.locator('ms-event-pick')
         n = picks.count()
         if n == 0:
-            print(f"[BETMGM] _detect_pick_format: 0 picks inside {accordion_name!r}; defaulting to 'std'")
+            print(f"[BETMGM] _detect_pick_format: 0 picks inside "
+                  f"{accordion_name!r}; defaulting to 'std'")
             return 'std'
         # Sample up to 5 picks; even one std-format pick is enough to
         # commit to the std path (NHL panels rarely mix formats).
@@ -917,8 +950,11 @@ class BetmgmBetPlacer(BetPlacer):
         Raises BetPlacerError if a matching pick was found but the click
         itself failed (mirrors the std path's behavior).
         """
-        panel = self._accordion_panel_scope(accordion_name)
-        all_picks = self.page.locator(f"{panel} ms-event-pick")
+        acc = self._accordion_root_locator(accordion_name)
+        if acc is None:
+            print(f"[BETMGM] alt-mode: no accordion match for {accordion_name!r}")
+            return False
+        all_picks = acc.locator('ms-event-pick')
         pick_count = all_picks.count()
         print(f"[BETMGM] alt-mode: scanning {pick_count} pick(s) inside "
               f"{accordion_name!r} for player {player_name!r}")
