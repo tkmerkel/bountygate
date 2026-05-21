@@ -16,6 +16,20 @@ class BetPlacerError(Exception):
     pass
 
 
+class BetPlacerSkipError(BetPlacerError):
+    """Raised when an opp is structurally unbettable on this event — the
+    required market doesn't exist on the live page right now (e.g. BetMGM
+    ships only the merged-alt accordion for this game and the opp is a
+    std×std arb needing the "O/U" accordion).
+
+    NOT a real failure. Subclasses ``BetPlacerError`` so existing
+    ``except BetPlacerError`` blocks keep catching it, but the task
+    worker classifies these as SKIPPED and does not increment the
+    consecutive-failure counter. See ``LOGIC.md`` for context.
+    """
+    pass
+
+
 class BetPlacer(ABC):
     """Abstract base for site-specific bet placers.
 

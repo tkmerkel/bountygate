@@ -193,6 +193,52 @@ def test_detect_pick_format_defaults_to_std_when_no_accordion_match():
     assert placer._detect_pick_format("Player points") == "std"
 
 
+# ---- C5b: structural-skip predicate (alt-sibling-of-missing-std) ----
+
+def test_alt_sibling_if_std_missing_returns_sibling_when_std_absent():
+    """When the std "O/U" accordion isn't on the page but the merged-alt
+    sibling IS, return the alt sibling name so the caller can raise
+    BetPlacerSkipError. See LOGIC.md."""
+    visible = ["Player blocks", "Player rebounds + assists",
+               "Player double-double", "First field goal scorer"]
+    sibling = BetmgmBetPlacer._alt_sibling_if_std_missing(
+        "Player rebounds + assists O/U", visible
+    )
+    assert sibling == "Player rebounds + assists"
+
+
+def test_alt_sibling_if_std_missing_returns_none_when_no_o_u_suffix():
+    """Std-only accordions without "O/U" suffix (e.g. Player blocks) and
+    alt accordions can't trigger the structural-skip path."""
+    visible = ["Player blocks", "Player rebounds + assists"]
+    assert BetmgmBetPlacer._alt_sibling_if_std_missing(
+        "Player blocks", visible
+    ) is None
+    assert BetmgmBetPlacer._alt_sibling_if_std_missing(
+        "Player rebounds + assists", visible
+    ) is None
+
+
+def test_alt_sibling_if_std_missing_returns_none_when_alt_also_absent():
+    """If neither the std nor the alt sibling is on the page, that's a
+    real YAML/UI drift — must NOT raise SkipError. Caller falls through
+    to the loud BetPlacerError."""
+    visible = ["Player blocks", "First field goal scorer"]
+    assert BetmgmBetPlacer._alt_sibling_if_std_missing(
+        "Player rebounds + assists O/U", visible
+    ) is None
+
+
+def test_alt_sibling_if_std_missing_tolerates_whitespace_and_case():
+    """BetMGM's accordion labels occasionally ship with case wobble or
+    extra whitespace. Normalize both sides before comparing."""
+    visible = ["  player REBOUNDS  +  assists  "]
+    sibling = BetmgmBetPlacer._alt_sibling_if_std_missing(
+        "Player rebounds + assists O/U", visible
+    )
+    assert sibling == "Player rebounds + assists"
+
+
 def test_find_and_click_raises_loud_on_alt_under_direction():
     """BetMGM alt-only accordions only ship a Yes pick per row — there
     is no symmetric No pick, so direction='under' on a confirmed-alt

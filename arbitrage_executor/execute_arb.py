@@ -22,7 +22,7 @@ from playwright.sync_api import sync_playwright
 
 from opportunity import fetch_and_prepare_opportunity, fetch_all_opportunities, infer_direction_for_book, get_market_keys, MIN_ROI_THRESHOLD
 from selector_finder import SelectorManager
-from bet_placer import BetPlacer, BetPlacerError
+from bet_placer import BetPlacer, BetPlacerError, BetPlacerSkipError
 from execution_logger import ExecutionLogger
 from db_connection import mark_opportunity_executed
 from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
@@ -413,6 +413,20 @@ class ArbExecutor:
 
                     print(f"✓ ROI verified: {actual_roi * 100:.2f}%\n")
 
+                except BetPlacerSkipError:
+                    # Structural skip — std accordion not on this event,
+                    # falling through to the merged-alt would misclick.
+                    # Re-raise unwrapped so the main loop can advance
+                    # without counting this as an attempt. See LOGIC.md.
+                    try:
+                        page_mgm.close()
+                    except Exception:
+                        pass
+                    try:
+                        page_fd.close()
+                    except Exception:
+                        pass
+                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 2 navigation failed: {e}")
                     ExecutionLogger.log_execution_failure("BetMGM navigation failed", self.opportunity, "betmgm", e)
@@ -793,7 +807,19 @@ def main(max_attempts: int = 3, max_candidates: Optional[int] = None) -> tuple[b
         print(f"\n▶ {label}: attempting execution (attempt {attempts + 1}/{max_attempts})")
         _attempted_events.add(cooldown_key)
         executor = ArbExecutor(opportunity)
-        success = executor.execute()
+        try:
+            success = executor.execute()
+        except BetPlacerSkipError as e:
+            # Structural skip from BetMGM accordion-expansion: the std
+            # "O/U" accordion isn't on this event, falling back to
+            # merged-alt would misclick. Don't count this as an attempt
+            # — advance to the next candidate. See LOGIC.md.
+            print(f"\n⏭ {label}: structural skip — {e}")
+            ExecutionLogger.log_execution_failure(
+                "Structural skip (std accordion missing on this event)",
+                opportunity, "betmgm", e,
+            )
+            continue
         attempted_any = True
         attempts += 1
 
