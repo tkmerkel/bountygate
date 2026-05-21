@@ -1,67 +1,49 @@
 # BETMGM Market Selector Configuration
-# Last updated: 2026-05-20 (post-NBA-rename MCP walk)
+# Last updated: 2026-05-21 (post-Mikal-Bridges std-routing fix)
 #
-# 2026-05-20 schema change: BetMGM dropped the "O/U" suffix from every
-# player_* accordion across NBA, NHL, and NFL. Standard and alternate are
-# now the SAME accordion for NBA player props — the threshold tabs
-# (e.g. "10+", "15+") live inside the merged accordion. NBA picks inside
-# threshold-tab accordions display as "Yes <price>" instead of
-# "O <line> <price>" — executor's _click_betmgm_pick_for_player still
-# expects the old format and needs an alt-pick branch before NBA std/alt
-# bets can actually place (see task #26).
+# READ arbitrage_executor/LOGIC.md FIRST if you're touching this file.
 #
-# NHL accordions kept std O/U pick format; just renamed (drop "O/U" suffix).
-# MLB (batter_*, pitcher_*) was already correct per PR #12 — unchanged.
+# Std markets (market_key without _alternate suffix) → "Player <stat> O/U"
+#   accordion. Both Over and Under picks inside.
+# Alt markets (market_key ending _alternate)         → "Player <stat>"
+#   merged accordion + threshold tabs (5+/7+/...) + Yes-only picks.
+#
+# BetMGM ships per-event variance: some games have both accordions, others
+# only the merged-alt form. When a std opp's "Player <stat> O/U" accordion
+# isn't on the live page, the executor raises BetPlacerSkipError and the
+# task is marked SKIPPED (not FAILED). The bot does NOT fall back to the
+# alt accordion for std opps — direction='under' on a Yes-only accordion
+# has no valid pick.
 
 # ─────────────────────────── NBA ────────────────────────────
-# All NBA player_* markets except Player blocks now use the merged
-# alt-only accordion with threshold tabs. has_threshold_tabs is set on
-# std entries too so the executor clicks the correct threshold tab
-# matching the opp's line via calculate_alternate_tab_value().
+# Std player_* entries point at the "O/U"-suffix accordion. Alt entries
+# (below) point at the merged accordion with threshold tabs. Pre-fix
+# (PR #15) over-corrected by routing both to the merged accordion; that
+# made std×std arbs misroute and surfaced as the Mikal Bridges loud-fail.
 player_points:
-  accordion_name: Player points
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player points O/U
 player_assists:
-  accordion_name: Player assists
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player assists O/U
 player_rebounds:
-  accordion_name: Player rebounds
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player rebounds O/U
 player_threes:
-  accordion_name: Player three-pointers
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player three-pointers O/U
 player_points_assists:
-  accordion_name: Player points + assists
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player points + assists O/U
 player_points_rebounds:
-  accordion_name: Player points + rebounds
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player points + rebounds O/U
 player_rebounds_assists:
-  accordion_name: Player rebounds + assists
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
-# Triple-combo accordion visible on the 2026-05-20 Spurs/Thunder walk —
-# previously unmapped, surfaced via unmapped-market Discord alert
-# (Jalen Williams over 19.5 in the 19:25 ET worker tick).
+  accordion_name: Player rebounds + assists O/U
 player_points_rebounds_assists:
-  accordion_name: Player points + rebounds + assists
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
-# Player blocks is the lone holdout — still std O/U pick format on the
-# expanded accordion (no threshold tabs, only team-filter tabs which the
-# executor leaves on the default "All" selection).
+  accordion_name: Player points + rebounds + assists O/U
+# Player blocks: still std O/U pick format on the expanded accordion
+# (no threshold tabs, only team-filter tabs which the executor leaves on
+# the default "All" selection). Accordion label currently observed without
+# "O/U" suffix — keep as-is until/unless a live walk shows otherwise.
 player_blocks:
   accordion_name: Player blocks
 player_turnovers:
-  accordion_name: Player turnovers
-  has_threshold_tabs: true
-  tab_selector_pattern: button:has-text("{threshold}+")
+  accordion_name: Player turnovers O/U
 # 1st-quarter markets still use std O/U on a non-merged accordion.
 # player_points_q1 was confirmed working in the 2026-05-20 worker run.
 player_points_q1:

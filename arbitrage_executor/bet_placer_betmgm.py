@@ -7,11 +7,31 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from selector_finder import calculate_alternate_tab_value
 from text_match import fuzzy_contains
-from bet_placer import BetPlacer, BetPlacerError
+from bet_placer import BetPlacer, BetPlacerError, BetPlacerSkipError
 
 
 class BetmgmBetPlacer(BetPlacer):
     """Handles bet placement on BetMGM."""
+
+    @staticmethod
+    def _alt_sibling_if_std_missing(accordion_name: str, visible_names):
+        """Return the alt-merged sibling name if ``accordion_name`` is a
+        " O/U"-suffixed std accordion AND its unsuffixed sibling is in
+        ``visible_names``; else return None.
+
+        Used to distinguish a structural-skip case (BetMGM doesn't ship
+        the std O/U accordion on this event, but does ship the merged
+        alt) from a genuine selector regression (YAML drift). See
+        LOGIC.md.
+        """
+        if not accordion_name.endswith(" O/U"):
+            return None
+        sibling = accordion_name[: -len(" O/U")]
+        target_norm = " ".join(sibling.lower().split())
+        for name in visible_names:
+            if " ".join((name or "").lower().split()) == target_norm:
+                return sibling
+        return None
 
     def navigate_and_expand_market(self, opportunity, market_config, direction=None):
         """Navigate BetMGM to event and expand the market accordion."""
@@ -240,6 +260,24 @@ class BetmgmBetPlacer(BetPlacer):
                         break
 
                 if target is None:
+                    # Structural-skip path: this std opp's "O/U" accordion
+                    # isn't on the live page, but the merged-alt sibling
+                    # IS. BetMGM ships per-event variance — a lower-profile
+                    # game may only carry the alt-merged accordion. Falling
+                    # back to it can't satisfy direction='under' (alt is
+                    # Yes-only), so the opp is structurally unbettable.
+                    # Mark SKIPPED, not FAILED. See LOGIC.md.
+                    alt_sibling = self._alt_sibling_if_std_missing(
+                        accordion_name, visible_names
+                    )
+                    if alt_sibling is not None:
+                        raise BetPlacerSkipError(
+                            f"BetMGM std accordion {accordion_name!r} "
+                            f"not on this event; merged-alt accordion "
+                            f"{alt_sibling!r} is present but Yes-only, "
+                            f"so a std×std arb is unbettable here. "
+                            f"Skipping (see LOGIC.md)."
+                        )
                     self._screenshot("accordion_not_found")
                     raise BetPlacerError(
                         f"BetMGM accordion not found: {accordion_name!r}. "
@@ -291,6 +329,10 @@ class BetmgmBetPlacer(BetPlacer):
             if is_alternate and direction:
                 self._select_alternate_tab_betmgm(opportunity, market_config, direction)
 
+        except BetPlacerSkipError:
+            # Structural skip — surface to caller unwrapped so the worker
+            # can classify the task as SKIPPED, not FAILED.
+            raise
         except Exception as e:
             self._screenshot("accordion_expansion_failed")
             raise BetPlacerError(f"Accordion expansion failed: {e}")

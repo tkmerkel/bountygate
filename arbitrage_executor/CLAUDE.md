@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+> **Before debugging any "no bet found" / "wrong accordion" / "alt-only can't take direction" failure, read [`LOGIC.md`](LOGIC.md).** Std vs alt market direction is the rule the whole bot is built on, and we've re-derived it incorrectly multiple times. The doc is short.
+
 ## Project Overview
 
 Sports arbitrage bot that executes FanDuel/BetMGM player prop pairs. Pure Playwright automation via Chrome CDP (port 9223). No AI/computer-vision in the execution path — just direct DOM selectors.
@@ -42,6 +44,8 @@ Chrome must be running with `--remote-debugging-port=9223` and logged into both 
 | `task_worker.py` | Polling worker for remote-triggered execution; halts on orphaned bet; posts Discord heartbeat |
 | `validate_selector.py` | Executable selector validation harness — proves a market is mappable end-to-end (navigate → click → slip → clear) and writes `validation_status` back to YAML |
 | `selectors/*.yaml` | Per-bookmaker market selector configs (hand-edited; see `selectors/SCHEMA.md`) |
+| `LOGIC.md` | **Read first** when debugging direction-tagging or accordion routing. Std vs alt rules, API mapping, builder pairing, executor selection. |
+| `SOP.md` | Runbook for the moment a sportsbook UI changes — diagnostic flow assumes you've grokked `LOGIC.md`. |
 
 ## Database
 
