@@ -49,13 +49,20 @@ _LOGIN_URL_MARKERS = ("/login", "/auth", "/account/login", "account.")
 
 # Header-area selectors that, when visible, mean "you are not logged in."
 # Filter to anchors/buttons containing common login labels.
+#
+# `:not()` exclusions: BetMGM's Place Bet button (class `.place-button`,
+# attr `vnhaptics="ms-betplacement-start"`) is a `<button>` element that
+# the loose `button:has-text("Log In")` was matching when the slip
+# happened to contain the substring — observed 2026-05-21 when the worker
+# fired on the negative-ROI tail with active betslips on the page.
+# Exclude it explicitly.
 _LOGGED_OUT_INDICATORS = (
     'a:has-text("Log In")',
     'a:has-text("LOG IN")',
-    'button:has-text("Log In")',
-    'button:has-text("LOG IN")',
+    'button:not(.place-button):not([vnhaptics*="betplacement"]):has-text("Log In")',
+    'button:not(.place-button):not([vnhaptics*="betplacement"]):has-text("LOG IN")',
     'a:has-text("Sign In")',
-    'button:has-text("Sign In")',
+    'button:not(.place-button):not([vnhaptics*="betplacement"]):has-text("Sign In")',
 )
 
 # FanDuel login-form selectors, tried in order. FD presents login as a
@@ -110,11 +117,21 @@ _MGM_PASSWORD_SELECTORS = (
     'input[formcontrolname="password"]',
 )
 _MGM_SUBMIT_SELECTORS = (
+    # Scope to the login form/dialog first — most specific
+    'form button[type="submit"]:has-text("Log In")',
+    'form button[type="submit"]:has-text("LOGIN")',
+    '[role="dialog"] button[type="submit"]:has-text("Log In")',
+    '[role="dialog"] button:has-text("Log In")',
+    # type=submit by itself rules out Angular Place Bet buttons (which
+    # are plain <button> with no type=submit and never live in a <form>).
     'button[type="submit"]:has-text("Log In")',
     'button[type="submit"]:has-text("LOGIN")',
-    'button:has-text("Log In")',
-    'button:has-text("LOGIN")',
-    'button[type="submit"]',
+    # Loose text-match fallbacks, with explicit exclusion of Place Bet
+    # (class `.place-button`, attr `vnhaptics="ms-betplacement-start"`)
+    # which was the wrong match observed 2026-05-21.
+    'button:not(.place-button):not([vnhaptics*="betplacement"]):has-text("Log In")',
+    'button:not(.place-button):not([vnhaptics*="betplacement"]):has-text("LOGIN")',
+    'form button[type="submit"]',
 )
 
 # Structural signals that a verification / CAPTCHA challenge is active.
