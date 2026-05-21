@@ -138,6 +138,15 @@ player_receptions:
 # on the default "All").
 player_shots_on_goal:
   accordion_name: Player shots
+# Alt-form NHL shots — surfaced as unmapped-market alert (126 hits in
+# the all-time unmapped log). NHL "Player shots" panel has only team-
+# filter tabs (no thresholds) per the 2026-05-20 MCP walk, so the
+# threshold-tab click degrades gracefully and the std O/U picks remain
+# matchable. Same accordion as the std entry; is_alternate kept for
+# routing transparency.
+player_shots_on_goal_alternate:
+  accordion_name: Player shots
+  is_alternate: true
 player_blocked_shots:
   accordion_name: Player blocked shots
 player_power_play_points:
@@ -225,6 +234,16 @@ batter_rbis_alternate:
   is_alternate: true
   has_threshold_tabs: true
 batter_runs_alternate:
+  accordion_name: Runs
+  tab_selector_pattern: button:has-text("{threshold}+")
+  is_alternate: true
+  has_threshold_tabs: true
+# Odds API ships `batter_runs_scored_alternate` as a separate key from
+# `batter_runs_alternate` (59 hits in the unmapped log) — same BetMGM
+# accordion in practice (no distinct "Runs scored" tile observed). Alias
+# to the same Runs accordion; if BetMGM later splits these, the loud
+# accordion-not-found error will tell us.
+batter_runs_scored_alternate:
   accordion_name: Runs
   tab_selector_pattern: button:has-text("{threshold}+")
   is_alternate: true

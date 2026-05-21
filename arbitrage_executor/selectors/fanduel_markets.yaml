@@ -176,6 +176,14 @@ batter_runs_alternate:
   display_names:
   - Runs
   is_alternate: true
+# Odds API ships `batter_runs_scored_alternate` as a separate key (59
+# hits in the unmapped log). FanDuel's aria-label may say "Runs Scored"
+# or "Runs" depending on the tile; both included for fuzzy matching.
+batter_runs_scored_alternate:
+  display_names:
+  - Runs Scored
+  - Runs
+  is_alternate: true
 batter_stolen_bases_alternate:
   display_names:
   - Stolen Bases
@@ -223,6 +231,15 @@ player_shots_on_goal:
   - Shots on Goal
   - 60 Min
   validated_at: '2026-05-15T09:14:59.724833'
+# Alt-form NHL shots — surfaced as unmapped-market alert (126 hits in
+# the all-time unmapped log). Mirrors std display_names; is_alternate
+# routes to FanDuel's alt-line tile.
+player_shots_on_goal_alternate:
+  display_names:
+  - 60 Min Shots on Goal
+  - Shots on Goal
+  - 60 Min
+  is_alternate: true
 player_turnovers:
   display_names:
   - Turnovers
