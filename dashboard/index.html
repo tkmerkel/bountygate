@@ -2,360 +2,80 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>BountyGate · Internal Dashboard</title>
-<style>
-  :root {
-    --bg: #0f1115;
-    --panel: #181b22;
-    --panel-2: #1f2330;
-    --text: #e7ebf3;
-    --muted: #8b95a8;
-    --line: #2a2f3c;
-    --ok: #51d088;
-    --bad: #ff6e6e;
-    --warn: #ffc94d;
-    --wasted: #4ea1ff;
-    --selector: #ff9a3c;
-    --slip: #ff4d6d;
-    --auth: #b58bff;
-    --stealth: #ffd86b;
-    --accent: #a78bfa;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-  }
-  header {
-    padding: 18px 28px;
-    border-bottom: 1px solid var(--line);
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-  }
-  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
-  header .updated { color: var(--muted); font-size: 12px; }
-  main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
-
-  section.panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin: 0 0 18px;
-  }
-  section.panel header.sec-header {
-    padding: 0;
-    border: none;
-    margin: 0 0 10px;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  section.panel header.sec-header h2 { margin: 0; font-size: 14px; font-weight: 600; }
-
-  /* Freshness pill */
-  .fresh-pill {
-    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px;
-    font-weight: 500; vertical-align: baseline;
-  }
-  .fresh-ok      { background: #0e3a26; color: #51d088; }
-  .fresh-amber   { background: #3a2d0e; color: #ffc94d; }
-  .fresh-red     { background: #3a0e12; color: #ff6e6e; }
-  .fresh-unknown { background: #2a2f3c; color: #8b95a8; }
-
-  /* Account cards grid */
-  #accounts-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 10px;
-  }
-  .book-card {
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 10px 12px;
-  }
-  .book-card .book-name {
-    font-size: 11px; color: var(--accent);
-    text-transform: uppercase; letter-spacing: 0.06em;
-  }
-  .book-card .book-balance {
-    font-size: 20px; font-weight: 600; margin: 4px 0;
-    font-variant-numeric: tabular-nums;
-  }
-  .book-card .book-sub {
-    font-size: 11px; color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .book-card .book-pnl-positive { color: var(--ok); }
-  .book-card .book-pnl-negative { color: var(--bad); }
-  .book-card .book-error {
-    font-size: 10px; color: var(--bad); margin-top: 6px;
-  }
-
-  /* Watchers table */
-  table.watchers, table.runs { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.watchers thead th, table.runs thead th {
-    text-align: left;
-    color: var(--muted);
-    font-weight: 500;
-    text-transform: uppercase;
-    font-size: 11px;
-    letter-spacing: 0.6px;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--line);
-  }
-  table.watchers tbody td, table.runs tbody td { padding: 8px 10px; vertical-align: top; }
-  table.watchers tbody tr, table.runs tbody tr { border-bottom: 1px solid var(--line); }
-  table.runs tbody tr:hover { background: rgba(255,255,255,0.02); }
-
-  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-  .status-dot-ok    { background: var(--ok); }
-  .status-dot-amber { background: var(--warn); }
-  .status-dot-red   { background: var(--bad); }
-
-  .outcome.success  { color: var(--ok); font-weight: 600; }
-  .outcome.failure  { color: var(--bad); font-weight: 600; }
-  .outcome.skipped  { color: var(--muted); font-weight: 600; }
-
-  .tags { display: flex; flex-wrap: wrap; gap: 4px; }
-  .tag {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid var(--line);
-  }
-  .tag.wasted   { color: var(--wasted);   border-color: rgba(78,161,255,0.35); }
-  .tag.selector { color: var(--selector); border-color: rgba(255,154,60,0.35); }
-  .tag.slip     { color: var(--slip);     border-color: rgba(255,77,109,0.35); }
-  .tag.auth     { color: var(--auth);     border-color: rgba(181,139,255,0.35); }
-  .tag.stealth  { color: var(--stealth);  border-color: rgba(255,216,107,0.35); }
-
-  a { color: #6ea8ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .empty { color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }
-  .top-finding { color: var(--text); }
-  .ts { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BountyGate · The Daily Hedge</title>
+<link rel="stylesheet" href="/static/colors_and_type.css">
+<link rel="stylesheet" href="/static/kit.css">
+<link rel="stylesheet" href="/static/dash.css">
 </head>
 <body>
-<header>
-  <h1>BountyGate · Internal Dashboard</h1>
-  <span class="updated">
-    <a href="/wiki" style="margin-right:16px;">📚 Wiki</a>
-    <a href="/health">/health</a>
-  </span>
-</header>
-<main>
+<div class="bg-shell">
+  <aside class="bg-side">
+    <div class="bg-side__brand">
+      <div class="bg-side__brand-mast">Bounty<i style="font-style:italic;color:var(--augusta-green);">Gate</i></div>
+      <div class="bg-side__brand-est">EST. MMXXVI · INTERNAL</div>
+    </div>
+    <h6>The Wiki</h6>
+    <ul class="bg-side__list" id="side-wiki-list"></ul>
+    <hr class="bg-side__divider">
+    <h6>Health</h6>
+    <ul class="bg-side__list">
+      <a class="bg-side__item" href="/health"><span class="bg-side__item-glyph">·</span><span>/health</span><span class="bg-side__item-meta" id="side-health-app">—</span></a>
+      <a class="bg-side__item" href="/health"><span class="bg-side__item-glyph">·</span><span>Postgres</span><span class="bg-side__item-meta" id="side-health-db">—</span></a>
+    </ul>
+    <hr class="bg-side__divider">
+    <h6>Officers</h6>
+    <ul class="bg-side__list">
+      <a class="bg-side__item" href="#"><span class="bg-side__item-glyph">§</span><span>T. Merkel</span><span class="bg-side__item-meta">CHM</span></a>
+      <a class="bg-side__item" href="#"><span class="bg-side__item-glyph">§</span><span>Claude.exe</span><span class="bg-side__item-meta">REV</span></a>
+    </ul>
+  </aside>
 
-  <section class="panel">
-    <header class="sec-header">
-      <h2>Accounts</h2>
-      <span id="accounts-fresh" class="fresh-pill fresh-unknown">no data</span>
+  <main class="bg-main">
+    <header>
+      <div class="bg-mast">
+        <div class="bg-mast__col">
+          <div>VOL. <span class="v">MMXXVI</span> · NO. <span class="v" id="mast-runno">000</span></div>
+          <div>MEMBER <span class="v">T-MERKEL</span></div>
+          <div>FILED FROM <span class="v">REDMOND, WA</span></div>
+        </div>
+        <h1 class="bg-mast__title">The Daily Hedge</h1>
+        <div class="bg-mast__col right">
+          <div id="mast-date">—</div>
+          <div>PAIRED · HEDGED · BOOKED</div>
+          <div>PRICE <span class="v">FREE TO PATRONS</span></div>
+        </div>
+      </div>
+      <div class="bg-mast__strip">
+        <span id="mast-strip-watchers"><span class="live-dot"></span>WATCHERS · LOADING</span>
+        <span class="center" id="mast-strip-lastrun">LAST RUN · —</span>
+        <span id="mast-strip-exposure">EXPOSURE · —</span>
+      </div>
     </header>
-    <div id="accounts-grid"></div>
-    <div class="empty" id="accounts-empty">No account stats yet. The scraper will populate this once Phase B is deployed.</div>
-  </section>
 
-  <section class="panel">
-    <header class="sec-header">
-      <h2>Watchers</h2>
-      <span id="watchers-fresh" class="fresh-pill fresh-unknown">no data</span>
-    </header>
-    <table class="watchers">
-      <thead>
-        <tr><th>Name</th><th>Status</th><th>Backlog</th><th>Last tick</th><th>Last error</th></tr>
-      </thead>
-      <tbody id="watchers-rows"></tbody>
-    </table>
-    <div class="empty" id="watchers-empty">No watcher heartbeats yet. Watchers report on their first tick.</div>
-  </section>
+    <section class="bg-hero" id="sec-hero"></section>
 
-  <section class="panel">
-    <header class="sec-header">
-      <h2>Latest runs</h2>
-      <span id="runs-fresh" class="fresh-pill fresh-unknown">no data</span>
-    </header>
-    <table class="runs">
-      <thead>
-        <tr>
-          <th>When</th>
-          <th>Player</th>
-          <th>Market</th>
-          <th>Outcome</th>
-          <th>Dur</th>
-          <th>Issues</th>
-          <th>Top finding</th>
-          <th>Links</th>
-        </tr>
-      </thead>
-      <tbody id="runs-rows"></tbody>
-    </table>
-    <div class="empty" id="runs-empty">No runs yet.</div>
-  </section>
+    <h2 class="bg-sec">Treasury &amp; Operations</h2>
+    <div class="bg-row-2">
+      <div id="sec-accounts"></div>
+      <div id="sec-watchers"></div>
+    </div>
 
-</main>
+    <h2 class="bg-sec">From the Audit Desk</h2>
+    <div id="sec-runs"></div>
 
-<script>
-const ISSUE_KEYS = [
-  ["wasted_wait",   "wasted",   "wait"],
-  ["selector_miss", "selector", "selector"],
-  ["slip_state",    "slip",     "slip"],
-  ["auth_geo",      "auth",     "auth/geo"],
-  ["stealth",       "stealth",  "stealth"],
-];
+    <footer class="bg-foot">
+      The Pixel Augusta is a publication of the BountyGate internal review committee. Data refreshes every 30s from <code>/api/runs</code>, <code>/api/account-stats</code>, <code>/api/watchers</code>, <code>/api/pnl-history</code>. Patrons of the club only.
+    </footer>
+  </main>
+</div>
 
-function freshnessClass(updatedAtIso, staleAfterMin) {
-  if (!updatedAtIso) return "fresh-unknown";
-  const ageMin = (Date.now() - new Date(updatedAtIso).getTime()) / 60000;
-  if (ageMin < staleAfterMin) return "fresh-ok";
-  if (ageMin < staleAfterMin * 2) return "fresh-amber";
-  return "fresh-red";
-}
-function freshnessLabel(updatedAtIso) {
-  if (!updatedAtIso) return "no data";
-  const ageSec = (Date.now() - new Date(updatedAtIso).getTime()) / 1000;
-  if (ageSec < 60) return Math.round(ageSec) + "s ago";
-  const ageMin = ageSec / 60;
-  if (ageMin < 60) return Math.round(ageMin) + "m ago";
-  const hours = ageMin / 60;
-  if (hours < 24) return hours.toFixed(1) + "h ago";
-  return (hours / 24).toFixed(1) + "d ago";
-}
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
-}
-function fmtTs(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleString();
-}
+<div class="pa-ticker" id="ticker">
+  <span class="pa-ticker__badge">● LIVE</span>
+  <div class="pa-ticker__fade"></div>
+  <div class="pa-ticker__content" id="ticker-content">LOADING…</div>
+</div>
 
-async function refreshAccounts() {
-  try {
-    const r = await fetch("/api/account-stats?cb=" + Date.now());
-    const data = await r.json();
-    const fresh = document.getElementById("accounts-fresh");
-    fresh.className = "fresh-pill " + freshnessClass(data.updated_at, data.stale_after_minutes);
-    fresh.textContent = freshnessLabel(data.updated_at);
-    const grid = document.getElementById("accounts-grid");
-    grid.innerHTML = "";
-    const books = data.books || {};
-    const empty = document.getElementById("accounts-empty");
-    empty.style.display = Object.keys(books).length === 0 ? "block" : "none";
-    for (const [name, s] of Object.entries(books)) {
-      const ok = s.scrape_status === "ok";
-      const div = document.createElement("div");
-      div.className = "book-card";
-      const pnl = s.pnl_7d ?? 0;
-      const pnlClass = pnl >= 0 ? "book-pnl-positive" : "book-pnl-negative";
-      div.innerHTML = `
-        <div class="book-name">${esc(name)}</div>
-        <div class="book-balance">$${(s.balance ?? 0).toFixed(2)}</div>
-        <div class="book-sub">avail $${(s.available_liquidity ?? 0).toFixed(2)} · pending $${(s.pending_wagers ?? 0).toFixed(2)}</div>
-        <div class="book-sub ${pnlClass}">7d P&amp;L: $${pnl.toFixed(2)}</div>
-        ${!ok ? `<div class="book-error">⚠ ${esc(s.last_error || s.scrape_status)}</div>` : ""}
-      `;
-      grid.appendChild(div);
-    }
-  } catch (e) {
-    console.error("accounts fetch failed", e);
-  }
-}
-
-async function refreshWatchers() {
-  try {
-    const r = await fetch("/api/watchers?cb=" + Date.now());
-    const data = await r.json();
-    const fresh = document.getElementById("watchers-fresh");
-    fresh.className = "fresh-pill " + freshnessClass(data.checked_at, 1);
-    fresh.textContent = freshnessLabel(data.checked_at);
-    const tbody = document.getElementById("watchers-rows");
-    tbody.innerHTML = "";
-    const empty = document.getElementById("watchers-empty");
-    empty.style.display = data.watchers.length === 0 ? "block" : "none";
-    for (const w of data.watchers) {
-      const tr = document.createElement("tr");
-      const backlog = w.pending_count > 0
-        ? `${w.pending_count} pending` + (w.oldest_pending_age_s ? ` · oldest ${Math.round(w.oldest_pending_age_s / 60)}m` : "")
-        : "0 pending";
-      tr.innerHTML = `
-        <td><span class="status-dot status-dot-${esc(w.status)}"></span>${esc(w.name)}</td>
-        <td>${esc(w.status)}${w.is_running ? "" : " · idle"}</td>
-        <td>${backlog}</td>
-        <td>${freshnessLabel(w.last_tick_at)}</td>
-        <td>${esc(w.last_error || "—")}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  } catch (e) {
-    console.error("watchers fetch failed", e);
-  }
-}
-
-async function refreshRuns() {
-  try {
-    const r = await fetch("/api/runs?limit=100&cb=" + Date.now());
-    const data = await r.json();
-    const fresh = document.getElementById("runs-fresh");
-    fresh.className = "fresh-pill " + freshnessClass(data.updated_at, data.stale_after_minutes);
-    fresh.textContent = freshnessLabel(data.updated_at);
-    const tbody = document.getElementById("runs-rows");
-    tbody.innerHTML = "";
-    const runs = data.runs || [];
-    document.getElementById("runs-empty").style.display = runs.length === 0 ? "block" : "none";
-    for (const r of runs.slice(0, 50)) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="ts">${fmtTs(r.occurred_at)}</td>
-        <td>${esc(r.player)}</td>
-        <td>${esc(r.market)}</td>
-        <td class="outcome ${esc(r.outcome)}">${esc(r.outcome || "—")}</td>
-        <td>${r.duration_s != null ? r.duration_s.toFixed(1) + "s" : "—"}</td>
-        <td><div class="tags">${tagsHtml(r.issues)}</div></td>
-        <td class="top-finding">${esc(r.top_finding || "")}</td>
-        <td>${linksHtml(r)}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  } catch (e) {
-    console.error("runs fetch failed", e);
-  }
-}
-
-function tagsHtml(issues) {
-  if (!issues) return "";
-  return ISSUE_KEYS.map(([key, cls, label]) => {
-    const v = issues[key];
-    const has = Array.isArray(v) ? v.length > 0 : (v && v !== "none");
-    if (!has) return "";
-    const n = Array.isArray(v) ? v.length : "";
-    return `<span class="tag ${cls}">${label}${n ? " " + n : ""}</span>`;
-  }).join("");
-}
-
-function linksHtml(r) {
-  const parts = [];
-  if (r.video_url) parts.push(`<a href="${esc(r.video_url)}">▶ video</a>`);
-  if (r.review_url) parts.push(`<a href="${esc(r.review_url)}">review</a>`);
-  return parts.join(" · ");
-}
-
-function refreshAll() {
-  refreshAccounts();
-  refreshWatchers();
-  refreshRuns();
-}
-
-refreshAll();
-window.addEventListener("focus", refreshAll);
-setInterval(refreshAll, 30000);
-</script>
+<script src="/static/dashboard.js"></script>
 </body>
 </html>
