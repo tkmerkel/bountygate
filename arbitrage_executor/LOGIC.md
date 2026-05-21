@@ -112,14 +112,15 @@ This is the post-fix behavior. The pre-fix behavior (PR #15 era) routed std mark
 
 ## ROI gating — two gates, two purposes
 
-There are **two** ROI filters in the pipeline. They have different roles. Don't conflate them.
+There are **three** ROI filters in the pipeline. They have different roles. Don't conflate them.
 
 | Gate | Where | Default | Role |
 |---|---|---|---|
-| `BUILDER_MIN_ROI` | `airflow/dags/bg_arb_pipeline.py` → passed to `build_opportunities(min_roi=...)` in `bg_arb_pipeline_lib/builder.py:75-ish` | `0.0` | **Storage-protection floor.** Drops negative-ROI cartesian pairs before they reach `bg_arbitrage_opportunities`. Without it, ~95% of pairs (book overround eats the margin) bloat the table by ~100×. |
-| `MIN_ROI_THRESHOLD` | `arbitrage_executor/opportunity.py:55` (env-overridable) | `0.005` | **Policy gate.** What the executor will actually bet. Tune per-experiment via env var. |
+| `BUILDER_MIN_ROI` | `airflow/dags/bg_arb_pipeline.py` → `build_opportunities(min_roi=...)` | `0.0` | **Storage-protection floor.** Drops negative-ROI cartesian pairs before they reach `bg_arbitrage_opportunities`. Without it, ~95% of pairs (book overround eats the margin) bloat the table by ~100×. |
+| `MIN_QUALIFYING_ROI` | `airflow/dags/bg_arb_pipeline.py:enqueue_opportunities_task` | `0.005` | **Wake-up gate.** Whether the DAG inserts a PENDING row to wake the worker. If stricter than the executor gate, the worker never fires on the looser band. |
+| `MIN_ROI_THRESHOLD` | `arbitrage_executor/opportunity.py` (env-overridable) | `0.005` | **Policy gate.** What the executor will actually bet, once woken. |
 
-**Setting `MIN_ROI_THRESHOLD=-0.01` does nothing below `BUILDER_MIN_ROI`** — the executor can only filter rows the builder wrote. If you want to explore the negative-ROI tail, set `BUILDER_MIN_ROI=-0.01` (Airflow Docker env) AND `MIN_ROI_THRESHOLD=-0.01` (worker env). Be aware of the storage impact: opps and history tables both grow significantly.
+**To experiment with the negative-ROI tail**: set ALL THREE env vars (e.g. `BUILDER_MIN_ROI=-0.01`, `MIN_QUALIFYING_ROI=-0.01`, `MIN_ROI_THRESHOLD=-0.01`). Builder writes, DAG wakes worker, executor bets. Skipping the wake-up gate means the worker just sleeps. Be aware of the storage impact: opps and history tables grow significantly.
 
 ## Quick cross-references
 
