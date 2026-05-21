@@ -46,6 +46,13 @@ player_rebounds_assists:
   accordion_name: Player rebounds + assists
   has_threshold_tabs: true
   tab_selector_pattern: button:has-text("{threshold}+")
+# Triple-combo accordion visible on the 2026-05-20 Spurs/Thunder walk —
+# previously unmapped, surfaced via unmapped-market Discord alert
+# (Jalen Williams over 19.5 in the 19:25 ET worker tick).
+player_points_rebounds_assists:
+  accordion_name: Player points + rebounds + assists
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
 # Player blocks is the lone holdout — still std O/U pick format on the
 # expanded accordion (no threshold tabs, only team-filter tabs which the
 # executor leaves on the default "All" selection).
@@ -89,6 +96,30 @@ player_blocks_alternate:
   is_alternate: true
 player_turnovers_alternate:
   accordion_name: Player turnovers
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+# Combo-alt entries — surfaced as unmapped-market alerts during the
+# 2026-05-20 worker runs. Std and alt point at the same merged
+# accordion (see comment near the std entries above); has_threshold_tabs
+# drives the threshold tab click.
+player_points_assists_alternate:
+  accordion_name: Player points + assists
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_points_rebounds_alternate:
+  accordion_name: Player points + rebounds
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_rebounds_assists_alternate:
+  accordion_name: Player rebounds + assists
+  is_alternate: true
+  has_threshold_tabs: true
+  tab_selector_pattern: button:has-text("{threshold}+")
+player_points_rebounds_assists_alternate:
+  accordion_name: Player points + rebounds + assists
   is_alternate: true
   has_threshold_tabs: true
   tab_selector_pattern: button:has-text("{threshold}+")
