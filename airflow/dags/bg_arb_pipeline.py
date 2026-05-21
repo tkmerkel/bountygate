@@ -45,7 +45,14 @@ BASE_WAGER = 100.0
 # Only opportunities that satisfy these conditions are bet-eligible (FD×MGM
 # only; DK/Caesars rows from PR #8 flow into the opps table for price
 # comparison but are gated out of execution).
-MIN_QUALIFYING_ROI = 0.005
+#
+# This is the **DAG enqueue gate**: whether the DAG inserts a PENDING row
+# that wakes the worker. Should be set in lockstep with the executor's
+# MIN_ROI_THRESHOLD (arbitrage_executor/opportunity.py) — if the DAG
+# enqueue gate is stricter than the executor gate, the worker never
+# fires on the looser band. See arbitrage_executor/LOGIC.md "ROI
+# gating — two gates, two purposes".
+MIN_QUALIFYING_ROI = float(os.environ.get("MIN_QUALIFYING_ROI", "0.005"))
 EXECUTABLE_BOOKS = ("fanduel", "betmgm")
 EXECUTABLE_SPORTS = ("NBA", "NHL", "NFL", "MLB")
 
