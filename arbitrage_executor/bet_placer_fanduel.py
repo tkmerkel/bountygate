@@ -3,6 +3,8 @@
 import re
 from typing import Dict, Tuple
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 from selector_finder import SelectorFinder, is_alternate_market, calculate_alternate_tab_value
 from bet_placer import BetPlacer, BetPlacerError
 
@@ -942,6 +944,23 @@ class FanduelBetPlacer(BetPlacer):
         in order of durability.
         """
         try:
+            # FanDuel runs a location/odds verification step after wager
+            # entry; the Place Bet button doesn't render until that
+            # completes (~1-3s). On 2026-05-21 this delay produced an
+            # orphaned BetMGM bet — all 4 selector strategies fired before
+            # the button appeared, then the failure screenshot caught it
+            # rendered a moment later. Wait for it explicitly. If the wait
+            # times out the existing strategies still run, so the loud-
+            # fail diagnostic is preserved.
+            try:
+                self.page.wait_for_selector(
+                    'button:has-text("Place"):has-text("bet")',
+                    state='visible',
+                    timeout=8000,
+                )
+            except PlaywrightTimeoutError:
+                pass
+
             place_btn = None
 
             # 1. Text pattern — "Place $X.YZ bet" (most durable, matches
