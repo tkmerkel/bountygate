@@ -120,6 +120,30 @@ player_steals_alternate:
   display_names:
   - Steals
   is_alternate: true
+# Combo-stat alt markets — surfaced as unmapped during 2026-05-20
+# worker runs (Victor Wembanyama points+reb alt, Dylan Harper reb+ast
+# alt, Devin Vassell points+ast alt). Display names mirror the std
+# entries above; is_alternate routes to FanDuel's alt-line tile.
+player_points_assists_alternate:
+  display_names:
+  - Pts + Ast
+  - Points + Assists
+  is_alternate: true
+player_points_rebounds_alternate:
+  display_names:
+  - Pts + Reb
+  - Points + Rebounds
+  is_alternate: true
+player_rebounds_assists_alternate:
+  display_names:
+  - Reb + Ast
+  - Rebounds + Assists
+  is_alternate: true
+player_points_rebounds_assists_alternate:
+  display_names:
+  - Pts + Reb + Ast
+  - Points + Rebounds + Assists
+  is_alternate: true
 batter_hits_alternate:
   display_names:
   - Hits
