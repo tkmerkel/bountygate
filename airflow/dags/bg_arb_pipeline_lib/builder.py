@@ -147,4 +147,24 @@ def build_opportunities(
     )
 
     cols = ["opportunity_hash"] + [c for c in out.columns if c != "opportunity_hash"]
-    return out[cols].reset_index(drop=True)
+    out = out[cols]
+
+    # Drop opportunity_hash duplicates before returning. Hash collisions
+    # appear when the stage table contains duplicate rows (Odds API
+    # occasionally ships the same (event, player, market, side, line,
+    # price) tuple twice within a single fetch) — the under x over merge
+    # then produces multiple rows with identical hash inputs. The negative-
+    # ROI band surfaced this on 2026-05-21: builder produced 163 opps but
+    # bulk_replace's COPY hit a UniqueViolation on
+    # bg_arbitrage_opportunities_pkey, failing every DAG run and starving
+    # the worker. Dedupe is safe — collisions are by construction
+    # equivalent rows.
+    pre_dedupe = len(out)
+    out = out.drop_duplicates(subset=["opportunity_hash"])
+    if len(out) != pre_dedupe:
+        print(
+            f"[builder] dedupe: {pre_dedupe} -> {len(out)} "
+            f"({pre_dedupe - len(out)} hash-duplicate row(s) dropped)"
+        )
+
+    return out.reset_index(drop=True)
