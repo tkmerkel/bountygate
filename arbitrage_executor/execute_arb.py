@@ -616,6 +616,19 @@ class ArbExecutor:
             # task_worker.py halts instead of churning more attempts
             # against a dead session.
             raise
+        except BetPlacerSkipError:
+            # Structural skip from Phase 2 accordion-expansion (std O/U
+            # not on this event, falling back to merged-alt would
+            # misclick). Phase 2's inner catch already re-raised cleanly;
+            # surface to the main loop unwrapped so the per-opp handler
+            # at execute_arb.main() can advance to the next candidate
+            # WITHOUT incrementing attempted_any. Without this branch the
+            # SkipError fell into the generic ``except Exception`` below,
+            # got reclassified as "Unexpected error", and inflated the
+            # circuit-breaker count — observed on 2026-05-21 when several
+            # std×std opps on a low-traffic event each tripped a SKIP
+            # that the breaker counted as a real failure. See LOGIC.md.
+            raise
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             # If we crashed inside the asymmetric-risk window, escalate to
