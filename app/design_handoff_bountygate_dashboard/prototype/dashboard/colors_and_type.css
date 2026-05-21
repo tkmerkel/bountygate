@@ -1,0 +1,172 @@
+/* =====================================================================
+   The Pixel Augusta — Design Tokens
+   Bountygate v1
+   Source: _source/styles.css (codebase) + extended scale
+   ===================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=VT323&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap');
+
+:root {
+  /* ───────── Core palette (from codebase) ───────── */
+  --augusta-green:   #0B5B40;
+  --augusta-green-2: #106B4D;   /* lighter fairway tone, from isometric tile */
+  --augusta-green-3: #084632;   /* shadowed fairway */
+  --augusta-green-4: #C9DBD2;   /* tinted, for backgrounds */
+  --newsprint-white: #F4F1EA;
+  --crisp-white:     #FFFFFF;
+  --masters-yellow:  #F1C40F;
+  --masters-yellow-2:#FFD84A;   /* highlight */
+  --ink-black:       #1A1A1A;
+  --rule-gray:       #6B6B66;   /* newsprint mid-tone */
+  --ledger-red:      #B0211A;   /* WSJ red for negative figures / errors */
+
+  /* ───────── Semantic foreground/background ───────── */
+  --bg-page:        var(--newsprint-white);
+  --bg-card:        var(--crisp-white);
+  --bg-chrome:      var(--augusta-green);
+  --bg-inset:       #EEEAE0;             /* recessed wells */
+  --fg-1:           var(--ink-black);    /* primary text */
+  --fg-2:           #3A3A36;             /* secondary text */
+  --fg-3:           var(--rule-gray);    /* meta / captions */
+  --fg-on-green:    var(--crisp-white);
+  --fg-accent:      var(--masters-yellow);
+  --fg-negative:    var(--ledger-red);
+  --fg-positive:    #1F7A4D;
+
+  /* ───────── Type families ───────── */
+  --font-serif:     'Playfair Display', 'Merriweather', 'Times New Roman', serif;
+  --font-serif-body:'Merriweather', 'Georgia', serif;
+  --font-mono-pixel:'VT323', 'Courier New', monospace;
+
+  /* ───────── Type scale (modular, 1.25 / Major-Third) ───────── */
+  --fs-xxs: 11px;
+  --fs-xs:  12px;
+  --fs-sm:  14px;
+  --fs-md:  16px;
+  --fs-lg:  20px;
+  --fs-xl:  26px;
+  --fs-2xl: 34px;
+  --fs-3xl: 46px;
+  --fs-4xl: 60px;
+
+  /* ───────── Spacing (4px base) ───────── */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ───────── Borders / Radii ───────── */
+  --border-width: 1px;
+  --border-strong: 2px;
+  --rule-double: 3px;                /* WSJ double rule total */
+  --radius-0: 0;                     /* SC3K UI is crisp — no rounding */
+  --radius-pill: 999px;              /* used only on tickers / status dots */
+
+  /* ───────── Bevels (SC3K) ───────── */
+  --bevel-light: rgba(255, 255, 255, 0.40);
+  --bevel-dark:  rgba(0,   0,   0,   0.40);
+  --bevel-out:
+    inset  1px  1px 0 var(--bevel-light),
+    inset -1px -1px 0 var(--bevel-dark);
+  --bevel-in:
+    inset  1px  1px 0 var(--bevel-dark),
+    inset -1px -1px 0 var(--bevel-light);
+
+  /* ───────── Shadows (used sparingly; this brand prefers bevels) ───────── */
+  --shadow-card: 2px 2px 0 var(--ink-black);   /* hard offset, no blur */
+  --shadow-drop: 4px 4px 0 rgba(0,0,0,.35);
+
+  /* ───────── Motion ───────── */
+  --easing-crisp: steps(4, end);     /* pixel-staircase */
+  --easing-ui:    cubic-bezier(.2,.7,.2,1);
+  --dur-fast:   80ms;
+  --dur-base:   160ms;
+  --dur-slow:   320ms;
+
+  /* ───────── Z ───────── */
+  --z-ticker: 1000;
+  --z-modal:  2000;
+}
+
+/* =====================================================================
+   Base elements — semantic defaults
+   ===================================================================== */
+html, body {
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-serif-body);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  color: var(--fg-1);
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+h1 { font-size: var(--fs-4xl); letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-2xl); }
+h3 { font-size: var(--fs-xl);  }
+h4 { font-size: var(--fs-lg);  font-weight: 700; }
+h5 { font-size: var(--fs-md);  font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+h6 { font-size: var(--fs-sm);  font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-3); }
+
+p { margin: 0 0 var(--space-4); text-wrap: pretty; }
+
+/* WSJ-style header rule */
+.wsj-rule {
+  border-bottom: var(--rule-double) double var(--ink-black);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+/* Pixel display / monospace (terminal, tickers, data) */
+.mono, code, kbd, samp, pre {
+  font-family: var(--font-mono-pixel);
+  font-size: 1.15em; /* VT323 reads small */
+  letter-spacing: 0;
+}
+
+/* Dropcap — newsprint flourish */
+.dropcap::first-letter {
+  font-family: var(--font-serif);
+  font-weight: 900;
+  float: left;
+  font-size: 4.2em;
+  line-height: .85;
+  padding: 4px 8px 0 0;
+  color: var(--augusta-green);
+}
+
+/* Small caps run-in label */
+.smallcaps {
+  font-family: var(--font-serif);
+  font-variant: small-caps;
+  letter-spacing: .08em;
+  font-weight: 700;
+  font-size: .9em;
+}
+
+/* Ledger figures (negative red, positive green) */
+.ledger-pos { color: var(--fg-positive); font-family: var(--font-mono-pixel); }
+.ledger-neg { color: var(--fg-negative); font-family: var(--font-mono-pixel); }
+
+/* =====================================================================
+   Bevels & dithers — utility classes
+   ===================================================================== */
+.bevel-out { border: 1px solid var(--ink-black); box-shadow: var(--bevel-out); }
+.bevel-in  { border: 1px solid var(--ink-black); box-shadow: var(--bevel-in);  }
+
+.dither-light  { background-image: url("data:image/svg+xml,%3Csvg width='2' height='2' viewBox='0 0 2 2' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='1' height='1' fill='%23000' fill-opacity='0.1'/%3E%3C/svg%3E"); background-size: 2px 2px; }
+.dither-medium { background-image: url("data:image/svg+xml,%3Csvg width='2' height='2' viewBox='0 0 2 2' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='1' height='1' fill='%23000' fill-opacity='0.2'/%3E%3Crect x='1' y='1' width='1' height='1' fill='%23000' fill-opacity='0.2'/%3E%3C/svg%3E"); background-size: 2px 2px; }
+.dither-heavy  { background-image: url("data:image/svg+xml,%3Csvg width='4' height='4' viewBox='0 0 4 4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='2' height='2' fill='%23000' fill-opacity='0.4'/%3E%3Crect x='2' y='2' width='2' height='2' fill='%23000' fill-opacity='0.4'/%3E%3C/svg%3E"); background-size: 4px 4px; }
+.dither-green  { background-image: url("data:image/svg+xml,%3Csvg width='4' height='4' viewBox='0 0 4 4' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='2' height='2' fill='%230B5B40' fill-opacity='0.3'/%3E%3Crect x='2' y='2' width='2' height='2' fill='%230B5B40' fill-opacity='0.3'/%3E%3C/svg%3E"); background-size: 4px 4px; }

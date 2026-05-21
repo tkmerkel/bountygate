@@ -1,0 +1,234 @@
+window.BG_DATA = {
+  "updated_at": "2026-05-15T09:34:00Z",
+  "runs": [
+    {
+      "run_id": "20260515_093206_Dylan_Harper_player_rebounds_alternate",
+      "timestamp": "2026-05-15T09:32:06",
+      "player": "Dylan Harper",
+      "market": "player_rebounds_alternate",
+      "outcome": "failure",
+      "duration_s": 54.8,
+      "estimated_wasted_wait_s": 37,
+      "issues": {
+        "wasted_wait":   ["t=00:14 → t=00:53 — DOMINANT FINDING: BetMGM credential modal (email pre-filled aoneadk88@gmail.com, empty password) appears at t=00:14 and sits UNCHANGED across frames 14–40 (~39s of static modal, no bot interaction, no cursor movement). Bot keeps submit-clicking against a modal-blocked page. Saveable: ~35s with a pre-submit modal detector that halts and re-auths instead of retrying through the overlay.", "t=00:00 → t=00:04 — Both viewports near-blank with only Chrome chrome / tabs visible; right pane shows a shield/security splash at t=00:01. ~3s startup with no bot action visible; ~1.5s saveable with wait_for_selector on a known BetMGM shell element instead of a fixed sleep.", "t=00:11 → t=00:13 — BetMGM Spurs @ Wolves event page fully painted with the Dylan Harper player-rebounds slip card on the right rail; cursor static for ~2s before page transitions. Saveable: ~1s."],
+        "selector_miss": ["t=00:14 onward — BetMGM credential modal blocks the Place Bet click path; bot keeps 'submitting' against the overlay. First auth_betmgm_submit_click_failed_20260515_093258.png confirms the click never resolved at 09:32:58 (~t=00:52); a second auth_betmgm_submit_click_failed_20260515_093353.png ~55s LATER (outside the recording window) proves the retry hit the same modal — the modal handler is fully absent, not just slow.", "Modal header reads 'TWICN' (likely TWIN, BetMGM's branded login surface) — same email-pre-fill UX as the BetMGM 'MGM ID' sign-in modal flagged on the 20260514_102242 Austin Martin review (t=00:36). A generic credential-modal detector catches both surfaces.", "No FanDuel Reality Check / geo / cookie / login-expiry modal observed in any visible frame (FanDuel phase ran AFTER the recording cut off so can't be fully evaluated)."],
+        "slip_state":    ["t=00:10 → t=00:13 — BetMGM slip drawer clean: single Dylan Harper player-rebounds card, no leftover bets, no suspended badge, no Clear-All needed. Slip-state itself is fine — failure is downstream at the place-bet click, not in slip preparation.", "Wager-input behavior not assessable from frames (modal blocked the page before wager entry was visible at recording resolution).", "No odds-changing mid-flow visible."],
+        "auth_geo":      ["DOMINANT FINDING — confirmed FULLY cold BetMGM session. Credential modal triggered mid-Phase-2 with account email pre-populated and password field empty. This is the SAME 'one cookie expiry away' risk flagged on the 20260514_102242 Austin Martin auth_geo finding ('both books required real credential login mid-run') and the 20260513_220136 McDaniels finding ('brief BetMGM login/stay-signed-in style overlay'). The prediction has now landed — BetMGM cookie has actually expired and is fully blocking, not just hovering.", "No captcha, no geo prompt, no 'verify identity' overlay observed.", "FanDuel session state unevaluable from video (FanDuel phase ran after the recording cut off)."],
+        "stealth":       ["~37s of fully-static BetMGM UI with the same login modal on screen and zero mouse movement is a classic non-human dwell signature — a real user would either type the password, close the modal, or navigate away within seconds. Even after the modal handler is added, pair it with a 5s fast-fail so future credential-overlay regressions surface as halts, not ~40s of suspicious idle.", "Stake sizes $1.01 / $0.62 (ROI ~0.4%) are sub-dollar — same probe-pattern stake sizing flagged across the prior eight+ reviews. Good for stealth (no round-number signature), bad as a signal that the roi>0 / min-stake gate is still letting low-EV opps through.", "Same player + same market across both books within ~30s — canonical cross-book correlation signal."]
+      },
+      "top_finding": "BetMGM session is now FULLY cold — credential modal (email pre-filled aoneadk88@gmail.com, empty password) appeared at t=00:14 and sat unhandled for 39 seconds while submit-click retries fired into a blocked DOM, causing BOTH auth_betmgm_submit_click_failed_*.png failures at 09:32:58 and 09:33:53. This is the exact 'one cookie expiry away' risk flagged on the 2026-05-13 22:01:36 and 2026-05-14 10:22:42 reviews — the prediction has landed. Refresh BetMGM persistent-profile credentials in Chrome before the next run AND add a pre-submit credential-modal detector that halts the run and re-auths instead of retrying through the overlay. Secondary: the desktop recorder cut off at 54.8s while the run continued to 09:33:53+ (~1m47s+) — Phase 3 (FanDuel hedge) and the BetMGM retry are invisible to the video reviewer; extend recording duration or trigger stop on run_completed instead of a fixed timer.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260515_093206_Dylan_Harper_player_rebounds_alternate/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260515_093206_Dylan_Harper_player_rebounds_alternate/review.md"
+    },
+    {
+      "run_id": "20260514_102242_Austin_Martin_batter_stolen_bases",
+      "timestamp": "2026-05-14T10:22:42",
+      "player": "Austin Martin",
+      "market": "batter_stolen_bases",
+      "outcome": "success",
+      "duration_s": 97.0,
+      "estimated_wasted_wait_s": 11,
+      "issues": {
+        "wasted_wait":   ["t=00:00 → t=00:06 — BetMGM tab foregrounded with 'Audio Cisco' / audio-device permission modal blocking the page; cursor static the whole window (~6s of pure startup blocker). Same Chrome audio-device modal flagged on the 21:15:00 TEST_USER synthetic recording — recurring across runs.", "t=00:18 → t=00:21 — FanDuel MLB page fully painted (Dodgers boost hero), cursor not moving; ~3s idle before FD search nav. Saveable ~2s with wait_for_selector on the search input.", "t=00:32 → t=00:34 — BetMGM tab focused but page chrome still loading; cursor parked ~2s.", "t=01:10 → t=01:35 — Recording tail shows BetMGM site with right-rail 'Bet Slip is empty' steady ~25s. Audit screenshots confirm FD hedge ran (10:24:04 → 10:24:16), so the bot is active in a FanDuel window the desktop recorder isn't catching — separate finding: screen recorder is missing the FD hedge phase entirely on this run's recording geometry."],
+        "selector_miss": ["t=00:00–00:06 — Chrome / OS-level audio-permission modal sat for ~6s; bot did not dismiss via selector, modal cleared by itself at t≈00:08. Recurring across runs (also flagged on 20260513_211500 TEST_USER review). If it keeps appearing, add an explicit dismiss step rather than waiting it out.", "t=00:11–00:13 — FanDuel 'Log in to FanDuel' modal with email/password fields visible (NOT the Reality Check modal — actual credential prompt). Session was cold.", "t=00:36–00:37 — BetMGM 'MGM ID' sign-in modal with email + Remember Email fields visible. Cold session on the second book as well.", "No Reality Check / geo / cookie / login-expiry modal beyond the two real-login prompts above"],
+        "slip_state":    ["FD slip at t=00:26–00:31 clean — single Austin Martin alt-line card, stake field visible, no leftover bets.", "BetMGM slip at t=00:57–01:08 clean — Player Combos / Stolen Bases section with single selection, no orphaned legs.", "No 'suspended' or 'unavailable' banner observed in any frame.", "FD hedge slip not visible in captured frames (not in recording geometry); audit screenshots fanduel_betslip_opened_20260514_102404.png + fanduel_wager_entered_20260514_102409.png + fanduel_bet_placed_success_20260514_102416.png confirm hedge completed cleanly."],
+        "auth_geo":      ["DOMINANT FINDING — both books required real credential login mid-run: FD modal at t=00:11, BetMGM MGM-ID modal at t=00:36. Two cold sessions on the same run is unusual and predicts identical failure on the next run unless the watcher keeps sessions warm. With ~270min FD Reality Check cadence already in the system, the bot needs an analogous keepalive for raw auth (heartbeat tab, periodic page touch, or persisted cookies).", "No captcha, no 'verify identity,' no geo prompt observed."],
+        "stealth":       ["Same player + same market + both books, within ~40s — canonical arb correlation signal (Austin Martin / batter_stolen_bases / 0.5 line on FD and MGM). If either book's risk team correlates wager logs across users/IP/device, this pattern is obvious. Mitigations: wager-size randomization, time-stagger between books, or rotating which player gets bet-first vs hedged.", "Wager sizes $0.25 over / $1.01 under are small + odd — that's actually GOOD for stealth (no round-number signature).", "Phase 2 BetMGM market-expanded → bet-placed-success = 10s; Phase 3 FD slip-opened → placed = 12s. Tight and consistent, not robotically identical — acceptable.", "Cursor jitter / hover patterns not assessable at 512px frame width; would need higher-res to judge."]
+      },
+      "top_finding": "Both FD (t=00:11) and BetMGM (t=00:36) prompted a fresh credential login mid-run, adding ~15–25s to a 97s run that should be 20–35s — add a session-warmth check (or background keepalive) before kicking off each arb so re-auth isn't on the hot path. The recurring Chrome audio-device modal at t=00:00 (also flagged on the TEST_USER synthetic) cost another ~6s; if it keeps appearing, add an explicit dismiss step rather than waiting it out.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260514_102242_Austin_Martin_batter_stolen_bases/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260514_102242_Austin_Martin_batter_stolen_bases/review.md"
+    },
+    {
+      "run_id": "20260513_220136_Jaden_McDaniels_player_assists",
+      "timestamp": "2026-05-13T22:01:36",
+      "player": "Jaden McDaniels",
+      "market": "player_assists",
+      "outcome": "failure",
+      "duration_s": 111.4,
+      "estimated_wasted_wait_s": 63,
+      "issues": {
+        "wasted_wait":   ["t=00:32 → t=01:38 — BetMGM Search overlay frozen ~66s across frames 17–53 (identical accordion bucket state: 'Search for Stats, Players & Events' header + Minnesota Timberwolves team link + generic categories; no Jaden McDaniels result row, no typing visible). Recording extends to 111s only because the bot eventually falls out of Search at t=01:40 and re-navigates. Saveable ~60s with the BetMGM Search 5s fast-fail flagged on prior reviews.", "t=00:20 → t=00:26 — BetMGM login/stay-signed-in style overlay visible across frames 12–15 (~6s); clears by frame 16 without a visible bot click (persistent Chrome profile likely auto-resolved). Saveable ~2-3s with wait_for_selector on post-login chrome", "t=00:17 → t=00:19 — right viewport blank ~2s during FanDuel→BetMGM tab transition"],
+        "selector_miss": ["t=01:44 onward — Wrong BetMGM market sub-tab AGAIN: audit screenshot betmgm_market_expanded_20260513_220326.png shows bot reached the correct Spurs @ Timberwolves event page with Player props tab active and the sub-tab strip clearly reading 'Points / First FG / Assists / Rebounds / Three pointers / Combo stats / Defense'. Default sub-tab 'Points' selected; 'Assists' is right there one click away but never clicked. Same regression flagged on 21:47:57 McDaniels and 21:37:48 Gobert (Combo stats) reviews — generic market_key → tab_label mapper remains unshipped.", "t=00:32 → t=01:38 — BetMGM Search overlay regression repeats: search opens but no player-row resolves; bot eventually abandons Search at t=01:40 and falls back to event-page navigation which is what reached the player-props grid — but only after burning ~67s", "t=00:20 — Possible BetMGM login/stay-signed-in modal (NEW): email field + 'Remember Email' + 'Sign In' + 'Forgot Password?' + 'Sign Up' visible against BetMGM promo-card background; clears 6s later. Persistent Chrome profile likely auto-dismissed it but session age should be sanity-checked", "No FanDuel Reality Check / geo / cookie / login-expiry modal observed (FanDuel half clean)"],
+        "slip_state":    ["t=00:13-00:15 — FanDuel slip clean: single 'Jaden McDaniels Over 2.5' card, $999,999 probe wager + $929,998.70 payout (fanduel_max_wager_discovered screenshot confirms); no leftover bets, no suspended badge; account balance $2,233.06 healthy", "t=00:28 onward — BetMGM right panel 'Your bet slip is empty / No bets selected' across frames 16-17, 55-60 and both audit screenshots; no carryover; Phase 2 never advances to add the bet so wager-input behavior unevaluable", "No suspended/unavailable badges; no odds-changing mid-flow visible"],
+        "auth_geo":      ["t=00:20-00:26 — NEW FINDING: brief BetMGM login/stay-signed-in style overlay (frames 12-15, ~6s); clears without visible bot interaction (persistent Chrome profile likely autofilling). Not blocking this run, but a cookie expiry away from being a full session-expired blocker. Recommend manually refreshing BetMGM credentials in the bot's Chrome profile before the next run", "No Reality Check / geo / identity / captcha / session-expired prompts on FanDuel; account chrome ($2,233.06) healthy", "BetMGM page chrome renders normally at frames 16+ — no geo / identity / captcha overlays after the login modal cleared"],
+        "stealth":       ["NINTH consecutive run where a negative-EV opp (arb_ev=-0.02, roi=-0.94%, $1.01/$0.77 sub-dollar paired stakes) reached execution despite the roi>0 gate flagged across EIGHT prior reviews (McDaniels x4, Fox x2, Gobert x2) — gate STILL not shipped", "FIFTH attempt on Jaden McDaniels / player_assists in ~14 minutes (21:34:20, 21:40:54, 21:45:16, 21:47:57, now 22:01:36) — same two books, same market, same wager amounts; textbook cross-book correlation signal; same-player+market cooldown still unshipped", "~67s of fully-static BetMGM Search UI (frames 17-53) with no scroll/abort/backtrack is a non-human dwell-time signature; fast-fail would cut suspicious dwell by >90%", "Sub-dollar paired stakes on a negative-EV opp is a probe pattern from a risk-team perspective", "Phase 1 cadence (FanDuel search → result → slip → wager) compresses to ~15s with no visible hover/idle between distant clicks — same deterministic Phase-1 fingerprint flagged on prior reviews"]
+      },
+      "top_finding": "NINTH consecutive review with the same two unshipped fixes (roi>0 execution gate + BetMGM market_key → tab_label mapper / Search fast-fail), and this run added ~67s of BetMGM Search-overlay dwell on top of the tab-navigation regression — total wasted ~63s plus ~$1.78 paired-stake bleed on a -0.94% ROI opp. Audit screenshot proves the bot reached the right event page with the Assists sub-tab one click away. STOP the bot and ship: (1) roi>0 gate BEFORE any Playwright goto(), (2) generic market_key → tab_label mapper (player_assists → 'Assists', player_points_rebounds → 'Combo stats', etc.), (3) BetMGM Search 5s fast-fail, (4) same-player+market 30min cooldown. Also: refresh BetMGM persistent-profile credentials manually — brief login-style overlay at t=00:20-00:26 is one cookie expiry away from blocking the entire run.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_220136_Jaden_McDaniels_player_assists/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_220136_Jaden_McDaniels_player_assists/review.md"
+    },
+    {
+      "run_id": "20260513_214757_Jaden_McDaniels_player_assists",
+      "timestamp": "2026-05-13T21:47:57",
+      "player": "Jaden McDaniels",
+      "market": "player_assists",
+      "outcome": "failure",
+      "duration_s": 98.0,
+      "estimated_wasted_wait_s": 75,
+      "issues": {
+        "wasted_wait":   ["t=00:23 → t=01:34 — BetMGM Spurs @ Timberwolves event page fully painted with player-props grid stable across frames 14–60 (~71s idle); bot sits on the default 'Player points' sub-tab and never clicks 'Assists'; saveable ~70s with the tab-mapper fix below OR a tab-not-found 5s fast-fail", "t=00:11 → t=00:18 — right monitor dark ~7s during FanDuel→BetMGM tab transition (frames 8–12); saveable ~3-4s with wait_for_selector on a known BetMGM shell element", "t=00:05 → t=00:10 — FanDuel slip drawer idle ~3s after McDaniels Over 2.5 card painted (frames 5–7 identical); saveable ~1.5s"],
+        "selector_miss": ["t=00:24 onward — Wrong BetMGM market sub-tab: audit screenshot betmgm_market_expanded_20260513_214934.png confirms the bot reached the correct event page with the Player props tab active but landed on the default 'Player points' sub-tab; the tab strip reads Points / Three pointers / **Assists** / Rebounds / Three pointers / Combo stats / Defense and Assists was never clicked — 'Player assists' section header barely visible at the bottom of the screenshot, off the fold", "Same tab-navigation regression flagged on the 21:37:48 Gobert player_points_rebounds review (where the fix was 'click Combo stats tab'); a generic market_key → tab_label mapper would fix both", "No FanDuel Reality Check / geo / cookie / login-expiry modal observed in any frame on either site"],
+        "slip_state":    ["t=00:05 — FanDuel slip clean: single 'Jaden McDaniels Over 2.5 assists' card, $0.77 stake entered, no leftover bets, no suspended badge", "t=00:23 onward — BetMGM right panel 'Your bet slip is empty. No bets selected!' across frames 14–60 and in the audit screenshot; no carryover, Clear All from prior runs is sticking; failure is purely the missing Assists-tab click", "No wager-input rejection observed (Phase 2 never reached the wager input)"],
+        "auth_geo":      ["BetMGM session healthy: page chrome, navigation, balance area render normally across frames 14–60; no Reality Check / geo / identity / captcha / session-expired overlays", "FanDuel session healthy: slip drawer and account chrome render normally across frames 1–10"],
+        "stealth":       ["EIGHTH consecutive run where a negative-EV opp (arb_ev=-0.02, roi=-0.94%) reached execution despite the roi>0 gate flagged across SEVEN prior reviews (McDaniels x3, Fox x2, Gobert x2) — gate STILL not shipped", "Fourth attempt on Jaden McDaniels / player_assists in ~14 minutes (21:34:20, 21:40:54, 21:45:16, now 21:47:57) — textbook cross-book correlation signal; add a same-player+market cooldown window (~30 min)", "Sub-dollar paired wagers ($1.01 / $0.77) on a negative-EV opp is a probe pattern from a risk-team perspective", "~71s of fully-static BetMGM UI with no scroll/abort/backtrack is a non-human dwell-time signature; pair the Assists-tab fix with a tab-not-found 5s fast-fail so future regressions surface in seconds, not ~70s of suspicious idle", "Phase 1 cadence (search → slip → wager) compressed into ~10s with no visible hover/idle between distant clicks — same deterministic Phase-1 fingerprint flagged on prior reviews"]
+      },
+      "top_finding": "BetMGM player_assists lives under the 'Assists' market sub-tab, not the default 'Player points' tab — bot reached the correct event page (audit betmgm_market_expanded_*.png confirms) but never clicked Assists, so this is the SAME tab-navigation regression flagged on the 21:37:48 Gobert player_points_rebounds review just for a different market. Ship a generic market_key → tab_label mapper that clicks the correct sub-tab before any player-row selector runs (player_assists → 'Assists', player_points_rebounds → 'Combo stats', player_threes_alternate → 'Three pointers' / alt-line expander, etc.). Also: the roi>0 execution gate flagged across SEVEN prior reviews is STILL unshipped — until shipped, every run keeps spending ~$2 of paired stakes plus ~75s of suspicious idle to reproduce the same two known bugs. Stop running until both ship.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214757_Jaden_McDaniels_player_assists/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214757_Jaden_McDaniels_player_assists/review.md"
+    },
+    {
+      "run_id": "20260513_214516_Jaden_McDaniels_player_assists",
+      "timestamp": "2026-05-13T21:45:16",
+      "player": "Jaden McDaniels",
+      "market": "player_assists",
+      "outcome": "failure",
+      "duration_s": 4.2,
+      "estimated_wasted_wait_s": null,
+      "issues": {
+        "wasted_wait":   ["t=00:00 → t=00:04 — entire recording is BetMGM page repainting from blank → header → nav strip; no FanDuel content reached, no slip interaction, no clicks land in any frame. Cannot measure intra-phase wasted wait because no betting phase visibly executed.", "Run aborted at ~4s — if this was a negative-EV early-exit, the EV gate is running AFTER Playwright navigates to BetMGM (browser load = ~3-4s of wasted network/render). Move the EV check before goto()."],
+        "selector_miss": ["None observed — bot never reached a state where Phase 1/2/3 selectors would be exercised; only the BetMGM page chrome paints across the 8 frames", "No FanDuel Reality Check / geo / cookie / login-expiry modal observed in any frame"],
+        "slip_state":    ["BetMGM slip area visible at bottom of frames 5–7 but no input/odds/place-bet interaction captured; slip-state unevaluable for this aborted run"],
+        "auth_geo":      ["No Reality Check / geo / identity / captcha / session-expired prompts in any frame; BetMGM header rendered cleanly (frame 7) → session still authenticated. Final frame (t=00:04) is blank white — likely tab navigation or browser teardown, not a failure modal."],
+        "stealth":       ["SEVENTH consecutive review where a negative-EV opp reached execution (arb_ev=-0.02, roi=-0.94%, $1.01/$0.77 sub-dollar paired stakes) — the roi>0 execution gate flagged across SIX prior reviews (McDaniels x2, Fox x2, Gobert x2, McDaniels) is STILL not shipped", "Same player+market (Jaden McDaniels player_assists) attempted at 21:34:20, 21:40:54, now 21:45:16 — third attempt within ~11 minutes against the same two books is a textbook cross-book correlation signal; add a same-player+market cooldown window", "Opening BetMGM (and presumably FanDuel) just to bail in 4s is itself a fingerprint — a real user never lands and leaves in 4s. If EV gate fails, don't open the sportsbook tabs at all."]
+      },
+      "top_finding": "SEVENTH consecutive run where a negative-EV opp (roi=-0.94%) reached execution despite the roi>0 gate flagged across six prior reviews — and this time the bot still opened BetMGM for ~4s before bailing, so the gate (if it ran) ran AFTER Playwright goto(). Move the EV/min-stake check before any sportsbook navigation. Until shipped, every additional run reproduces the same known bug.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214516_Jaden_McDaniels_player_assists/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214516_Jaden_McDaniels_player_assists/review.md"
+    },
+    {
+      "run_id": "20260513_214103_De'Aaron_Fox_player_threes_alternate",
+      "timestamp": "2026-05-13T21:41:03",
+      "player": "De'Aaron Fox",
+      "market": "player_threes_alternate",
+      "outcome": "failure",
+      "duration_s": 35.2,
+      "estimated_wasted_wait_s": 10,
+      "issues": {
+        "wasted_wait":   ["t=00:24 → t=00:34 — BetMGM Search overlay frozen across frames 28–40 (~10s); dark Search modal with generic accordion buckets ('Roman Doe…', 'Heroes International', 'Money Line'), no Fox player row, no clicks landing; recording cuts off at 35.2s while still stuck — true stall bounded only by the recording length; saveable ~8s with a 5s fast-fail", "t=00:08 → t=00:10 — FanDuel event page (Player Threes grid) stable across frames 9–11 (~2s) before betslip opens at frame 13; cursor not visible, page fully painted; saveable ~1.5s with wait_for_selector on the slip drawer instead of a fixed sleep", "t=00:17 → t=00:18 — Tab/window transition FanDuel→BetMGM: right monitor dark for ~1s before 'Bet Slip is empty' paints at frame 21; saveable ~0.5s"],
+        "selector_miss": ["t=00:24 → t=00:34 — BetMGM Search overlay opened but never narrowed to a Fox row; frames 28–40 show identical category accordion buckets (no De'Aaron Fox entry, no Spurs/Timberwolves event card) and no typing visible in the search input — same accordion regression flagged on the prior Fox + Gobert + McDaniels runs", "t=00:14 → t=00:15 — FanDuel briefly routes through the global Search results page (frame 15, dark 'Search' header strip + URL bar) before reaching the event page; recovered this run but same fragile Phase-1 routing as the McDaniels run that mis-navigated to Betslip", "No FanDuel Reality Check / geo / cookie / login-expiry modal observed in any frame on either site"],
+        "slip_state":    ["t=00:11 (frame 13) — FanDuel slip opens with a clean single-bet card (Fox alt threes 1.5 over, $1.87 odds at right of card); no leftover bets, no suspended badge", "t=00:18 (frame 21) — BetMGM right panel 'Bet Slip is empty' before Phase 2 starts; no carryover, Clear-All not needed this run; Phase 2 never advances to add the bet"],
+        "auth_geo":      ["No Reality Check / geo / identity / captcha / session-expired prompts on either site in any frame; FanDuel slip chrome and BetMGM 'Bet Slip is empty' card both render normally — both sessions healthy"],
+        "stealth":       ["Negative-EV opp reached Phase 2 AGAIN (arb_ev=-0.03, roi=-1.53%) — SIXTH consecutive run (McDaniels x2, Fox, Gobert x2, McDaniels, now Fox again) where a negative-EV opp made it past a gate that should be roi>0; the execution gate flagged across five prior reviews is STILL not shipped", "Same player+market (De'Aaron Fox player_threes_alternate) was attempted at 21:36:08 (failed on same BetMGM search regression) and again at 21:41:03 — retrying the exact same player+market within ~5 minutes against two books is a textbook cross-book correlation signal; add a same-player+market cooldown", "Sub-dollar paired wagers ($1.01 BetMGM / $0.91 FanDuel) on a -1.53% ROI opp is the same probe pattern flagged on every prior review", "Phase 1 cadence is fast and uniform: search → result → slip → wager → max-discovered compresses into ~17s with no visible mouse hover/idle between distant clicks — consistent sub-20s deterministic Phase 1 over many runs is a soft long-term risk-team signal"]
+      },
+      "top_finding": "SIXTH consecutive review where (a) the BetMGM Search accordion regression burned the run mid-Phase-2 (~10s dwell here, ~67s on prior runs before the recording cap) and (b) a negative-EV opp (-1.53% ROI, sub-dollar paired stakes) reached execution despite the roi>0 gate flagged on five prior reviews — ship the BetMGM Search 5s fast-fail AND the roi>0 execution gate before the next run, OR stop the bot; every additional run is now spending money to reproduce the same two known bugs.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214103_De%27Aaron_Fox_player_threes_alternate/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214103_De%27Aaron_Fox_player_threes_alternate/review.md"
+    },
+    {
+      "run_id": "20260513_214054_Jaden_McDaniels_player_assists",
+      "timestamp": "2026-05-13T21:40:54",
+      "player": "Jaden McDaniels",
+      "market": "player_assists",
+      "outcome": "failure",
+      "duration_s": 7.8,
+      "estimated_wasted_wait_s": 1,
+      "issues": {
+        "wasted_wait":   ["t=00:01 → t=00:03 — FanDuel desktop homepage fully painted at frame 3 (sports-tile carousel + '5x Lock or Win Touchdowns' promo card stable across frames 3–5), cursor not visible / no action for ~1.5s; saveable ~1.0s with wait_for_selector on the search-trigger element instead of a fixed sleep", "Total recording is only 7.8s so absolute wasted time is small — the run errored fast because the search-input wait timed out on the wrong page, not because the flow was efficient"],
+        "selector_miss": ["t=00:03 → t=00:07 — Phase 1 navigation went through THREE distinct FanDuel pages in ~4s: homepage (frame 3–5) → global Search results panel with empty result rows (frame 6–7) → unrelated single event/bet card 'Body Armor Series 9.5'-style (frame 10) → 'Betslip empty — Add selections to place bet' (frame 11–12, matches audit screenshot)", "Error `fanduel_search_input_not_found` is misleading: it's NOT a stale search-input class name — the bot clicked off-target and self-navigated onto the Betslip page, then waited for a search input that doesn't exist on that layout", "No FanDuel Reality Check / geo / cookie / login modal observed; Phase 1 modal path was clean — the failure is pure selector regression"],
+        "slip_state":    ["FanDuel betslip fully empty in frame 11–12 ('Betslip empty — Add selections to place bet'); no leftover bet, no suspended badge, clean slate", "BetMGM Phase 2 never reached"],
+        "auth_geo":      ["FanDuel account chrome shows $2,233.06 balance (unchanged from the prior Rudy Gobert review — session healthy, no debit, no top-up); no Reality Check / geo / identity / captcha / session-expired prompts observed in any frame"],
+        "stealth":       ["Bot churned across 3 distinct FanDuel pages in ~4s with zero visible mouse-hover / scroll between transitions — rapid distinct-page navigation followed by sudden abandonment is a stronger risk-team signal than the long-idle stalls flagged on prior runs", "Negative-EV opp reached execution AGAIN (arb_ev=-0.02, roi=-0.94%) — this is the FIFTH consecutive run where a negative-EV opp made it past the roi>0 gate flagged on McDaniels / Fox / Gobert player_points_rebounds / Gobert player_rebounds reviews", "Same player+market (Jaden McDaniels player_assists) is queued in three later pending-review runs (21:45, 21:47, 22:01) — repeatedly retrying the exact same player/market across 21 minutes is a textbook cross-book correlation signal; add jitter on opp selection or block re-attempting same player/market within N minutes", "Planned stakes $1.01 / $0.77 — small and non-round, fine on rounding-risk axis"]
+      },
+      "top_finding": "FanDuel Phase 1 selector regression is now actively mis-navigating — bot clicked off the homepage into the Betslip page within ~4s (frames 6–11 show three distinct page transitions ending on 'Betslip empty') and only then waited for a search input that doesn't exist on that layout, producing `fanduel_search_input_not_found`. Open Chrome → FanDuel home, inspect the actual top-bar search trigger, paste outerHTML, and replace the Phase 1 search-input selector before any further runs. Also: the roi>0 execution gate is now unshipped across FIVE consecutive reviews — ship it first or the bot just churns faster on opps it shouldn't have touched.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214054_Jaden_McDaniels_player_assists/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_214054_Jaden_McDaniels_player_assists/review.md"
+    },
+    {
+      "run_id": "20260513_213926_Rudy_Gobert_player_rebounds",
+      "timestamp": "2026-05-13T21:39:26",
+      "player": "Rudy Gobert",
+      "market": "player_rebounds",
+      "outcome": "failure",
+      "duration_s": 43.0,
+      "estimated_wasted_wait_s": 17,
+      "issues": {
+        "wasted_wait":   ["t=00:23 → t=00:39 — BetMGM player-search dropdown stable for ~16s with cursor parked in the dropdown body and no click landing (frames 22–37 visually identical); same Phase-2 search-stall pattern flagged on McDaniels / Fox / prior Gobert runs; saveable ~14s with a 5s fast-fail", "t=00:12 → t=00:17 — right viewport blank for ~5s during the FanDuel→BetMGM tab/nav transition; saveable ~1-2s with wait_for_selector on a known BetMGM shell element"],
+        "selector_miss": ["t=00:23 onward — BetMGM search dropdown shows the event card 'Minnesota Timberwolves @ San Antonio Spurs' plus a column of player results, but the bot never clicks any row; cursor is parked in the dropdown area but does not hover an individual result — Phase 2 player-row selector miss", "No FanDuel Reality Check / geo / cookie / login modal observed in this run; Phase 1 modal path was clean"],
+        "slip_state":    ["FanDuel slip clean in frame 10 and audit screenshot fanduel_betslip_opened_*.png — single 'Rudy Gobert Over 8.5 — 1.88' card, no leftover bets, no suspended badge", "BetMGM slip never opens because Phase 2 stalls in the search dropdown; no Phase-2 slip-state evidence"],
+        "auth_geo":      ["No geo / captcha / identity / session-expired prompts observed on either site; FanDuel account chrome ($2,233.06 balance visible top-right) is healthy"],
+        "stealth":       ["Phase 1 FanDuel sequence (search → result → slip → wager → place → max discovered) compresses into ~9–17s with cursor not visible / no hover-or-idle between distant clicks — constant sub-20s deterministic Phase 1 cadence is a soft risk-team signal over many runs", "Wagers from opportunity_info.json are $1.01 / $1.10 — small and non-round, so wager-rounding risk is fine", "Negative-EV opp reached Phase 2 again (arb_ev=-0.04, roi=-1.93%) — the roi>0 execution gate flagged on the prior three reviews STILL hasn't shipped"]
+      },
+      "top_finding": "BetMGM Phase 2 hung ~16s with the search dropdown open and never clicked a player result (t=00:23–00:39) — same accordion/search regression flagged on the prior three reviews; ship the BetMGM search fast-fail and the roi>0 execution gate before any more runs.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213926_Rudy_Gobert_player_rebounds/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213926_Rudy_Gobert_player_rebounds/review.md"
+    },
+    {
+      "run_id": "20260513_213748_Rudy_Gobert_player_points_rebounds",
+      "timestamp": "2026-05-13T21:37:48",
+      "player": "Rudy Gobert",
+      "market": "player_points_rebounds",
+      "outcome": "failure",
+      "duration_s": 97.0,
+      "estimated_wasted_wait_s": 32,
+      "issues": {
+        "wasted_wait":   ["t=00:24 → t=00:47 — BetMGM Search modal idle ~23s with 'Recent searches' panel visible and no typing or click landing (frames 17–29 byte-identical); same accordion/search-panel stall pattern flagged on prior McDaniels and Fox runs; saveable ~20s with the previously-recommended 5s fast-fail", "t=01:00 → t=01:16 — bot still churning on Search → 'Notifications'/help screens before the event page finally loads at t=01:16; saveable ~12s"],
+        "selector_miss": ["t=01:16 → t=01:35 — bot reaches the correct Spurs @ Timberwolves event page but lands on the default 'Player points' market tab; 'Combo stats' tab (where player_points_rebounds / Pts+Reb lives) is visible in the tab strip but never clicked; 'bet not found' is therefore a real selector regression on tab navigation, NOT a market-not-offered scenario (per the audit-screenshots-first guidance)", "t=00:24 — BetMGM navigation routed through the global Search modal instead of a direct event-URL / game-tile click; same fragile path as prior McDaniels/Fox failures"],
+        "slip_state":    ["t=00:11 — BetMGM slip carries a leftover selection ('Body Armor … 16.5 +110' style text, not Gobert 15.5) before Clear-All runs (frame 8 right panel)", "t=01:35 — slip ends 'Your bet slip is empty' confirming Clear-All eventually succeeded; failure is purely the missing Combo-stats tab click"],
+        "auth_geo":      ["BetMGM session healthy ($1,396.51 balance visible from frame 16 onward); no Reality Check / geo / captcha / identity overlays in any frame"],
+        "stealth":       ["Negative-EV execution AGAIN reached Phase 2 (arb_ev=-0.04, roi=-1.78%) — the roi>0 gate flagged in the McDaniels and Fox reviews has still not shipped; this is the third consecutive negative-EV opp the bot has attempted to place", "~23s of byte-identical UI on a Search overlay (no scroll, no abort, no backtrack) is a textbook bot dwell-time signature", "Sub-dollar planned stakes ($1.01 BetMGM / $1.05 FanDuel) on a negative-EV opp continue to look like a probe pattern", "Windows Start menu + Microsoft Store + File Explorer take focus over the browser between t=00:48 and t=00:57 — user-machine activity, not the bot, but coincides exactly with the BetMGM stall and worth a focus-guard before clicks"]
+      },
+      "top_finding": "BetMGM player_points_rebounds lives under the 'Combo stats' market tab, not the default 'Player points' tab — bot reached the right event page (audit screenshot betmgm_market_expanded_*.png confirms) but never clicked Combo stats, so 'bet not found' is a tab-navigation selector regression. Add a 'click Combo stats tab' step before the Pts+Reb / Pts+Ast / Reb+Ast row search. Also: the BetMGM Search-panel fast-fail and roi>0 execution gate flagged on the prior two reviews STILL haven't shipped — this run hit both bugs again.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213748_Rudy_Gobert_player_points_rebounds/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213748_Rudy_Gobert_player_points_rebounds/review.md"
+    },
+    {
+      "run_id": "20260513_213608_De'Aaron_Fox_player_threes_alternate",
+      "timestamp": "2026-05-13T21:36:08",
+      "player": "De'Aaron Fox",
+      "market": "player_threes_alternate",
+      "outcome": "failure",
+      "duration_s": 99.6,
+      "estimated_wasted_wait_s": 66,
+      "issues": {
+        "wasted_wait":   ["t=00:23 → t=01:30 — BetMGM Search side-panel static for ~67s; three irrelevant accordion buckets ('Roman Doe Wide Wide', 'St Lucia Hardball', 'Wisconsin'), no Fox row ever materializes; saveable ~65s with a 5s fast-fail", "t=00:13 → t=00:15 — FanDuel slip idle ~1.5s before tab switch; saveable ~1.0s"],
+        "selector_miss": ["t=00:23 — BetMGM search expansion target never appears (same accordion regression as the prior Jaden McDaniels run); selector is matching a stale/empty results panel", "t=01:30 → t=01:38 — bot lands on player-props grid with Fox visible under 'Player threes' (line 1.5) but errors as betmgm_bet_not_found; alternate-line ladder expansion fails because Fox is only listed under standard player_threes, not the alternate market"],
+        "slip_state":    ["t=00:07 — FanDuel slip clean (single Fox alternate-threes 1.5 over card)", "BetMGM 'Your bet slip is empty' card persists frames 14–60 since Phase 2 never adds a bet"],
+        "auth_geo":      ["BetMGM session healthy ($1,148.05 balance visible frame 13); no Reality Check / geo / identity / captcha modals observed"],
+        "stealth":       ["Negative-EV execution reached Phase 2 (roi=-1.53%) — same gating bug as the prior Jaden McDaniels run; sub-dollar two-sided micro-wagers ($1.01/$0.91) on negative-EV opps are a textbook probe pattern", "~67s idle on a stuck search panel with no scroll/abort/backtrack is a non-human pattern risk teams will cluster on"]
+      },
+      "top_finding": "The Jaden McDaniels review's recommended fast-fail (no player-name row within ~5s on BetMGM search → abort) was not implemented — this run wasted another ~67s on the same accordion regression and still tripped the negative-EV gate (-1.53%); ship both the BetMGM search fast-fail and the roi>0 execution gate before the next attempt.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213608_De'Aaron_Fox_player_threes_alternate/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213608_De'Aaron_Fox_player_threes_alternate/review.md"
+    },
+    {
+      "run_id": "20260513_213420_Jaden_McDaniels_player_assists",
+      "timestamp": "2026-05-13T21:34:20",
+      "player": "Jaden McDaniels",
+      "market": "player_assists",
+      "outcome": "failure",
+      "duration_s": 107.4,
+      "estimated_wasted_wait_s": 67,
+      "issues": {
+        "wasted_wait":   ["t=00:23 → t=01:30 — BetMGM Search panel completely static for ~67s, same five category buckets ('Heroes Tournaments', 'Kansas City Chiefs', 'James McCourtney', 'Missouri'), no Jaden McDaniels row; bot blocks on accordion that will never expand"],
+        "selector_miss": ["t=00:23 — BetMGM search returned generic categories instead of a player row; the accordion-expansion selector had no target, eventually fails as betmgm_accordion_expansion_failed at 21:36:06"],
+        "slip_state":    ["t=00:07 — FanDuel side panel: clean single bet card (Jaden McDaniels over 2.5 assists); BetMGM betslip never opened because Phase 2 never reached the bet-card click"],
+        "auth_geo":      ["t=00:14 — BetMGM login/email modal appears briefly (email field + 'Remember Email' toggle), gone by t=00:16; possible session-expiry early warning", "t=00:18 onward — BetMGM Reality Check / session-info card visible top-right ('Your last visit was a couple of minutes ago'); not blocking"],
+        "stealth":       ["Opportunity attempted at roi=-0.009 (negative EV) with $1.01/$0.77 micro-probe wagers; sub-dollar two-sided wagers on negative-EV opps look like a probe pattern — gate execution on roi>0", "Phase 2 abandoned slip on BetMGM after a long idle may itself be a stealth signal"]
+      },
+      "top_finding": "Add 'no player-name row within 5s' fast-fail on BetMGM search to surface accordion failures in ~5s instead of ~67s, and gate execution on roi>0 so negative-EV opps like this one (-0.9%) never reach BetMGM.",
+      "recording": "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213420_Jaden_McDaniels_player_assists/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/arbitrage_executor/audit_logs/20260513_213420_Jaden_McDaniels_player_assists/review.md"
+    },
+    {
+      "run_id": "20260513_211500_TEST_USER_player_points",
+      "timestamp": "2026-05-13T21:15:00",
+      "player": "TEST USER",
+      "market": "player_points",
+      "outcome": "skipped",
+      "duration_s": 6.0,
+      "estimated_wasted_wait_s": null,
+      "issues": {
+        "wasted_wait":   [],
+        "selector_miss": ["t=00:00 — Chrome 'Audio Choice' audio-device modal sits centered over the page for the entire clip; not a sportsbook modal (Reality Check / geo / cookie / login-expiry) so no bot dismissal logic applies"],
+        "slip_state":    [],
+        "auth_geo":      [],
+        "stealth":       []
+      },
+      "top_finding": "This is the _synthetic: true pipeline-validation recording with no real bot execution to evaluate; the five axes will produce actionable observations once a real arb run lands in audit_logs/.",
+      "recording": "file:///C:/Users/tkmer/bountygate/audit_logs/20260513_211500_TEST_USER_player_points/recording.mp4",
+      "review":    "file:///C:/Users/tkmer/bountygate/audit_logs/20260513_211500_TEST_USER_player_points/review.md"
+    }
+  ]
+}
+;
