@@ -239,6 +239,52 @@ def test_alt_sibling_if_std_missing_tolerates_whitespace_and_case():
     assert sibling == "Player rebounds + assists"
 
 
+# ---- player-row scoping (prevents cross-row mis-clicks like KAT → OG Anunoby) ----
+
+class _StubPick:
+    """Minimal pick stand-in: .evaluate(js) returns a configured value or raises."""
+
+    def __init__(self, evaluate_return=None, evaluate_raises=None):
+        self._return = evaluate_return
+        self._raises = evaluate_raises
+
+    def evaluate(self, _):
+        if self._raises is not None:
+            raise self._raises
+        return self._return
+
+
+def test_player_name_for_pick_returns_trimmed_name_when_dom_present():
+    """NBA player-prop DOM: pick lives inside .option-group-row containing
+    .player-props-player-name. Helper returns just the player name, trimmed."""
+    pick = _StubPick(evaluate_return="  Karl-Anthony Towns  ")
+    assert BetmgmBetPlacer._player_name_for_pick(pick) == "Karl-Anthony Towns"
+
+
+def test_player_name_for_pick_returns_none_when_dom_shape_missing():
+    """Non-NBA / other accordion DOM: JS returns null (no .option-group-row
+    ancestor or no .player-props-player-name child). Caller falls back to
+    walkup. Critical: must NOT return empty string — that'd pass the
+    truthy check upstream and break the fallback."""
+    assert BetmgmBetPlacer._player_name_for_pick(_StubPick(evaluate_return=None)) is None
+    assert BetmgmBetPlacer._player_name_for_pick(_StubPick(evaluate_return="")) is None
+    assert BetmgmBetPlacer._player_name_for_pick(_StubPick(evaluate_return="   ")) is None
+
+
+def test_player_name_for_pick_handles_evaluate_errors():
+    """Page navigations / detached elements raise from evaluate. Helper must
+    never propagate — caller depends on None to trigger the fallback path."""
+    pick = _StubPick(evaluate_raises=RuntimeError("page is closed"))
+    assert BetmgmBetPlacer._player_name_for_pick(pick) is None
+
+
+def test_player_name_for_pick_rejects_non_string_returns():
+    """If the JS somehow returns a dict/list (e.g. accidental return of the
+    whole element), don't coerce — return None and let the fallback run."""
+    assert BetmgmBetPlacer._player_name_for_pick(_StubPick(evaluate_return={"x": 1})) is None
+    assert BetmgmBetPlacer._player_name_for_pick(_StubPick(evaluate_return=42)) is None
+
+
 def test_find_and_click_raises_loud_on_alt_under_direction():
     """BetMGM alt-only accordions only ship a Yes pick per row — there
     is no symmetric No pick, so direction='under' on a confirmed-alt

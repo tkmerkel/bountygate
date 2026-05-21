@@ -1,7 +1,7 @@
 """BetMGM-specific bet placement implementation."""
 
 import re
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -10,8 +10,48 @@ from text_match import fuzzy_contains
 from bet_placer import BetPlacer, BetPlacerError, BetPlacerSkipError
 
 
+# Returns just the player name text from the row containing the given pick.
+# Scoped to a single .option-group-row, so it cannot include adjacent rows'
+# names — the bug fixed in PR for player-row mismatching, where the loose
+# walkup was matching wrapping containers that held the full 10-player list.
+# .player-props-player-name has the player name as its leading text node and
+# <ms-player-stats> as a child; we read only the direct text children, so
+# "Karl-Anthony Towns" comes back clean without the "Avg: 0.6" suffix.
+_PLAYER_NAME_FROM_PICK_JS = """
+(el) => {
+    const row = el.closest('.option-group-row');
+    if (!row) return null;
+    const nameEl = row.querySelector('.player-props-player-name');
+    if (!nameEl) return null;
+    let name = '';
+    for (const node of nameEl.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            name += node.textContent;
+        }
+    }
+    return name.trim();
+}
+"""
+
+
 class BetmgmBetPlacer(BetPlacer):
     """Handles bet placement on BetMGM."""
+
+    @staticmethod
+    def _player_name_for_pick(pick) -> Optional[str]:
+        """Return the player name from the ``.option-group-row`` containing
+        ``pick``, or None if the BetMGM player-row DOM shape isn't present
+        (e.g., non-NBA accordions, or DOM changed). Scoped to a single row,
+        so it cannot leak adjacent players' names — this is the primary
+        defense against the cross-row matching bug where a loose ancestor
+        walkup matched the wrapping container that held all 10 players."""
+        try:
+            name = pick.evaluate(_PLAYER_NAME_FROM_PICK_JS)
+            if not isinstance(name, str):
+                return None
+            return name.strip() or None
+        except Exception:
+            return None
 
     @staticmethod
     def _alt_sibling_if_std_missing(accordion_name: str, visible_names):
@@ -819,11 +859,14 @@ class BetmgmBetPlacer(BetPlacer):
         print(f"[BETMGM] scanning {pick_count} ms-event-pick(s) for "
               f"{target_text!r} on player {player_name!r}")
 
-        # Walk-up returns each ancestor's innerText (with a length cap so we
-        # don't pay for serializing the whole document). Python-side, we
-        # apply fuzzy_contains across the returned texts — the JS-side
-        # `.includes(player)` is character-exact and silently misses curly-
-        # vs-straight-apostrophe rows like "De'Aaron Fox".
+        # Row-scoped player match: pull the player name from the closest
+        # .option-group-row → .player-props-player-name (NBA player-prop
+        # accordions). If that DOM shape isn't present (other sports /
+        # accordion types), fall back to a TIGHTLY-bounded walkup —
+        # max_text_len=150 is tuned for one row only; the prior 600-char
+        # cap allowed the wrapping container holding the full 10-player
+        # list to slip through, which is how every pick fuzzy-matched any
+        # target player and the first direction+line match always won.
         walkup_js = """
         (el, args) => {
             const max_depth = args.max_depth;
@@ -857,21 +900,30 @@ class BetmgmBetPlacer(BetPlacer):
                     target_text_alt is None or target_text_alt not in norm
                 ):
                     continue
-                # Pull ancestor texts; fuzzy-match the player Python-side.
-                ancestor_texts = pick.evaluate(
-                    walkup_js,
-                    {"max_depth": 15, "max_text_len": 600},
-                )
-                player_found = any(
-                    fuzzy_contains(t, player_name, threshold=90)
-                    for t in ancestor_texts
-                )
-                if not player_found:
-                    continue
+
+                # Primary: row-scoped player name (NBA player-prop DOM).
+                row_player = self._player_name_for_pick(pick)
+                if row_player is not None:
+                    if not fuzzy_contains(row_player, player_name, threshold=90):
+                        continue
+                else:
+                    # Fallback for non-NBA / unknown DOM shapes.
+                    ancestor_texts = pick.evaluate(
+                        walkup_js,
+                        {"max_depth": 8, "max_text_len": 150},
+                    )
+                    player_found = any(
+                        fuzzy_contains(t, player_name, threshold=90)
+                        for t in ancestor_texts
+                    )
+                    if not player_found:
+                        continue
+
                 option_id = pick.get_attribute("data-test-option-id")
                 matched_option_id = option_id
                 matched_handle = pick
-                matched_meta = f"text={norm!r} option_id={option_id!r}"
+                row_player_meta = f" row_player={row_player!r}" if row_player else " (walkup-fallback)"
+                matched_meta = f"text={norm!r} option_id={option_id!r}{row_player_meta}"
                 break
             except Exception as e:
                 print(f"[BETMGM] pick #{i} scan error: {e}")
@@ -1001,9 +1053,8 @@ class BetmgmBetPlacer(BetPlacer):
         print(f"[BETMGM] alt-mode: scanning {pick_count} pick(s) inside "
               f"{accordion_name!r} for player {player_name!r}")
 
-        # Same walkup helper as the std path — fuzzy-match the player
-        # name against ancestor row text to absorb apostrophe variants
-        # (curly vs straight) and casing differences.
+        # Row-scoped player match (NBA player-prop DOM) with tight-walkup
+        # fallback for other shapes — see std path for the full rationale.
         walkup_js = """
         (el, args) => {
             const max_depth = args.max_depth;
@@ -1027,20 +1078,28 @@ class BetmgmBetPlacer(BetPlacer):
             try:
                 pick = all_picks.nth(i)
                 txt = (pick.text_content() or "").strip()
-                ancestor_texts = pick.evaluate(
-                    walkup_js,
-                    {"max_depth": 15, "max_text_len": 600},
-                )
-                player_found = any(
-                    fuzzy_contains(t, player_name, threshold=90)
-                    for t in ancestor_texts
-                )
-                if not player_found:
-                    continue
+
+                row_player = self._player_name_for_pick(pick)
+                if row_player is not None:
+                    if not fuzzy_contains(row_player, player_name, threshold=90):
+                        continue
+                else:
+                    ancestor_texts = pick.evaluate(
+                        walkup_js,
+                        {"max_depth": 8, "max_text_len": 150},
+                    )
+                    player_found = any(
+                        fuzzy_contains(t, player_name, threshold=90)
+                        for t in ancestor_texts
+                    )
+                    if not player_found:
+                        continue
+
                 option_id = pick.get_attribute("data-test-option-id")
                 matched_handle = pick
                 matched_option_id = option_id
-                matched_meta = f"text={txt!r} option_id={option_id!r}"
+                row_player_meta = f" row_player={row_player!r}" if row_player else " (walkup-fallback)"
+                matched_meta = f"text={txt!r} option_id={option_id!r}{row_player_meta}"
                 break
             except Exception as e:
                 print(f"[BETMGM] alt pick #{i} scan error: {e}")
