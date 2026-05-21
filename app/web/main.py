@@ -106,6 +106,79 @@ def api_account_stats():
     }
 
 
+_DEFAULT_PAR_PER_DAY = float(os.environ.get("BG_PAR_PER_DAY", "12.50"))
+
+
+@app.get("/api/pnl-history")
+def api_pnl_history(days: int = 30):
+    """30-day daily P&L for the dashboard hero chart.
+
+    Daily P&L is derived from `account_stats_history` by taking the last
+    balance recorded per (book, day) and diffing against the previous
+    day's close for the same book, then summing across books. Days where
+    no book scraped at all are absent from the result; the frontend
+    renders gaps as zero-bars.
+
+    The contract (`{par_per_day, days: [{date, pnl}]}`) matches the
+    designer's mock in `prototype/dashboard/mock.js::BG_MOCK.dailyPnl`.
+    """
+    days = max(1, min(days, 365))
+    if engine is None:
+        return {
+            "version": 1,
+            "updated_at": None,
+            "par_per_day": _DEFAULT_PAR_PER_DAY,
+            "days": [],
+        }
+    with engine.connect() as c:
+        rows = c.execute(
+            text(
+                """
+                WITH per_book_per_day AS (
+                    SELECT DISTINCT
+                        book,
+                        (scraped_at AT TIME ZONE 'America/New_York')::date AS day,
+                        LAST_VALUE(balance) OVER (
+                            PARTITION BY book, (scraped_at AT TIME ZONE 'America/New_York')::date
+                            ORDER BY scraped_at
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+                        ) AS day_close
+                    FROM account_stats_history
+                    WHERE scraped_at >= now() - make_interval(days => :days)
+                ),
+                with_delta AS (
+                    SELECT
+                        day,
+                        book,
+                        day_close - LAG(day_close) OVER (
+                            PARTITION BY book ORDER BY day
+                        ) AS delta
+                    FROM per_book_per_day
+                )
+                SELECT day, SUM(delta) AS pnl
+                FROM with_delta
+                WHERE delta IS NOT NULL
+                GROUP BY day
+                ORDER BY day
+                """
+            ),
+            {"days": days},
+        ).all()
+        latest_row = c.execute(
+            text("SELECT MAX(scraped_at) AS m FROM account_stats_history")
+        ).first()
+    latest = latest_row[0] if latest_row else None
+    return {
+        "version": 1,
+        "updated_at": latest.isoformat() if latest else None,
+        "par_per_day": _DEFAULT_PAR_PER_DAY,
+        "days": [
+            {"date": r[0].isoformat(), "pnl": float(r[1])}
+            for r in rows
+        ],
+    }
+
+
 @app.get("/api/watchers")
 def api_watchers():
     if engine is None:
