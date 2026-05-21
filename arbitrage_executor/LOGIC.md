@@ -110,6 +110,17 @@ This is the post-fix behavior. The pre-fix behavior (PR #15 era) routed std mark
 
 ---
 
+## ROI gating — two gates, two purposes
+
+There are **two** ROI filters in the pipeline. They have different roles. Don't conflate them.
+
+| Gate | Where | Default | Role |
+|---|---|---|---|
+| `BUILDER_MIN_ROI` | `airflow/dags/bg_arb_pipeline.py` → passed to `build_opportunities(min_roi=...)` in `bg_arb_pipeline_lib/builder.py:75-ish` | `0.0` | **Storage-protection floor.** Drops negative-ROI cartesian pairs before they reach `bg_arbitrage_opportunities`. Without it, ~95% of pairs (book overround eats the margin) bloat the table by ~100×. |
+| `MIN_ROI_THRESHOLD` | `arbitrage_executor/opportunity.py:55` (env-overridable) | `0.005` | **Policy gate.** What the executor will actually bet. Tune per-experiment via env var. |
+
+**Setting `MIN_ROI_THRESHOLD=-0.01` does nothing below `BUILDER_MIN_ROI`** — the executor can only filter rows the builder wrote. If you want to explore the negative-ROI tail, set `BUILDER_MIN_ROI=-0.01` (Airflow Docker env) AND `MIN_ROI_THRESHOLD=-0.01` (worker env). Be aware of the storage impact: opps and history tables both grow significantly.
+
 ## Quick cross-references
 
 - `arbitrage_executor/selectors/betmgm_markets.yaml` — the routing table. Std entries end in ` O/U`; alt entries don't and carry `has_threshold_tabs: true`.

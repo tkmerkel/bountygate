@@ -22,8 +22,24 @@ def _strip_alt_suffix(market_key: str) -> str:
     return market_key
 
 
-def build_opportunities(lines: pd.DataFrame, *, base_wager: float = 100.0) -> pd.DataFrame:
+def build_opportunities(
+    lines: pd.DataFrame,
+    *,
+    base_wager: float = 100.0,
+    min_roi: float = 0.0,
+) -> pd.DataFrame:
     """Build arb-able pairs from a per-(book, market, line, side) DataFrame.
+
+    ``min_roi`` is a **storage-protection floor**, NOT a policy gate. The
+    cartesian self-join produces ~12-20 candidate pairs per
+    (event, player, market, line) tuple, and most have negative ROI from
+    book overround. Default ``0.0`` drops those before write to keep
+    `bg_arbitrage_opportunities` and history-table cardinality sane.
+
+    The **policy gate** is the executor's ``MIN_ROI_THRESHOLD`` env var
+    (see arbitrage_executor/opportunity.py). Lower ``min_roi`` here to
+    surface near-miss arbs for analysis — but be aware of the storage
+    and query-cost impact described in arbitrage_executor/LOGIC.md.
 
     Returns a DataFrame whose columns match bg_arbitrage_opportunities.
     """
@@ -72,7 +88,13 @@ def build_opportunities(lines: pd.DataFrame, *, base_wager: float = 100.0) -> pd
     merged["arb_ev"] = merged["payout"] - base_wager
     merged["roi"] = merged["arb_ev"] / base_wager
 
-    merged = merged[merged["roi"] > 0]
+    pre_gate_n = len(merged)
+    merged = merged[merged["roi"] > min_roi]
+    post_gate_n = len(merged)
+    print(
+        f"[builder] roi-gate at {min_roi:+.4f}: "
+        f"{pre_gate_n} -> {post_gate_n} ({pre_gate_n - post_gate_n} dropped)"
+    )
     if merged.empty:
         return pd.DataFrame()
 

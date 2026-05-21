@@ -49,6 +49,13 @@ MIN_QUALIFYING_ROI = 0.005
 EXECUTABLE_BOOKS = ("fanduel", "betmgm")
 EXECUTABLE_SPORTS = ("NBA", "NHL", "NFL", "MLB")
 
+# Builder-side storage-protection floor (NOT a policy gate). Default 0.0
+# drops negative-ROI cartesian pairs before writing to keep table cardinality
+# sane. Lower (e.g. -0.01) via env var to surface near-miss arbs for
+# analysis. The policy gate is the executor's MIN_ROI_THRESHOLD. See
+# arbitrage_executor/LOGIC.md.
+BUILDER_MIN_ROI = float(os.environ.get("BUILDER_MIN_ROI", "0.0"))
+
 
 @dag(
     dag_id="bg_arb_pipeline",
@@ -85,7 +92,7 @@ def bg_arb_pipeline_dag():
         if lines is None or lines.empty:
             bulk_replace(pd.DataFrame(), OPP_TABLE)
             return 0
-        opps = build_opportunities(lines, base_wager=BASE_WAGER)
+        opps = build_opportunities(lines, base_wager=BASE_WAGER, min_roi=BUILDER_MIN_ROI)
         if opps.empty:
             print("[build] no arb-able pairs found")
             bulk_replace(pd.DataFrame(), OPP_TABLE)
