@@ -10,12 +10,18 @@ Task 13a adds ``find_and_click_bet`` (+ alt/std dispatch helpers).
 Wager/place/odds/limit-check land in Task 13b.
 """
 
+import os
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from bet_placer import BetPlacer, BetPlacerError, BetPlacerSkipError
+from bet_placer import (
+    BetPlacer,
+    BetPlacerError,
+    BetPlacerSkipError,
+    ShadowAbortError,
+)
 from human.mouse import CursorState, click as mouse_click
 from human.navigation import click_through
 from human.typing import TypingProfile, humanized_type
@@ -1217,17 +1223,348 @@ class BetmgmBetPlacer(BetPlacer):
             raise BetPlacerError(f"Failed to click BetMGM alt bet: {e}")
 
     # ------------------------------------------------------------------
-    # Task 13b surface — implemented in the next task
+    # Task 13b — wager entry, place, odds, limit
     # ------------------------------------------------------------------
 
-    def enter_wager(self, amount):
-        raise NotImplementedError("Task 13")
+    def enter_wager(self, amount: float) -> bool:
+        """Enter wager amount in the BetMGM slip via humanized typing.
 
-    def place_bet(self):
-        raise NotImplementedError("Task 13")
+        Replaces the legacy ``keyboard.type(amount_str, delay=80)`` with
+        ``humanized_type``, which emits per-character keystrokes through
+        the active ``TypingProfile`` (lognormal inter-key delays + the
+        occasional typo-and-correct). The pre-submit dwell that the
+        legacy code wrote as a 1000ms fixed wait becomes a categorized
+        ``settle(..., "pre_submit_dwell")`` so the cadence drifts daily.
+        """
+        print(f"[BETMGM] Entering wager: ${amount:.2f}")
+        try:
+            # The wager input only mounts once the slip is expanded;
+            # idempotent if it's already open.
+            self._open_betmgm_slip()
 
-    def get_actual_odds(self):
-        raise NotImplementedError("Task 13")
+            # Cascade of selectors — see legacy notes. Durable signals
+            # first (inputmode=decimal, aria-label patterns), the more
+            # brittle component-prefixed selectors next, and a text
+            # last-resort.
+            wager_selectors = [
+                'app-stake-input input',
+                'bs-stake-input input',
+                'input[inputmode="decimal"]',
+                'input[type="number"]',
+                'input[aria-label*="stake" i]',
+                'input[aria-label*="wager" i]',
+                'input[aria-label*="amount" i]',
+                'input[placeholder*="stake" i]',
+                'input[placeholder*="enter amount" i]',
+                '[data-testid*="stake" i] input',
+                'input[type="text"]',  # last-resort fallback
+            ]
 
-    def check_limit_alert(self):
-        raise NotImplementedError("Task 13")
+            # If slip-clear failed and prior bets accumulated, the slip
+            # has multiple stake inputs. Prefer the LAST visible EMPTY
+            # input (= the just-added bet); only fall back to the last
+            # filled one if every visible input is non-empty.
+            wager_input = None
+            for selector in wager_selectors:
+                try:
+                    locator = self.page.locator(selector)
+                    if locator.count() == 0:
+                        continue
+                    visible_inputs = []
+                    for i in range(locator.count()):
+                        elem = locator.nth(i)
+                        try:
+                            if not elem.is_visible():
+                                continue
+                            try:
+                                value = elem.input_value() or ""
+                            except Exception:
+                                value = ""
+                            visible_inputs.append((elem, value))
+                        except Exception:
+                            continue
+                    if not visible_inputs:
+                        continue
+                    empty_inputs = [el for el, v in visible_inputs
+                                    if not v.strip()]
+                    if empty_inputs:
+                        wager_input = empty_inputs[-1]
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(picked last empty of {len(visible_inputs)})")
+                    else:
+                        wager_input = visible_inputs[-1][0]
+                        print(f"[BETMGM] Found wager input via {selector} "
+                              f"(all {len(visible_inputs)} filled; picked last)")
+                    break
+                except Exception:
+                    continue
+
+            if wager_input is None:
+                # Diagnostic dump — what visible inputs DO exist?
+                try:
+                    inputs = self.page.locator("input")
+                    dump = []
+                    for i in range(min(inputs.count(), 12)):
+                        el = inputs.nth(i)
+                        try:
+                            if not el.is_visible():
+                                continue
+                            dump.append({
+                                "type": el.get_attribute("type"),
+                                "inputmode": el.get_attribute("inputmode"),
+                                "aria-label": el.get_attribute("aria-label"),
+                                "placeholder": el.get_attribute("placeholder"),
+                                "data-testid": el.get_attribute("data-testid"),
+                            })
+                        except Exception:
+                            continue
+                    print(f"[BETMGM] visible inputs ({len(dump)}): {dump!r}")
+                except Exception:
+                    pass
+                self._screenshot("wager_input_not_found")
+                raise BetPlacerError("Could not find BetMGM wager input")
+
+            # Focus + clear the input, then humanized-type the amount.
+            # The Angular numpad widget listens on keydown events; we
+            # must NOT use .fill() (which sets DOM value but doesn't
+            # fire keydown), or the Place Bet button will stay
+            # aria-disabled='true'.
+            mouse_click(self.page, wager_input, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
+            # Clear existing content so the new digits don't append.
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Delete")
+            settle(self.page, "micro_pause", rng=self._typing.rng)
+
+            amount_str = f"{amount:.2f}"
+            humanized_type(self.page, wager_input, amount_str,
+                           profile=self._typing)
+
+            # Blur the input so the form-state machine validates and
+            # the Place Bet button transitions disabled→enabled.
+            self.page.keyboard.press("Tab")
+            settle(self.page, "pre_submit_dwell", rng=self._typing.rng)
+
+            self._screenshot("wager_entered")
+            print(f"[BETMGM] ✓ Wager entered: ${amount:.2f}")
+            return True
+
+        except BetPlacerError:
+            raise
+        except Exception as e:
+            self._screenshot("wager_entry_failed")
+            raise BetPlacerError(f"Failed to enter wager: {e}")
+
+    def place_bet(self) -> Tuple[str, str]:
+        """Click the Place Bet button and poll for the success/failure
+        confirmation. In shadow mode (``BG_SHADOW_MODE=1``), aborts
+        BEFORE the click so a recorded run can validate the whole
+        pre-submit flow without actually placing real money.
+        """
+        print(f"[BETMGM] Placing bet...")
+        try:
+            place_btn = self.page.get_by_role(
+                "button", name=re.compile(r"Place\s+Bet", re.I)
+            )
+
+            if place_btn.count() == 0:
+                self._screenshot("place_bet_not_found")
+                raise BetPlacerError("Place Bet button not found")
+
+            # Shadow-mode short-circuit: the slip is loaded, the button
+            # is visible — we've validated the pre-submit flow end-to-end.
+            # Abort here, BEFORE the humanized click, so no real money
+            # changes hands. ShadowAbortError subclasses BetPlacerError;
+            # the worker classifies it as SKIPPED, not FAILED.
+            if os.getenv("BG_SHADOW_MODE") == "1":
+                raise ShadowAbortError(
+                    "BG_SHADOW_MODE=1: aborted before Place Bet click "
+                    "(shadow run)"
+                )
+
+            print(f"[BETMGM] Clicking Place Bet...")
+            mouse_click(self.page, place_btn.first, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "slip_update", rng=self._typing.rng)
+
+            # Poll for confirmation — accepted / alt-success / rejected.
+            # 10 attempts × slip_update settle ≈ 5s window (matches
+            # legacy 10×500ms).
+            for _ in range(10):
+                accepted_msg = self.page.get_by_text(
+                    "Your bet has been accepted"
+                )
+                if (accepted_msg.count() > 0
+                        and accepted_msg.first.is_visible()):
+                    self._screenshot("bet_placed_success")
+                    print(f"[BETMGM] ✓ Bet ACCEPTED")
+                    self._close_betslip_betmgm()
+                    return "ACCEPTED", "Your bet has been accepted"
+
+                alt_success = self.page.get_by_text(
+                    re.compile(r"Bet Placed|Wager Accepted", re.I)
+                )
+                if (alt_success.count() > 0
+                        and alt_success.first.is_visible()):
+                    self._screenshot("bet_placed_success")
+                    print(f"[BETMGM] ✓ Bet ACCEPTED")
+                    self._close_betslip_betmgm()
+                    return "ACCEPTED", "Bet placed successfully"
+
+                error_msg = self.page.get_by_text(
+                    re.compile(r"limit exceeded|Error|rejected", re.I)
+                )
+                if (error_msg.count() > 0
+                        and error_msg.first.is_visible()):
+                    msg = error_msg.first.text_content() or "Unknown error"
+                    self._screenshot("bet_rejected")
+                    print(f"[BETMGM] ✗ Bet REJECTED: {msg}")
+                    return "REJECTED", msg
+
+                settle(self.page, "slip_update", rng=self._typing.rng)
+
+            # Unknown state — neither success nor rejection observed.
+            self._screenshot("bet_status_unknown")
+            print(f"[BETMGM] ? Bet status UNKNOWN")
+            return "UNKNOWN", "Could not determine bet status"
+
+        except ShadowAbortError:
+            raise
+        except BetPlacerError:
+            raise
+        except Exception as e:
+            self._screenshot("place_bet_failed")
+            raise BetPlacerError(f"Place bet failed: {e}")
+
+    def _close_betslip_betmgm(self) -> None:
+        """Close the slip after a successful bet. Best-effort — failures
+        here are non-fatal; the next iteration's slip-clear will reset.
+        """
+        try:
+            close_selectors = [
+                'bs-linear-result-summary button',
+                '[aria-label="Close"]',
+            ]
+            for selector in close_selectors:
+                try:
+                    close_btn = self.page.locator(selector)
+                    if (close_btn.count() > 0
+                            and close_btn.first.is_visible()):
+                        print(f"[BETMGM] Closing betslip...")
+                        mouse_click(self.page, close_btn.first,
+                                    state=self._cursor,
+                                    rng=self._typing.rng)
+                        settle(self.page, "modal_dismiss",
+                               rng=self._typing.rng)
+                        print(f"[BETMGM] ✓ Betslip closed")
+                        return
+                except Exception:
+                    continue
+            print(f"[BETMGM] ⚠ Could not find close button, "
+                  f"continuing anyway...")
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error closing betslip: {e}")
+
+    def get_actual_odds(self) -> Optional[float]:
+        """Extract the decimal odds rendered in the BetMGM slip.
+
+        Pure DOM probe — no clicks, so no humanized mouse path. Selector
+        cascade and regex are preserved verbatim from the legacy
+        implementation; the regex is load-bearing for parsing prices
+        like "1.75" out of the odds span.
+        """
+        try:
+            odds_selectors = [
+                'span.odds-indicator__lite--default',
+                'span[class*="odds-indicator"]',
+                '.odds-indicator',
+            ]
+
+            for selector in odds_selectors:
+                try:
+                    odds_elem = self.page.locator(selector)
+                    if odds_elem.count() > 0:
+                        text = odds_elem.first.text_content() or ""
+                        text = text.strip()
+                        decimal_match = re.search(r'(\d+\.?\d*)', text)
+                        if decimal_match:
+                            decimal_odds = float(decimal_match.group(1))
+                            print(f"[BETMGM] Extracted odds: "
+                                  f"{decimal_odds:.3f}")
+                            return decimal_odds
+                except Exception:
+                    continue
+
+            print(f"[BETMGM] ⚠ Could not extract odds from betslip")
+            return None
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error extracting odds: {e}")
+            return None
+
+    def check_limit_alert(self) -> Tuple[bool, Optional[float]]:
+        """Detect BetMGM's "over the allowed limit" alert and parse the
+        adjusted stake.
+
+        Pure text/DOM probe — no clicks. Returns ``(True, adjusted)`` if
+        the alert fired and the adjusted stake parsed cleanly,
+        ``(True, None)`` if the alert fired but the stake couldn't be
+        parsed, ``(False, None)`` otherwise.
+
+        Regex patterns are preserved verbatim — the ``"$6.76"`` /
+        ``"6,762.50"`` shape parsing is load-bearing.
+        """
+        try:
+            alert_selectors = [
+                'p.alert-content__message',
+                '.alert-content__message',
+                'p:has-text("over the allowed limit")',
+            ]
+
+            for selector in alert_selectors:
+                try:
+                    alert_elem = self.page.locator(selector)
+                    if alert_elem.count() > 0:
+                        alert_text = alert_elem.first.text_content() or ""
+                        if "over the allowed limit" in alert_text.lower():
+                            print(f"[BETMGM] ⚠ Max limit alert detected!")
+
+                            stake_selectors = [
+                                'span.betslip-summary-value',
+                                '.betslip-summary-value',
+                            ]
+
+                            for stake_selector in stake_selectors:
+                                stake_elem = self.page.locator(
+                                    stake_selector
+                                ).first
+                                if stake_elem.count() > 0:
+                                    stake_text = (
+                                        stake_elem.text_content() or ""
+                                    )
+                                    stake_match = re.search(
+                                        r'\$?([\d,]+\.?\d*)', stake_text
+                                    )
+                                    if stake_match:
+                                        adjusted_stake = float(
+                                            stake_match.group(1)
+                                            .replace(',', '')
+                                        )
+                                        print(f"[BETMGM] Adjusted stake: "
+                                              f"${adjusted_stake:.2f}")
+                                        self._screenshot(
+                                            "limit_alert_detected"
+                                        )
+                                        return True, adjusted_stake
+
+                            print(f"[BETMGM] ⚠ Could not parse "
+                                  f"adjusted stake")
+                            self._screenshot("limit_alert_no_stake")
+                            return True, None
+                except Exception:
+                    continue
+
+            return False, None
+        except Exception as e:
+            print(f"[BETMGM] ⚠ Error checking limit alert: {e}")
+            return False, None

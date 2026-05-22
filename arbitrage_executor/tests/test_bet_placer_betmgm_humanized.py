@@ -392,3 +392,99 @@ def test_find_and_click_bet_uses_humanized_mouse_for_std_pick():
         "bypassed. find_and_click_bet must drive every bet click through "
         "human.mouse.click, never .click() on the element."
     )
+
+
+# ---------------------------------------------------------------------------
+# enter_wager — humanized typing
+# ---------------------------------------------------------------------------
+
+def test_enter_wager_uses_humanized_type():
+    """``enter_wager`` must route the stake amount through
+    ``humanized_type`` — i.e., one ``page.keyboard.type`` call per
+    character of ``f"{amount:.2f}"``, not a single bulk ``.fill()``.
+
+    This is the anti-detection guarantee for stake entry: the legacy
+    code used ``keyboard.type(amount_str, delay=80)`` which still
+    submits one Playwright call; humanized_type emits one keystroke
+    per character (so the Angular numpad widget sees individual
+    keydowns AND each char has lognormal-jittered spacing).
+    """
+    amount = 10.50
+    amount_str = f"{amount:.2f}"  # "10.50" — 5 chars
+
+    # Stake input — a single visible empty input matched by the
+    # FIRST selector in the cascade. ``humanized_type`` doesn't call
+    # ``locator.fill`` unless the input looks React-controlled (no
+    # aria-controls / role=combobox / data-testid containing "search"
+    # here), so the only signal is the per-char keyboard.type stream.
+    stake_input = _ClickableElement(visible=True, input_value="")
+
+    page = _HumanizedFakePage(locators={
+        # Slip is already open — _open_betmgm_slip's first probe finds
+        # the stake input and returns immediately.
+        'app-stake-input input': FakeLocator([stake_input]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    result = placer.enter_wager(amount)
+
+    assert result is True
+    # One keyboard.type call per character — proves humanized_type
+    # walked the string instead of a single bulk fill/type.
+    assert len(page.keyboard.types) == len(amount_str), (
+        f"Expected {len(amount_str)} keyboard.type calls (one per char of "
+        f"{amount_str!r}); got {len(page.keyboard.types)}: "
+        f"{page.keyboard.types!r}"
+    )
+    # The full amount should be reconstructible from the per-char calls.
+    # (humanized_type may inject typo-and-Backspace pairs on long text,
+    # but a 5-char numeric string is below the typo-rate threshold.)
+    assert "".join(page.keyboard.types) == amount_str, (
+        f"Per-char typing didn't reconstruct {amount_str!r}: "
+        f"got {page.keyboard.types!r}"
+    )
+    # And the stake input must have been humanized-mouse-clicked for
+    # focus before typing started — that's how _open_betmgm_slip + the
+    # explicit focus click work together.
+    assert stake_input.mouse_clicked is True, (
+        "enter_wager didn't humanized-mouse-click the stake input; the "
+        "input would not be focused and the keystrokes would miss."
+    )
+
+
+# ---------------------------------------------------------------------------
+# place_bet — shadow-mode short-circuit
+# ---------------------------------------------------------------------------
+
+def test_place_bet_short_circuits_in_shadow_mode(monkeypatch):
+    """When ``BG_SHADOW_MODE=1``, ``place_bet`` must raise
+    ``ShadowAbortError`` BEFORE the humanized click on the Place Bet
+    button — no mouse-down on the button, no money committed.
+
+    The pre-submit validations (slip ready, button visible) still run;
+    that's the whole point of shadow mode (we want to validate the
+    full pre-click flow). The short-circuit fires AT the click site.
+    """
+    monkeypatch.setenv("BG_SHADOW_MODE", "1")
+
+    place_button = _ClickableElement(visible=True, text="Place Bet")
+    page = _HumanizedFakePage(role_locators={
+        ("button", r"Place\s+Bet"): FakeLocator([place_button]),
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    with pytest.raises(ShadowAbortError, match="shadow run"):
+        placer.place_bet()
+
+    # The button must NOT have been humanized-mouse-clicked — the abort
+    # happens BEFORE the mouse_click call. If bounding_box were ever
+    # queried on this element, the click would have fired and money
+    # would have been committed in prod.
+    assert place_button.mouse_clicked is False, (
+        "Shadow-mode abort fired AFTER the humanized click — money "
+        "would have been committed in a live run."
+    )
+    assert page.mouse.events == [], (
+        f"Expected no mouse down/up events in shadow mode; got "
+        f"{page.mouse.events!r}"
+    )
