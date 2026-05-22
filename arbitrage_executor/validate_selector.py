@@ -37,6 +37,7 @@ from bet_placer import BetPlacer, BetPlacerError
 from chrome_helpers import CDP_PORT, ensure_chrome_cdp, profile_dir
 from db_connection import fetch_data
 from human.session import viewport_from_cdp
+from human.modals import ModalWatcher
 from selector_finder import SelectorManager
 
 VALID_SITES = {"fanduel", "betmgm"}
@@ -364,6 +365,14 @@ def validate_selector(
         browser = p.chromium.connect_over_cdp(endpoint_url)
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = context.new_page()
+        # Sweep Reality Check / responsible-gambling / promo modals on
+        # the main thread before each settle(). Without this a modal
+        # firing mid-validation (FD Reality Check fires every ~270 min)
+        # leaves the page blocked and the validator hangs on actionability
+        # waits. PR #32 review follow-up — flagged as a hole the
+        # production orchestrator was already plugging.
+        modal_watcher = ModalWatcher(page)
+        modal_watcher.start()
         try:
             viewport_from_cdp(page)
 
@@ -376,6 +385,7 @@ def validate_selector(
             placer.clear_betslip()
             placer.assert_betslip_empty()
         finally:
+            modal_watcher.stop()
             try:
                 page.close()
             except Exception:

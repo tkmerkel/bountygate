@@ -4,7 +4,7 @@ import random
 import pytest
 
 from human.mouse import CursorState, _bezier_path, _step_count, move_to
-from human.mouse import click, idle_jitter
+from human.mouse import click
 
 
 def test_step_count_scales_with_distance():
@@ -181,34 +181,3 @@ def test_click_includes_a_dwell_before_dispatch():
     assert len(big_waits) >= 1, "no dwell-shaped wait recorded"
 
 
-def test_idle_jitter_makes_a_few_small_moves():
-    page = FakePage()
-    state = CursorState((400.0, 300.0))
-
-    idle_jitter(page, state=state, rng=random.Random(0), duration_ms=600)
-
-    # 2-6 moves in a 600ms window (per spec).
-    assert 2 <= len(page.mouse.moves) <= 6
-    # Anchor sampling — each move is within sqrt(2)*30 ≈ 42.4px of the
-    # ORIGINAL position. Test bound 45 includes a comfortable margin
-    # without being so loose that a regression to random-walk drift
-    # would pass.
-    for (x, y) in page.mouse.moves:
-        assert math.hypot(x - 400, y - 300) < 45, (
-            f"move {(x, y)} drifted >45px from origin (400, 300)"
-        )
-
-
-def test_idle_jitter_anchor_sampling_caps_drift_across_seeds():
-    """Anchor sampling: every move is in a ±30 box around the original
-    position, regardless of seed. This is a regression test for the
-    random-walk bug where cumulative drift could exceed 100px.
-    """
-    for seed in range(50):
-        page = FakePage()
-        state = CursorState((400.0, 300.0))
-        idle_jitter(page, state=state, rng=random.Random(seed), duration_ms=600)
-        for (x, y) in page.mouse.moves:
-            assert math.hypot(x - 400, y - 300) < 45, (
-                f"seed {seed}: move {(x, y)} drifted >45px"
-            )

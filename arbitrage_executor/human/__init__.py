@@ -6,7 +6,7 @@ from human.errors import (
 )
 from human.waiting import settle, WAIT_CATEGORIES
 from human.typing import TypingProfile, humanized_type
-from human.mouse import CursorState, move_to, click, idle_jitter
+from human.mouse import CursorState, move_to, click
 from human.navigation import click_through
 from human.modals import ModalWatcher
 from human.session import (
@@ -27,7 +27,6 @@ __all__ = [
     "CursorState",
     "move_to",
     "click",
-    "idle_jitter",
     "click_through",
     "ModalWatcher",
     "warmup_browse",

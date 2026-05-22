@@ -7,6 +7,7 @@ import os
 import sys
 import hashlib
 import json
+import time
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -293,6 +294,12 @@ class ArbExecutor:
                 ensure_dashboard_tab(browser)
 
                 # === PHASE 1: Tease FanDuel Limit ===
+                # Phase 1→3 wall-clock for orphan-risk visibility. The
+                # humanized layer adds 30-100s vs legacy; if this elapsed
+                # grows past ~120s the FD-odds drift window between
+                # Phase 2 placement and Phase 3 hedge gets uncomfortably
+                # wide. Watched in `logs/execution_success.log`.
+                phase_1_start_monotonic = time.monotonic()
                 print(f"\n{'─'*60}")
                 print(f"PHASE 1: DISCOVER FANDUEL MAX WAGER")
                 print(f"{'─'*60}\n")
@@ -347,7 +354,7 @@ class ArbExecutor:
                         intra_book_idle(
                             page_fd,
                             site="fanduel",
-                            check_slip_has_bet=lambda: placer_fd._fanduel_slip_has_visible_selection(),
+                            check_slip_has_bet=placer_fd.slip_has_visible_selection,
                             current_fd_odds=fd_actual_odds or fd_price_original,
                             read_fd_odds=placer_fd.get_actual_odds,
                         )
@@ -572,6 +579,33 @@ class ArbExecutor:
                 fd_hedge_stake = calculate_hedge_stake(actual_mgm_stake, mgm_price, fd_price)
 
                 print(f"Hedge stake (calculated): ${fd_hedge_stake:.2f}\n")
+
+                # Log Phase 1→3 entry elapsed + Phase 3 entry FD odds.
+                # NEVER abort Phase 3 on drift — by here BetMGM is placed,
+                # aborting = orphan. Always hedge, even at worse odds. The
+                # logs are for visibility into the humanized-flow tax.
+                phase_1_to_3_entry_ms = int(
+                    (time.monotonic() - phase_1_start_monotonic) * 1000
+                )
+                try:
+                    phase_3_entry_fd_odds = placer_fd.get_actual_odds()
+                except Exception:
+                    phase_3_entry_fd_odds = None
+                fd_odds_drift = (
+                    phase_3_entry_fd_odds - fd_price
+                    if phase_3_entry_fd_odds is not None
+                    else None
+                )
+                drift_str = (
+                    f"drift={fd_odds_drift:+.3f}"
+                    if fd_odds_drift is not None
+                    else "drift=unknown"
+                )
+                print(
+                    f"[timing] phase_1_to_3_entry={phase_1_to_3_entry_ms}ms "
+                    f"fd_odds_phase1={fd_price:.3f} "
+                    f"fd_odds_phase3={phase_3_entry_fd_odds} {drift_str}"
+                )
 
                 try:
                     # FanDuel already has bet in slip, just update wager

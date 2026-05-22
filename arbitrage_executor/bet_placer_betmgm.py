@@ -941,10 +941,15 @@ class BetmgmBetPlacer(BetPlacer):
             )
 
         if clicked:
-            # Expand viewport for betslip interaction (matches legacy
-            # defensive resize — the wider layout makes the slip's Clear
-            # All / stake input deterministic).
-            print(f"[BETMGM] Expanding viewport to 1920x945...")
+            # Slip-phase pin: intentionally clobbers the orchestrator's
+            # per-session viewport noise from viewport_from_cdp. Below
+            # ~958px wide, BetMGM flips to a mobile-takeover slip layout
+            # where "Clear All" lives in a position the placer's
+            # selectors miss; 1920x945 is the smallest known-good
+            # desktop layout. The navigation-phase nudge applied earlier
+            # still carries most of the cross-session fingerprint
+            # variability.
+            print(f"[BETMGM] Pinning viewport to 1920x945 for slip phase...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
             settle(self.page, "micro_pause", rng=self._typing.rng)
             return True

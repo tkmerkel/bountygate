@@ -1,5 +1,5 @@
 # FANDUEL Market Selector Configuration
-# Last updated: 2026-05-15 09:14:59
+# Last updated: 2026-05-22 16:14:24
 
 player_assists:
   display_names:
@@ -10,12 +10,42 @@ player_points:
   display_names:
   - Points
   - Player Points
-  validated_at: '2026-01-22T13:22:32.409618'
+  validated_at: '2026-05-22T16:05:57.860104'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points
+    direction: over
+    player_name: Luguentz Dort
+    line: 5.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: ed2f58aeb3f63dafadb4dc5e56204a0b0af910fbbe30738824192a1aeaf1798a
+    audit_dir: audit_logs\selector_validation_20260522_160534_fanduel_player_points
+    status: passed
+    validated_at: '2026-05-22T16:05:57.860104'
 player_rebounds_assists:
   display_names:
   - Reb + Ast
   - Rebounds + Assists
-  validated_at: '2026-01-22T13:24:30.806357'
+  validated_at: '2026-05-22T16:06:25.634094'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_rebounds_assists
+    direction: over
+    player_name: Shai Gilgeous-Alexander
+    line: 11.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: b659da1c2b52d1725949d1ae0d61c8117fec94980363631042631de8d6b813a9
+    audit_dir: audit_logs\selector_validation_20260522_160558_fanduel_player_rebounds_assists
+    status: passed
+    validated_at: '2026-05-22T16:06:25.634094'
 player_rush_attempts:
   display_names:
   - Rush Attempts
@@ -23,7 +53,22 @@ player_rush_attempts:
 player_rebounds:
   display_names:
   - Rebounds
-  validated_at: '2026-01-24T16:28:33.684199'
+  validated_at: '2026-05-22T16:06:52.530262'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_rebounds
+    direction: over
+    player_name: Devin Vassell
+    line: 4.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: c7f9d9c83f02c8fdd7d9024ba68a08921ee02299b0f10e8208818532f34a2162
+    audit_dir: audit_logs\selector_validation_20260522_160627_fanduel_player_rebounds
+    status: passed
+    validated_at: '2026-05-22T16:06:52.530262'
 player_points_assists:
   display_names:
   - Pts + Ast
@@ -31,7 +76,22 @@ player_points_assists:
 player_threes:
   display_names:
   - Made Threes
-  validated_at: '2026-01-26T09:01:50.700046'
+  validated_at: '2026-05-22T16:07:19.074424'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_threes
+    direction: under
+    player_name: Chet Holmgren
+    line: 1.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: c08e87319a7b7bf0743b5e9ba5855124cbea76d0b4da947df8eecc37e161286b
+    audit_dir: audit_logs\selector_validation_20260522_160654_fanduel_player_threes
+    status: passed
+    validated_at: '2026-05-22T16:07:19.074424'
 player_blocks:
   display_names:
   - Blocks
@@ -41,7 +101,22 @@ player_points_rebounds:
   display_names:
   - Pts + Reb
   - Points + Rebounds
-  validated_at: '2026-01-26T11:44:34.684658'
+  validated_at: '2026-05-22T16:07:47.082335'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points_rebounds
+    direction: over
+    player_name: Julian Champagnie
+    line: 15.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: d571bbe4e8cfe97fbbdd4f8b26e724ed0b0dc402f6ee817f14f0b0cadc2fd202
+    audit_dir: audit_logs\selector_validation_20260522_160721_fanduel_player_points_rebounds
+    status: passed
+    validated_at: '2026-05-22T16:07:47.082335'
 batter_hits:
   display_names:
   - Hits
@@ -69,6 +144,22 @@ batter_runs:
 batter_stolen_bases:
   display_names:
   - Stolen Bases
+  validation_status: passed
+  validated_at: '2026-05-22T16:08:27.925688'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: batter_stolen_bases
+    direction: over
+    player_name: Ryan Waldschmidt
+    line: 0.5
+    home_team: Arizona Diamondbacks
+    away_team: Colorado Rockies
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: ab03acdf73b61a3f06c3604a6f292df222ae127133686308e25781e417c98ac7
+    audit_dir: audit_logs\selector_validation_20260522_160803_fanduel_batter_stolen_bases
+    status: passed
+    validated_at: '2026-05-22T16:08:27.925688'
 batter_strikeouts:
   display_names:
   - Strikeouts
@@ -100,10 +191,42 @@ player_points_alternate:
   display_names:
   - Points
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:09:08.152008'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points_alternate
+    direction: over
+    player_name: Luguentz Dort
+    line: 5.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 255e7dc7c59fd6c1a75046db6d883ea55bc6a58eab274b90abfa044d4b4b1248
+    audit_dir: audit_logs\selector_validation_20260522_160844_fanduel_player_points_alternate
+    status: passed
+    validated_at: '2026-05-22T16:09:08.152008'
 player_assists_alternate:
   display_names:
   - Assists
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:09:34.244846'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_assists_alternate
+    direction: under
+    player_name: Stephon Castle
+    line: 9.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: a2704b23439f0293634f846e4d27574a3b855bb10f92b0fd4156b5be3882069b
+    audit_dir: audit_logs\selector_validation_20260522_160908_fanduel_player_assists_alternate
+    status: passed
+    validated_at: '2026-05-22T16:09:34.244846'
 player_rebounds_alternate:
   display_names:
   - Rebounds
@@ -112,6 +235,22 @@ player_threes_alternate:
   display_names:
   - Made Threes
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:10:22.070287'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_threes_alternate
+    direction: under
+    player_name: Chet Holmgren
+    line: 1.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 3de338fd4e8b4a2be04933cb67a065efed8ba443845474cbaabd25ec39d99904
+    audit_dir: audit_logs\selector_validation_20260522_160957_fanduel_player_threes_alternate
+    status: passed
+    validated_at: '2026-05-22T16:10:22.070287'
 player_blocks_alternate:
   display_names:
   - Blocks
@@ -120,10 +259,22 @@ player_steals_alternate:
   display_names:
   - Steals
   is_alternate: true
-# Combo-stat alt markets — surfaced as unmapped during 2026-05-20
-# worker runs (Victor Wembanyama points+reb alt, Dylan Harper reb+ast
-# alt, Devin Vassell points+ast alt). Display names mirror the std
-# entries above; is_alternate routes to FanDuel's alt-line tile.
+  validation_status: passed
+  validated_at: '2026-05-22T16:10:50.877241'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_steals_alternate
+    direction: over
+    player_name: Victor Wembanyama
+    line: 1.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 63cd5b5768c077180eb8af7ca7a0c72716ddda5e2677ffc8f52040a8794d8b50
+    audit_dir: audit_logs\selector_validation_20260522_161024_fanduel_player_steals_alternate
+    status: passed
+    validated_at: '2026-05-22T16:10:50.877241'
 player_points_assists_alternate:
   display_names:
   - Pts + Ast
@@ -134,16 +285,64 @@ player_points_rebounds_alternate:
   - Pts + Reb
   - Points + Rebounds
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:11:42.406850'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points_rebounds_alternate
+    direction: under
+    player_name: Isaiah Hartenstein
+    line: 19.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 3db16af151909fc18fcb2576e63db2627195593635878fd19b999f11fe8249c3
+    audit_dir: audit_logs\selector_validation_20260522_161113_fanduel_player_points_rebounds_alternate
+    status: passed
+    validated_at: '2026-05-22T16:11:42.406850'
 player_rebounds_assists_alternate:
   display_names:
   - Reb + Ast
   - Rebounds + Assists
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:12:09.906692'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_rebounds_assists_alternate
+    direction: under
+    player_name: Isaiah Hartenstein
+    line: 14.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: bf0e73f7ef86c3cf320968819461bd2d058f64e191c486c3ac16e97a5337d28d
+    audit_dir: audit_logs\selector_validation_20260522_161143_fanduel_player_rebounds_assists_alternate
+    status: passed
+    validated_at: '2026-05-22T16:12:09.906692'
 player_points_rebounds_assists_alternate:
   display_names:
   - Pts + Reb + Ast
   - Points + Rebounds + Assists
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:12:34.993589'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points_rebounds_assists_alternate
+    direction: under
+    player_name: Devin Vassell
+    line: 19.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 6da4ac51995fef3f6ef4ef132caa011b324a22c4616d8cbc1a1a1e901683b8d2
+    audit_dir: audit_logs\selector_validation_20260522_161210_fanduel_player_points_rebounds_assists_alternate
+    status: passed
+    validated_at: '2026-05-22T16:12:34.993589'
 batter_hits_alternate:
   display_names:
   - Hits
@@ -152,10 +351,42 @@ batter_singles_alternate:
   display_names:
   - Singles
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:13:04.012441'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: batter_singles_alternate
+    direction: over
+    player_name: Owen Caissie
+    line: 0.5
+    home_team: Miami Marlins
+    away_team: New York Mets
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: da7b67031b4186e08d07984fcd89f779dcac157f7fb329f89dc722820e3c68db
+    audit_dir: audit_logs\selector_validation_20260522_161239_fanduel_batter_singles_alternate
+    status: passed
+    validated_at: '2026-05-22T16:13:04.012441'
 batter_doubles_alternate:
   display_names:
   - Doubles
   is_alternate: true
+  validation_status: passed
+  validated_at: '2026-05-22T16:13:29.727867'
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: batter_doubles_alternate
+    direction: over
+    player_name: Justin Crawford
+    line: 0.5
+    home_team: Philadelphia Phillies
+    away_team: Cleveland Guardians
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: d0fcae046cd5f84717ce6f5c9ca392394d9e21705d9f08214efce81018065a9e
+    audit_dir: audit_logs\selector_validation_20260522_161304_fanduel_batter_doubles_alternate
+    status: passed
+    validated_at: '2026-05-22T16:13:29.727867'
 batter_triples_alternate:
   display_names:
   - Triples
@@ -176,9 +407,6 @@ batter_runs_alternate:
   display_names:
   - Runs
   is_alternate: true
-# Odds API ships `batter_runs_scored_alternate` as a separate key (59
-# hits in the unmapped log). FanDuel's aria-label may say "Runs Scored"
-# or "Runs" depending on the tile; both included for fuzzy matching.
 batter_runs_scored_alternate:
   display_names:
   - Runs Scored
@@ -224,16 +452,28 @@ player_points_q1:
   - 1st Qtr Points
   - 1st Quarter Points
   - Player Points - 1st Qtr
-  validated_at: '2026-05-15T09:04:29.115194'
+  validated_at: '2026-05-22T16:14:24.065132'
+  validation_status: passed
+  validation:
+    validated_by: validate_selector.py
+    site: fanduel
+    market_key: player_points_q1
+    direction: under
+    player_name: Shai Gilgeous-Alexander
+    line: 7.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: f9290c82e3eebc6b0e0d964b50001033a311f06498b0ac0752a85a2efa8cd942
+    audit_dir: audit_logs\selector_validation_20260522_161356_fanduel_player_points_q1
+    status: passed
+    validated_at: '2026-05-22T16:14:24.065132'
 player_shots_on_goal:
   display_names:
   - 60 Min Shots on Goal
   - Shots on Goal
   - 60 Min
   validated_at: '2026-05-15T09:14:59.724833'
-# Alt-form NHL shots — surfaced as unmapped-market alert (126 hits in
-# the all-time unmapped log). Mirrors std display_names; is_alternate
-# routes to FanDuel's alt-line tile.
 player_shots_on_goal_alternate:
   display_names:
   - 60 Min Shots on Goal

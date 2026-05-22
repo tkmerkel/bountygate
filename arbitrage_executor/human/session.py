@@ -92,8 +92,13 @@ def warmup_browse(
 
 
 # Default tolerance for odds drift during idle, in decimal-odds units.
-# Override at runtime via the IDLE_DRIFT_EPSILON env var.
-_DEFAULT_DRIFT_EPSILON = 0.05
+# Override at runtime via the IDLE_DRIFT_EPSILON env var. Tightened from
+# 0.05 → 0.02 after PR #32 review — the humanized layer widens the
+# Phase 1→3 window enough that a 0.05 epsilon was permissive: we'd skip
+# the idle drift check, place BetMGM, then enter Phase 3 with FD odds
+# 4-5 cents adverse. 0.02 forces a clean SKIP earlier in the flow when
+# the price has meaningfully moved, before BetMGM gets placed.
+_DEFAULT_DRIFT_EPSILON = 0.02
 
 # Intra-book idle duration band, in milliseconds. Tighter than warmup
 # so the FD slip doesn't drain just from session timeout. The pad loop

@@ -389,7 +389,7 @@ class FanduelBetPlacer(BetPlacer):
         Used by the selector validation harness. It intentionally stops
         before wager entry or placement.
         """
-        if not self._fanduel_slip_has_visible_selection():
+        if not self.slip_has_visible_selection():
             self._screenshot("validation_slip_empty")
             raise BetPlacerError("FanDuel slip is empty after bet click")
 
@@ -451,9 +451,16 @@ class FanduelBetPlacer(BetPlacer):
             pass
         return False
 
-    def _fanduel_slip_has_visible_selection(self) -> bool:
+    def slip_has_visible_selection(self) -> bool:
         """Return True only when FanDuel exposes a concrete slip-selection
-        signal."""
+        signal.
+
+        Public method — the orchestrator calls this through
+        ``intra_book_idle``'s ``check_slip_has_bet`` lambda. Promoted
+        from ``_fanduel_slip_has_visible_selection`` after PR #32 review
+        flagged the leading-underscore-from-outside-the-class smell.
+        Underscore alias preserved below for any legacy importer.
+        """
         try:
             if self._fanduel_slip_is_empty():
                 return False
@@ -492,6 +499,12 @@ class FanduelBetPlacer(BetPlacer):
                 continue
 
         return False
+
+    # Legacy alias — kept so any out-of-tree caller importing the
+    # private name continues to work. Prefer ``slip_has_visible_selection``
+    # in new code.
+    def _fanduel_slip_has_visible_selection(self) -> bool:
+        return self.slip_has_visible_selection()
 
     # ------------------------------------------------------------------
     # Task 15 — find/click/wager/place/odds/limit
@@ -625,9 +638,14 @@ class FanduelBetPlacer(BetPlacer):
                         rng=self._typing.rng)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
-            # Expand viewport for betslip interaction (matches legacy —
-            # FD's slip controls jitter at narrower widths).
-            print(f"[FANDUEL] Expanding viewport to 1920x945...")
+            # Slip-phase pin: intentionally clobbers the orchestrator's
+            # per-session viewport noise from viewport_from_cdp. FD's
+            # slip controls (Remove all, place-bet button) jitter or
+            # misrender at narrower widths; 1920x945 is the smallest
+            # known-good size that consistently exposes them. The
+            # navigation-phase nudge applied earlier still carries
+            # most of the cross-session fingerprint variability.
+            print(f"[FANDUEL] Pinning viewport to 1920x945 for slip phase...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
             settle(self.page, "micro_pause", rng=self._typing.rng)
 

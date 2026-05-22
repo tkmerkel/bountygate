@@ -52,7 +52,12 @@ def click_through(
     try:
         loc = page.locator(link_selector)
         if loc.count() > 0 and loc.first.is_visible():
-            mouse_click(page, loc.first, state=state, rng=rng)
+            # force=True bypasses Playwright's actionability retry. The
+            # BetMGM search dropdown wraps anchors in a scrim that fails
+            # the receives-pointer-events check even when the click lands
+            # fine. Pre-fix this cost ~30s per BetMGM market before the
+            # fallback path kicked in (revalidate sweep #2, 2026-05-22).
+            mouse_click(page, loc.first, state=state, rng=rng, force=True)
             settle(page, "page_load", rng=rng)
             return True
     except Exception as e:

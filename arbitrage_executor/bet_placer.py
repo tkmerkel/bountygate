@@ -114,3 +114,14 @@ class BetPlacer(ABC):
         raise NotImplementedError(
             f"{self.site} does not support limit-alert check"
         )
+
+    def slip_has_visible_selection(self) -> bool:
+        """Return True when the slip exposes a concrete selection signal.
+
+        Used by the orchestrator's intra_book_idle to check whether the
+        slip drained during the idle window. Only the FanDuel placer
+        needs it (idle runs FD-only by design); BetMGM raises.
+        """
+        raise NotImplementedError(
+            f"{self.site} does not support slip-visible-selection probing"
+        )

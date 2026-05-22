@@ -22,7 +22,8 @@ from pathlib import Path
 # flat-layout modules: selector_finder.py, validate_selector.py, ...).
 EXECUTOR_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(EXECUTOR_DIR))
-os.chdir(EXECUTOR_DIR)
+# CWD switch deferred to main() — at import time would silently change
+# the importing process's working directory (PR #32 review follow-up).
 
 from selector_finder import SelectorManager  # noqa: E402
 from validate_selector import (  # noqa: E402
@@ -55,6 +56,11 @@ def main() -> int:
     parser.add_argument("--site", choices=["fanduel", "betmgm"], default=None)
     parser.add_argument("--testing-mode", action="store_true")
     args = parser.parse_args()
+
+    # validate_selector / selector_finder both assume cwd is the
+    # executor dir (they open relative paths like 'selectors/<site>_markets.yaml').
+    # Done here, not at import, so the side-effect lives at __main__.
+    os.chdir(EXECUTOR_DIR)
 
     pairs = _iter_markets(args.site)
     print(f"[revalidate_all] {len(pairs)} markets to probe")

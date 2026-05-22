@@ -203,6 +203,7 @@ def click(
     *,
     state: CursorState,
     rng: random.Random | None = None,
+    force: bool = False,
 ) -> None:
     """Move to ``locator`` along a humanized path, dwell, then click via
     Playwright's ``locator.click()`` so the FULL click sequence
@@ -219,6 +220,16 @@ def click(
     The pre-click humanization (Bezier path, overshoot, dwell) still
     drives the visible mouse trace any anti-bot mouse-tracker
     fingerprints on. The final click dispatch is faithful.
+
+    Args:
+        force: When True, pass ``force=True`` to ``locator.click()`` so
+            Playwright skips its actionability checks (visible,
+            stable, receives-pointer-events). Use this for clicks
+            inside overlays / dropdowns where Playwright will spin for
+            the full timeout waiting for the element to become
+            topmost — the BetMGM search dropdown wraps anchors in a
+            scrim that fails the receives-pointer-events check even
+            though the click works fine.
 
     Raises:
         ValueError: propagated from ``move_to`` when the locator has
@@ -248,44 +259,4 @@ def click(
     # natively, so we keep the lognormal variability for the dispatched
     # event sequence rather than dropping it.
     hold_ms = _sample_lognormal_ms(_HOLD_MU, _HOLD_SIGMA, rng)
-    locator.click(delay=hold_ms, no_wait_after=True)
-
-
-def idle_jitter(
-    page,
-    *,
-    state: CursorState,
-    rng: random.Random | None = None,
-    duration_ms: int = 600,
-) -> None:
-    """Drift the cursor by a few pixels over ``duration_ms``.
-
-    Mimics the small involuntary movements humans make while a page is
-    loading or while reading. Intended to be wired into long-wait
-    paths in later tasks (``intra_book_idle`` in Task 10; long
-    ``settle`` calls in Tasks 17-18).
-
-    Anchor sampling caps drift at ~42px (sqrt(2)*30) from the
-    starting position so the cursor never accidentally hovers an
-    adjacent button and triggers a tooltip.
-
-    Note: each move has a 50ms minimum; ``duration_ms`` values
-    below ~150ms will overshoot the requested duration because the
-    floor dominates.
-    """
-    rng = rng or random.Random()
-    # 2-6 small moves over the duration.
-    n_moves = rng.randint(2, 6)
-    per_move_ms = max(50, duration_ms // n_moves)
-    # Anchor sampling: every move is drawn from a box centered on the
-    # ORIGINAL position, not the previous sample. This caps cumulative
-    # drift at ~42px (the diagonal of the ±30 box) instead of letting
-    # a random walk wander far enough to hover over an adjacent button.
-    ax, ay = state.position
-    nx, ny = ax, ay
-    for _ in range(n_moves):
-        nx = ax + rng.uniform(-30, 30)
-        ny = ay + rng.uniform(-30, 30)
-        page.mouse.move(nx, ny)
-        page.wait_for_timeout(per_move_ms)
-    state.position = (nx, ny)
+    locator.click(delay=hold_ms, no_wait_after=True, force=force)

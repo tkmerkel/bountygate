@@ -1,25 +1,6 @@
 # BETMGM Market Selector Configuration
-# Last updated: 2026-05-21 (post-Mikal-Bridges std-routing fix)
-#
-# READ arbitrage_executor/LOGIC.md FIRST if you're touching this file.
-#
-# Std markets (market_key without _alternate suffix) → "Player <stat> O/U"
-#   accordion. Both Over and Under picks inside.
-# Alt markets (market_key ending _alternate)         → "Player <stat>"
-#   merged accordion + threshold tabs (5+/7+/...) + Yes-only picks.
-#
-# BetMGM ships per-event variance: some games have both accordions, others
-# only the merged-alt form. When a std opp's "Player <stat> O/U" accordion
-# isn't on the live page, the executor raises BetPlacerSkipError and the
-# task is marked SKIPPED (not FAILED). The bot does NOT fall back to the
-# alt accordion for std opps — direction='under' on a Yes-only accordion
-# has no valid pick.
+# Last updated: 2026-05-22 16:38:17
 
-# ─────────────────────────── NBA ────────────────────────────
-# Std player_* entries point at the "O/U"-suffix accordion. Alt entries
-# (below) point at the merged accordion with threshold tabs. Pre-fix
-# (PR #15) over-corrected by routing both to the merged accordion; that
-# made std×std arbs misroute and surfaced as the Mikal Bridges loud-fail.
 player_points:
   accordion_name: Player points O/U
 player_assists:
@@ -36,23 +17,28 @@ player_rebounds_assists:
   accordion_name: Player rebounds + assists O/U
 player_points_rebounds_assists:
   accordion_name: Player points + rebounds + assists O/U
-# Player blocks: still std O/U pick format on the expanded accordion
-# (no threshold tabs, only team-filter tabs which the executor leaves on
-# the default "All" selection). Accordion label currently observed without
-# "O/U" suffix — keep as-is until/unless a live walk shows otherwise.
 player_blocks:
   accordion_name: Player blocks
 player_turnovers:
   accordion_name: Player turnovers O/U
-# 1st-quarter markets still use std O/U on a non-merged accordion.
-# player_points_q1 was confirmed working in the 2026-05-20 worker run.
 player_points_q1:
   accordion_name: 'Player points: 1st quarter'
-
-# Legacy NBA _alternate entries — kept for backward compatibility with
-# upstream feeds that still emit `_alternate`-suffixed market_keys. They
-# point at the SAME accordion as the std entry above; has_threshold_tabs
-# drives the tab click.
+  validation_status: passed
+  validated_at: '2026-05-22T16:24:21.023351'
+  validation:
+    validated_by: validate_selector.py
+    site: betmgm
+    market_key: player_points_q1
+    direction: over
+    player_name: Shai Gilgeous-Alexander
+    line: 7.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: f9290c82e3eebc6b0e0d964b50001033a311f06498b0ac0752a85a2efa8cd942
+    audit_dir: audit_logs\selector_validation_20260522_162252_betmgm_player_points_q1
+    status: passed
+    validated_at: '2026-05-22T16:24:21.023351'
 player_points_alternate:
   accordion_name: Player points
   is_alternate: true
@@ -68,6 +54,22 @@ player_rebounds_alternate:
   is_alternate: true
   has_threshold_tabs: true
   tab_selector_pattern: button:has-text("{threshold}+")
+  validation_status: passed
+  validated_at: '2026-05-22T16:27:19.705605'
+  validation:
+    validated_by: validate_selector.py
+    site: betmgm
+    market_key: player_rebounds_alternate
+    direction: over
+    player_name: Isaiah Hartenstein
+    line: 12.5
+    home_team: San Antonio Spurs
+    away_team: Oklahoma City Thunder
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 8015546467d2ea59a4878e395d3a896838539e356aebe903e65a7a0993b39293
+    audit_dir: audit_logs\selector_validation_20260522_162550_betmgm_player_rebounds_alternate
+    status: passed
+    validated_at: '2026-05-22T16:27:19.705605'
 player_threes_alternate:
   accordion_name: Player three-pointers
   is_alternate: true
@@ -81,10 +83,6 @@ player_turnovers_alternate:
   is_alternate: true
   has_threshold_tabs: true
   tab_selector_pattern: button:has-text("{threshold}+")
-# Combo-alt entries — surfaced as unmapped-market alerts during the
-# 2026-05-20 worker runs. Std and alt point at the same merged
-# accordion (see comment near the std entries above); has_threshold_tabs
-# drives the threshold tab click.
 player_points_assists_alternate:
   accordion_name: Player points + assists
   is_alternate: true
@@ -105,27 +103,26 @@ player_points_rebounds_assists_alternate:
   is_alternate: true
   has_threshold_tabs: true
   tab_selector_pattern: button:has-text("{threshold}+")
-
-# ─────────────────────────── NFL ────────────────────────────
 player_receptions:
   accordion_name: Receptions made
-
-# ─────────────────────────── NHL ────────────────────────────
-# NHL kept the std O/U pick format. Just dropped "O/U" suffix from
-# accordion labels. "Player shots" replaces the never-validated
-# `player_shots_on_goal` placeholder. Note: NHL "Player points",
-# "Player assists" share accordion names with NBA — single YAML entries
-# above resolve both because the executor's threshold-tab click degrades
-# gracefully when the tab isn't found (NHL's team-filter tabs are left
-# on the default "All").
 player_shots_on_goal:
   accordion_name: Player shots
-# Alt-form NHL shots — surfaced as unmapped-market alert (126 hits in
-# the all-time unmapped log). NHL "Player shots" panel has only team-
-# filter tabs (no thresholds) per the 2026-05-20 MCP walk, so the
-# threshold-tab click degrades gracefully and the std O/U picks remain
-# matchable. Same accordion as the std entry; is_alternate kept for
-# routing transparency.
+  validation_status: passed
+  validated_at: '2026-05-22T16:33:23.141160'
+  validation:
+    validated_by: validate_selector.py
+    site: betmgm
+    market_key: player_shots_on_goal
+    direction: over
+    player_name: Nathan MacKinnon
+    line: 3.5
+    home_team: Colorado Avalanche
+    away_team: Vegas Golden Knights
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 8c0b9923541649bca01716819838075887f6c02482774728eb7fe70190e0a4b2
+    audit_dir: audit_logs\selector_validation_20260522_163157_betmgm_player_shots_on_goal
+    status: passed
+    validated_at: '2026-05-22T16:33:23.141160'
 player_shots_on_goal_alternate:
   accordion_name: Player shots
   is_alternate: true
@@ -135,14 +132,6 @@ player_power_play_points:
   accordion_name: Player power play points
 goalie_saves:
   accordion_name: Goalie saves
-# `player_goals` removed: BetMGM no longer carries a std-line Player goals
-# accordion. Goals are split into "Anytime goalscorer" (price-only Yes/No)
-# and "Player to score 2+/3+ goals" (also price-only). Upstream opps for
-# this market have no BetMGM-side line to match; executor was logging
-# "Accordion not found: 'Player goals O/U'" for every opp.
-
-# ─────────────────────────── MLB ────────────────────────────
-# Validated 2026-05-19 via MCP walk of Phillies @ Reds (PR #12).
 batter_hits:
   accordion_name: Batter hits O/U
 batter_singles:
@@ -161,6 +150,22 @@ batter_runs:
   accordion_name: Batter runs O/U
 batter_stolen_bases:
   accordion_name: Batter stolen bases O/U
+  validation_status: passed
+  validated_at: '2026-05-22T16:38:17.544790'
+  validation:
+    validated_by: validate_selector.py
+    site: betmgm
+    market_key: batter_stolen_bases
+    direction: under
+    player_name: Ryan Waldschmidt
+    line: 0.5
+    home_team: Arizona Diamondbacks
+    away_team: Colorado Rockies
+    source_table: bg_arbitrage_opportunities
+    opportunity_hash: 98681f20c1497d90da910473d1c1195003bd49a2e832b71d07b9481c743551d9
+    audit_dir: audit_logs\selector_validation_20260522_163647_betmgm_batter_stolen_bases
+    status: passed
+    validated_at: '2026-05-22T16:38:17.544790'
 batter_strikeouts:
   accordion_name: Batter strikeouts O/U
 batter_walks:
@@ -177,9 +182,6 @@ pitcher_outs:
   accordion_name: Pitcher outs O/U
 pitcher_earned_runs:
   accordion_name: Pitcher earned runs O/U
-
-# MLB alternate markets — separate accordions named just "<Stat>" (no
-# "Player"/"Batter" prefix). Use `+` threshold tabs.
 batter_hits_alternate:
   accordion_name: Hits
   tab_selector_pattern: button:has-text("{threshold}+")
@@ -220,11 +222,6 @@ batter_runs_alternate:
   tab_selector_pattern: button:has-text("{threshold}+")
   is_alternate: true
   has_threshold_tabs: true
-# Odds API ships `batter_runs_scored_alternate` as a separate key from
-# `batter_runs_alternate` (59 hits in the unmapped log) — same BetMGM
-# accordion in practice (no distinct "Runs scored" tile observed). Alias
-# to the same Runs accordion; if BetMGM later splits these, the loud
-# accordion-not-found error will tell us.
 batter_runs_scored_alternate:
   accordion_name: Runs
   tab_selector_pattern: button:has-text("{threshold}+")
