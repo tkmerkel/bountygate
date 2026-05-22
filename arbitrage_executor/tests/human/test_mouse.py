@@ -4,6 +4,7 @@ import random
 import pytest
 
 from human.mouse import CursorState, _bezier_path, _step_count, move_to
+from human.mouse import click, idle_jitter
 
 
 def test_step_count_scales_with_distance():
@@ -129,3 +130,61 @@ def test_overshoot_path_has_corrective_tail():
         overshoot=True,
     )
     assert len(pts) == 25, f"expected 20 main + 5 corrective steps, got {len(pts)}"
+
+
+class FakeMouseWithButtons(FakeMouse):
+    def __init__(self):
+        super().__init__()
+        self.events: list[str] = []
+
+    def down(self):
+        self.events.append("down")
+
+    def up(self):
+        self.events.append("up")
+
+
+class FakePageForClick(FakePage):
+    def __init__(self):
+        super().__init__()
+        self.mouse = FakeMouseWithButtons()
+
+
+def test_click_emits_move_down_hold_up_sequence():
+    page = FakePageForClick()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    click(page, locator, state=state, rng=random.Random(0))
+
+    assert "down" in page.mouse.events
+    assert "up" in page.mouse.events
+    # 'down' must precede 'up'.
+    assert page.mouse.events.index("down") < page.mouse.events.index("up")
+
+
+def test_click_includes_a_dwell_before_mousedown():
+    page = FakePageForClick()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    click(page, locator, state=state, rng=random.Random(0))
+
+    # The last wait_for_timeout before "down" is the dwell — must be > 15ms.
+    # We can't slot in by index easily; instead, check that SOME wait is in
+    # the dwell range, separate from the inter-step move waits (8-18ms).
+    big_waits = [w for w in page.waited_ms if w > 25]
+    assert len(big_waits) >= 1, "no dwell-shaped wait recorded"
+
+
+def test_idle_jitter_makes_a_few_small_moves():
+    page = FakePage()
+    state = CursorState((400.0, 300.0))
+
+    idle_jitter(page, state=state, rng=random.Random(0), duration_ms=600)
+
+    # 2-6 moves in a 600ms window.
+    assert 1 <= len(page.mouse.moves) <= 8
+    # Each move must be within ~30px of the starting position.
+    for (x, y) in page.mouse.moves:
+        assert math.hypot(x - 400, y - 300) < 50

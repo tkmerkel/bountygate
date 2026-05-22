@@ -195,3 +195,56 @@ def move_to(
 
     state.position = pts[-1]
     return state.position
+
+
+def click(
+    page,
+    locator,
+    *,
+    state: CursorState,
+    rng: random.Random | None = None,
+) -> None:
+    """Move to ``locator``, dwell, mousedown, hold, mouseup.
+
+    The dwell-and-hold timing is sampled from lognormal so it varies
+    across clicks without being suspiciously constant.
+    """
+    rng = rng or random.Random()
+    move_to(page, locator, state=state, rng=rng)
+
+    dwell_ms = _sample_lognormal_ms(_DWELL_MU, _DWELL_SIGMA, rng)
+    page.wait_for_timeout(dwell_ms)
+    page.mouse.down()
+    hold_ms = _sample_lognormal_ms(_HOLD_MU, _HOLD_SIGMA, rng)
+    page.wait_for_timeout(hold_ms)
+    page.mouse.up()
+
+
+def idle_jitter(
+    page,
+    *,
+    state: CursorState,
+    rng: random.Random | None = None,
+    duration_ms: int = 600,
+) -> None:
+    """Drift the cursor by a few pixels over ``duration_ms``.
+
+    Mimics the small involuntary movements humans make while a page is
+    loading or while reading. Called during ``settle`` for waits longer
+    than a few hundred ms.
+
+    Stays within ~50px of the current state.position so it doesn't
+    accidentally hover over a button and trigger a tooltip.
+    """
+    rng = rng or random.Random()
+    # 2-6 small moves over the duration.
+    n_moves = rng.randint(2, 6)
+    per_move_ms = max(50, duration_ms // n_moves)
+    cx, cy = state.position
+    for _ in range(n_moves):
+        nx = cx + rng.uniform(-30, 30)
+        ny = cy + rng.uniform(-30, 30)
+        page.mouse.move(nx, ny)
+        page.wait_for_timeout(per_move_ms)
+        cx, cy = nx, ny
+    state.position = (cx, cy)

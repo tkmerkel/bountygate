@@ -1,9 +1,4 @@
-"""Humanized Playwright primitives.
-
-Public API surface kept small so callers (placers, orchestrator,
-validator) import from ``human`` directly without reaching into
-submodules.
-"""
+"""Humanized Playwright primitives."""
 
 from human.errors import (
     SlipDrainedDuringIdleError,
@@ -11,7 +6,7 @@ from human.errors import (
 )
 from human.waiting import settle, WAIT_CATEGORIES
 from human.typing import TypingProfile, humanized_type
-from human.mouse import CursorState, move_to
+from human.mouse import CursorState, move_to, click, idle_jitter
 
 __all__ = [
     "SlipDrainedDuringIdleError",
@@ -22,4 +17,6 @@ __all__ = [
     "humanized_type",
     "CursorState",
     "move_to",
+    "click",
+    "idle_jitter",
 ]
