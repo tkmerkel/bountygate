@@ -1,3 +1,4 @@
+import random
 import statistics
 from datetime import date
 
@@ -89,8 +90,6 @@ def test_adjacent_typo_char_empty_string_does_not_raise():
     assert result in "abcdefghijklmnopqrstuvwxyz"
 
 
-from datetime import date
-
 from human.typing import TypingProfile, humanized_type
 
 
@@ -132,7 +131,7 @@ class FakePage:
 def test_humanized_type_writes_each_character():
     """Each intended character ends up in the keyboard log."""
     page = FakePage()
-    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile = TypingProfile(rng=random.Random(0))
     # Force should_typo to always return False by patching profile.
     profile.should_typo = lambda **kw: False  # type: ignore
 
@@ -146,7 +145,7 @@ def test_humanized_type_writes_each_character():
 def test_humanized_type_emits_typo_and_correction():
     """When typo fires, a stray char + backspace appear before the intended char."""
     page = FakePage()
-    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile = TypingProfile(rng=random.Random(0))
     # Force one typo on the 5th character (text length is 15 so >= 6).
     call_count = {"n": 0}
     def stub_typo(**kw):
@@ -163,11 +162,21 @@ def test_humanized_type_emits_typo_and_correction():
     # The character just before Backspace must be the stray 'x'.
     assert keys[backspace_idx - 1] == "x"
 
+    # Order: type(stray) → settle(micro_pause) → press(Backspace) →
+    # settle(micro_pause) → type(intended). The micro_pause band is
+    # 180-420ms; two extra waits in that band must fall AROUND the
+    # backspace event.
+    micro_pause_band = (180, 420)
+    waits_in_band = [w for w in page.waited_ms if micro_pause_band[0] <= w <= micro_pause_band[1]]
+    assert len(waits_in_band) >= 2, (
+        f"expected ≥2 micro_pause waits during typo+correction, got {waits_in_band}"
+    )
+
 
 def test_humanized_type_falls_back_to_fill_for_react_combobox():
     """When the locator has role='combobox', the helper also calls .fill() at end."""
     page = FakePage(locator_attrs={"role": "combobox"})
-    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile = TypingProfile(rng=random.Random(0))
     profile.should_typo = lambda **kw: False  # type: ignore
 
     humanized_type(page, page.locator_obj, "Anthony", profile=profile)
@@ -178,9 +187,43 @@ def test_humanized_type_falls_back_to_fill_for_react_combobox():
 def test_humanized_type_no_fill_when_locator_is_plain_input():
     """No fill fallback when the locator has no React heuristic markers."""
     page = FakePage(locator_attrs={"type": "text"})
-    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile = TypingProfile(rng=random.Random(0))
     profile.should_typo = lambda **kw: False  # type: ignore
 
     humanized_type(page, page.locator_obj, "Anthony", profile=profile)
 
     assert page.locator_obj.fills == []
+
+
+def test_humanized_type_swallows_fill_fallback_errors(capsys):
+    """A locator.fill() exception must not abort the bet flow.
+
+    Documented contract: keystroke typing already succeeded by this
+    point, so a React-fill failure is recoverable. Pins the fail-soft
+    behavior in case someone later "cleans up" the bare except.
+    """
+    class FailingLocator(FakeLocator):
+        def fill(self, value):
+            raise RuntimeError("simulated React detachment")
+
+    page = FakePage()
+    page.locator_obj = FailingLocator(attrs={"role": "combobox"})
+    profile = TypingProfile(rng=random.Random(0))
+    profile.should_typo = lambda **kw: False  # type: ignore
+
+    # Must not raise.
+    humanized_type(page, page.locator_obj, "Anthony", profile=profile)
+
+    captured = capsys.readouterr()
+    assert "React fill fallback failed" in captured.out
+
+
+def test_humanized_type_emits_pre_submit_dwell():
+    """The function must end with a pre_submit_dwell (450-950ms band)
+    so the caller doesn't need to add their own dwell before Enter."""
+    page = FakePage()
+    profile = TypingProfile(rng=random.Random(0))
+    profile.should_typo = lambda **kw: False  # type: ignore
+    humanized_type(page, page.locator_obj, "hi", profile=profile)
+    # The LAST wait_for_timeout entry must fall in the pre_submit_dwell band.
+    assert 450 <= page.waited_ms[-1] <= 950, page.waited_ms

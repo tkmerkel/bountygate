@@ -140,8 +140,11 @@ _QWERTY_NEIGHBOURS: dict[str, str] = {
 }
 
 
+# Presence (any non-empty value) signals React linkage to a popup/listbox.
 _REACT_HEURISTIC_ATTRS = ("aria-controls",)
+# Exact role match (ARIA combobox pattern).
 _REACT_HEURISTIC_ROLES = ("combobox",)
+# Case-insensitive substring match on data-testid.
 _REACT_HEURISTIC_TESTIDS = ("search",)
 
 
@@ -191,6 +194,13 @@ def humanized_type(
             ``fill()`` fallback receiver.
         text: the text to type.
         profile: optional TypingProfile. Defaults to today's profile.
+
+    Preconditions:
+        locator must already be focused. ``humanized_type`` does NOT
+        click or focus the locator — it only uses ``locator`` as the
+        React-heuristic target and the ``.fill()`` fallback receiver.
+        Caller is responsible for focusing first (typically via
+        ``human.mouse.click()`` from Task 5).
     """
     profile = profile or TypingProfile.for_today()
     text_len = len(text)
@@ -217,4 +227,7 @@ def humanized_type(
         try:
             locator.fill(text)
         except Exception as e:
-            print(f"[human.typing] React fill fallback failed: {e} (continuing)")
+            print(
+                f"[human.typing] React fill fallback failed (keystroke typing "
+                f"already completed): {e}; continuing"
+            )
