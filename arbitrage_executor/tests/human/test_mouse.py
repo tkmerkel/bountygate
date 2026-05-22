@@ -67,9 +67,13 @@ class FakePage:
 class FakeLocator:
     def __init__(self, box):
         self._box = box
+        self.click_calls: list[dict] = []
 
     def bounding_box(self):
         return self._box
+
+    def click(self, **kwargs):
+        self.click_calls.append(kwargs)
 
 
 def test_move_to_traces_path_and_updates_cursor_state():
@@ -132,50 +136,47 @@ def test_overshoot_path_has_corrective_tail():
     assert len(pts) == 25, f"expected 20 main + 5 corrective steps, got {len(pts)}"
 
 
-class FakeMouseWithButtons(FakeMouse):
-    def __init__(self):
-        super().__init__()
-        self.events: list[str] = []
-
-    def down(self):
-        self.events.append("down")
-
-    def up(self):
-        self.events.append("up")
-
-
-class FakePageForClick(FakePage):
-    def __init__(self):
-        super().__init__()
-        self.mouse = FakeMouseWithButtons()
-
-
-def test_click_emits_move_down_hold_up_sequence():
-    page = FakePageForClick()
+def test_click_moves_then_invokes_locator_click():
+    """click() must run the humanized movement first, then dispatch via
+    locator.click() so React/synthetic-event handlers actually fire."""
+    page = FakePage()
     state = CursorState()
     locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
 
     click(page, locator, state=state, rng=random.Random(0))
 
-    assert "down" in page.mouse.events
-    assert "up" in page.mouse.events
-    # 'down' must precede 'up'.
-    assert page.mouse.events.index("down") < page.mouse.events.index("up")
-    # move_to runs INSIDE click before mousedown — verify by checking
-    # FakeMouse.moves is non-empty (movement happened) before any down.
-    assert len(page.mouse.moves) > 0, "no cursor movement recorded before mousedown"
+    # Humanized cursor movement happened first.
+    assert len(page.mouse.moves) > 0, "no cursor movement recorded before click"
+    # Exactly one locator.click dispatch — the final event handoff.
+    assert len(locator.click_calls) == 1
 
 
-def test_click_includes_a_dwell_before_mousedown():
-    page = FakePageForClick()
+def test_click_passes_a_lognormal_hold_delay_to_locator_click():
+    """The mousedown→mouseup hold time is preserved as locator.click's
+    ``delay`` so the event sequence still has lognormal jitter."""
+    page = FakePage()
     state = CursorState()
     locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
 
     click(page, locator, state=state, rng=random.Random(0))
 
-    # The last wait_for_timeout before "down" is the dwell — must be > 15ms.
-    # We can't slot in by index easily; instead, check that SOME wait is in
-    # the dwell range, separate from the inter-step move waits (8-18ms).
+    kwargs = locator.click_calls[0]
+    assert "delay" in kwargs
+    # Lognormal hold should never collapse to 0; floor is 15ms.
+    assert kwargs["delay"] >= 15
+    # And shouldn't be wildly long — p95 of the lognormal is ~180ms.
+    assert kwargs["delay"] < 1000
+
+
+def test_click_includes_a_dwell_before_dispatch():
+    page = FakePage()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    click(page, locator, state=state, rng=random.Random(0))
+
+    # Some recorded wait must exceed the inter-step move floor (8-18ms)
+    # — that's the pre-click dwell.
     big_waits = [w for w in page.waited_ms if w > 25]
     assert len(big_waits) >= 1, "no dwell-shaped wait recorded"
 

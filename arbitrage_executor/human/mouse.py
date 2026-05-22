@@ -204,10 +204,21 @@ def click(
     state: CursorState,
     rng: random.Random | None = None,
 ) -> None:
-    """Move to ``locator``, dwell, mousedown, hold, mouseup.
+    """Move to ``locator`` along a humanized path, dwell, then click via
+    Playwright's ``locator.click()`` so the FULL click sequence
+    (pointerdown / mousedown / mouseup / pointerup / click) lands on
+    the element's React/synthetic-event handler.
 
-    The dwell-and-hold timing is sampled from lognormal so it varies
-    across clicks without being suspiciously constant.
+    Earlier impl ended with raw ``page.mouse.down() / page.mouse.up()``
+    at coordinates. That dispatches mousedown/mouseup but NOT the
+    pointer events that React's synthetic-event system listens for on
+    modern sportsbook UIs — the visible click happened but the React
+    onClick never fired. Symptom: FD slip stayed empty after a bet-
+    tile click; BetMGM search→event navigation never advanced.
+
+    The pre-click humanization (Bezier path, overshoot, dwell) still
+    drives the visible mouse trace any anti-bot mouse-tracker
+    fingerprints on. The final click dispatch is faithful.
 
     Raises:
         ValueError: propagated from ``move_to`` when the locator has
@@ -218,10 +229,13 @@ def click(
 
     dwell_ms = _sample_lognormal_ms(_DWELL_MU, _DWELL_SIGMA, rng)
     page.wait_for_timeout(dwell_ms)
-    page.mouse.down()
+
+    # Hold-time delay is preserved as the ``delay`` between mousedown
+    # and mouseup inside locator.click — Playwright supports this
+    # natively, so we keep the lognormal variability for the dispatched
+    # event sequence rather than dropping it.
     hold_ms = _sample_lognormal_ms(_HOLD_MU, _HOLD_SIGMA, rng)
-    page.wait_for_timeout(hold_ms)
-    page.mouse.up()
+    locator.click(delay=hold_ms, no_wait_after=True)
 
 
 def idle_jitter(

@@ -197,10 +197,11 @@ def test_lazy_clear_runs_full_dance_when_pill_reads_one():
         "Full-clear dance didn't run: Clear All was never aimed-at by "
         "human.mouse.click despite pill showing '1 Bet slip'"
     )
-    # human.mouse.click emits down + up on page.mouse — at least one of each.
-    assert "down" in page.mouse.events
-    assert "up" in page.mouse.events
-    assert page.mouse.events.index("down") < page.mouse.events.index("up")
+    # Final dispatch goes through locator.click() so the React onClick
+    # actually fires (PR #32 review fix — raw mouse.down/up didn't).
+    assert clear_all.clicked is True
+    # And the humanized cursor path was traced before the click.
+    assert len(page.mouse.moves) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -381,16 +382,17 @@ def test_find_and_click_bet_uses_humanized_mouse_for_std_pick():
     assert decoy.mouse_clicked is False, (
         "Humanized mouse aimed at the decoy row; player-row scoping is broken."
     )
-    # The down/up sequence proves the click went through human.mouse.click,
-    # not target.click() — FakeElement.click would set .clicked=True but
-    # would NOT emit page.mouse events.
-    assert "down" in page.mouse.events
-    assert "up" in page.mouse.events
-    assert page.mouse.events.index("down") < page.mouse.events.index("up")
-    assert target.clicked is False, (
-        "Target's locator.click() was invoked — humanized mouse path was "
-        "bypassed. find_and_click_bet must drive every bet click through "
-        "human.mouse.click, never .click() on the element."
+    # Humanized cursor path was traced (bezier through bounding_box samples)
+    # AND the final dispatch went via locator.click() so the React onClick
+    # actually fires. The new contract — see PR #32 review — is "humanized
+    # move + locator.click delay=hold_ms" rather than raw page.mouse.down/up.
+    assert len(page.mouse.moves) > 0, (
+        "No humanized cursor movement recorded — human.mouse.click was "
+        "not used to drive this pick."
+    )
+    assert target.clicked is True, (
+        "Target's locator.click() was never invoked — the click event "
+        "never reached the React handler and the slip will stay empty."
     )
 
 

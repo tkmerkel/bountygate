@@ -231,14 +231,15 @@ def test_lazy_clear_runs_full_dance_when_slip_has_bet():
         "Full-clear dance didn't run: clear-all was never aimed-at by "
         "human.mouse.click despite no 'Betslip empty' marker"
     )
-    # human.mouse.click emits down + up on page.mouse — at least one of each.
-    assert "down" in page.mouse.events
-    assert "up" in page.mouse.events
-    assert page.mouse.events.index("down") < page.mouse.events.index("up")
-    assert clear_all.clicked is False, (
-        "clear-all was clicked via locator.click() — humanized mouse "
-        "path was bypassed. clear_betslip must drive every remove click "
-        "through human.mouse.click, never .click() on the element."
+    # Humanized cursor path was traced AND the final dispatch went via
+    # locator.click(). PR #32 review fix — see human/mouse.py.
+    assert len(page.mouse.moves) > 0, (
+        "No humanized cursor movement recorded — human.mouse.click "
+        "was not used to drive Clear All."
+    )
+    assert clear_all.clicked is True, (
+        "Clear All's locator.click() was never invoked — the click never "
+        "reached the React handler and the slip won't actually clear."
     )
 
 
@@ -504,14 +505,14 @@ def test_find_and_click_bet_uses_humanized_mouse_fd():
         "find_and_click_bet either matched no element or used a "
         "non-humanized .click() path."
     )
-    # The down/up sequence proves the click went through human.mouse.click,
-    # not bet_button.click() — FakeElement.click would set .clicked=True
-    # but would NOT emit page.mouse events.
-    assert "down" in page.mouse.events
-    assert "up" in page.mouse.events
-    assert page.mouse.events.index("down") < page.mouse.events.index("up")
-    assert bet_button.clicked is False, (
-        "Bet button's locator.click() was invoked — humanized mouse "
-        "path was bypassed. find_and_click_bet must drive every bet "
-        "click through human.mouse.click."
+    # Humanized cursor path was traced AND final dispatch went via
+    # locator.click(). PR #32 review fix — raw mouse.down/up didn't
+    # fire FD's React onClick.
+    assert len(page.mouse.moves) > 0, (
+        "No humanized cursor movement recorded — human.mouse.click "
+        "was not used to drive this bet click."
+    )
+    assert bet_button.clicked is True, (
+        "Bet button's locator.click() was never invoked — the click "
+        "event never reached the React handler and the slip will stay empty."
     )
