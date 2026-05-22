@@ -95,6 +95,15 @@ def warmup_browse(
 # Override at runtime via the IDLE_DRIFT_EPSILON env var.
 _DEFAULT_DRIFT_EPSILON = 0.05
 
+# Intra-book idle duration band, in milliseconds. Tighter than warmup
+# so the FD slip doesn't drain just from session timeout. The pad loop
+# below settles in slip_update increments whose max single sample is
+# _IDLE_PAD_MAX_OVERSHOOT_MS; we sample the target short of the upper
+# bound by that amount so the worst-case overshoot still lands inside
+# the ceiling.
+_IDLE_UPPER_MS = 25000
+_IDLE_PAD_MAX_OVERSHOOT_MS = 1400  # max single slip_update sample
+
 
 def intra_book_idle(
     page,
@@ -144,10 +153,10 @@ def intra_book_idle(
 
     # 8-25s of FD browsing. Tighter band than warmup; we don't want
     # the slip to drain just from session timeout. We sample the target
-    # short of the upper bound by one max slip_update sample (1400ms) so
-    # the trailing pad-loop's worst-case overshoot still lands inside the
-    # 25s ceiling.
-    target_total_ms = rng.randint(8000, 25000 - 1400)
+    # short of the upper bound by one max slip_update sample so the
+    # trailing pad-loop's worst-case overshoot still lands inside the
+    # _IDLE_UPPER_MS ceiling.
+    target_total_ms = rng.randint(8000, _IDLE_UPPER_MS - _IDLE_PAD_MAX_OVERSHOOT_MS)
     # For fakes that record waits in page.waited_ms we measure elapsed
     # against that list; real Playwright Pages have no such attribute and
     # the try/except in the pad loop short-circuits to a single settle.
@@ -177,11 +186,12 @@ def intra_book_idle(
             except Exception:
                 continue
 
-    # Pad with slip_update settles (700-1400ms) until we hit the target
-    # band. Finer-grained than reading_panel so we don't overshoot the
-    # 25s ceiling — worst-case overshoot is ~1.4s on top of a 25000ms
-    # target, but the target is sampled in [8000, 25000] so practically
-    # we stay well under the upper bound.
+    # Pad with slip_update settles (700-1400ms) until we hit the target.
+    # Finer-grained than reading_panel so we don't overshoot the
+    # _IDLE_UPPER_MS ceiling — worst-case overshoot is one max slip_update
+    # sample (_IDLE_PAD_MAX_OVERSHOOT_MS) on top of a target sampled in
+    # [8000, _IDLE_UPPER_MS - _IDLE_PAD_MAX_OVERSHOOT_MS] (= 23600), so
+    # the total stays at or below _IDLE_UPPER_MS.
     while True:
         try:
             elapsed = sum(page.waited_ms) - start_waited
@@ -204,3 +214,48 @@ def intra_book_idle(
             new_odds=new_odds,
             epsilon=epsilon,
         )
+
+
+# BetMGM's right-rail desktop slip mounts above ~958px wide; below
+# that, the slip flips to a mobile takeover where "Clear All" lives
+# in a position the placer's selectors miss. 1280 is a comfortable
+# floor that also leaves room for the 80px nudge in either direction.
+MIN_VIEWPORT_WIDTH = 1280
+
+
+def viewport_from_cdp(
+    page,
+    *,
+    rng: random.Random | None = None,
+) -> tuple[int, int]:
+    """Read window.inner{Width,Height} from CDP, apply a one-time
+    ±20-80px noise nudge in each dimension, floor width at
+    MIN_VIEWPORT_WIDTH, and call ``page.set_viewport_size`` with the
+    result.
+
+    Returns (width, height) actually applied.
+
+    Replaces the legacy hardcoded ``set_viewport_size({943, 944})`` /
+    ``{1920, 1080}`` calls in execute_arb.py.
+    """
+    rng = rng or random.Random()
+    try:
+        inner_w = int(page.evaluate("window.innerWidth"))
+        inner_h = int(page.evaluate("window.innerHeight"))
+    except Exception as e:
+        print(f"[human.session] CDP viewport probe failed: {e}, using 1600x900")
+        inner_w, inner_h = 1600, 900
+
+    nudge_w = rng.randint(-80, 80)
+    nudge_h = rng.randint(-80, 80)
+    # Skip the small-nudge tail — ±20px is too close to "no nudge."
+    if abs(nudge_w) < 20:
+        nudge_w = 20 if nudge_w >= 0 else -20
+    if abs(nudge_h) < 20:
+        nudge_h = 20 if nudge_h >= 0 else -20
+
+    w = max(MIN_VIEWPORT_WIDTH, inner_w + nudge_w)
+    h = max(700, inner_h + nudge_h)
+
+    page.set_viewport_size({"width": w, "height": h})
+    return w, h

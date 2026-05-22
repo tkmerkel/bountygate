@@ -9,7 +9,13 @@ from human.typing import TypingProfile, humanized_type
 from human.mouse import CursorState, move_to, click, idle_jitter
 from human.navigation import click_through
 from human.modals import ModalWatcher
-from human.session import warmup_browse, intra_book_idle, SITE_HOMEPAGES
+from human.session import (
+    warmup_browse,
+    intra_book_idle,
+    viewport_from_cdp,
+    SITE_HOMEPAGES,
+    MIN_VIEWPORT_WIDTH,
+)
 
 __all__ = [
     "SlipDrainedDuringIdleError",
@@ -26,5 +32,7 @@ __all__ = [
     "ModalWatcher",
     "warmup_browse",
     "intra_book_idle",
+    "viewport_from_cdp",
     "SITE_HOMEPAGES",
+    "MIN_VIEWPORT_WIDTH",
 ]

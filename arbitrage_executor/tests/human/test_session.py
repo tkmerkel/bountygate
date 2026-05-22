@@ -174,3 +174,41 @@ def test_intra_book_idle_tolerates_small_drift():
         rng=random.Random(0),
         epsilon=0.05,
     )  # no raise
+
+
+from human.session import viewport_from_cdp, MIN_VIEWPORT_WIDTH
+
+
+class FakePageWithViewport(FakePage):
+    def __init__(self, inner_w=1920, inner_h=1080):
+        super().__init__()
+        self.inner_w = inner_w
+        self.inner_h = inner_h
+        self.set_viewport_calls = []
+
+    def evaluate(self, expr, *args, **kw):
+        if "innerWidth" in expr:
+            return self.inner_w
+        if "innerHeight" in expr:
+            return self.inner_h
+        return super().evaluate(expr, *args, **kw)
+
+    def set_viewport_size(self, size):
+        self.set_viewport_calls.append(size)
+
+
+def test_viewport_reads_from_cdp_and_applies_nudge():
+    page = FakePageWithViewport(inner_w=1920, inner_h=1080)
+    w, h = viewport_from_cdp(page, rng=random.Random(0))
+    # Width within [1920-80, 1920+80].
+    assert 1840 <= w <= 2000
+    assert 1000 <= h <= 1160
+    # set_viewport_size called once with the nudged size.
+    assert len(page.set_viewport_calls) == 1
+
+
+def test_viewport_floors_width_at_betmgm_breakpoint():
+    """If CDP reports a narrow window, floor at 1280 to dodge mobile-slip layout."""
+    page = FakePageWithViewport(inner_w=1100, inner_h=720)
+    w, h = viewport_from_cdp(page, rng=random.Random(0))
+    assert w >= MIN_VIEWPORT_WIDTH == 1280
