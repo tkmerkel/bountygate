@@ -71,5 +71,14 @@ def settle(
         ms = int(r.uniform(lo, hi))
     else:
         ms = (lo + hi) // 2
+    # Opportunistic modal dismiss on the main thread, BEFORE the wait.
+    # Lazy import avoids a hard dependency cycle and keeps settle()
+    # importable in tests that don't touch modals. Any failure inside
+    # check_all_active is swallowed (it logs); never blocks a settle.
+    try:
+        from human.modals import check_all_active
+        check_all_active()
+    except Exception:
+        pass
     page.wait_for_timeout(ms)
     return ms

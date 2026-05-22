@@ -30,18 +30,16 @@ class BetPlacerSkipError(BetPlacerError):
     pass
 
 
-class ShadowAbortError(BetPlacerError):
+class ShadowAbortError(BetPlacerSkipError):
     """Raised by ``place_bet`` when ``BG_SHADOW_MODE=1`` — aborts the live
     click so a recorded shadow run can validate the entire flow up to
-    (but not including) the actual bet submission. Used by the Task 21
-    validation gate: a shadow run drives the bot through navigate →
-    find/click → enter wager → assert slip, but stops short of
-    submitting real money.
+    (but not including) the actual bet submission.
 
-    Subclasses ``BetPlacerError`` so existing ``except BetPlacerError``
-    blocks keep catching it; callers that specifically need to
-    distinguish a shadow abort from a genuine placement failure should
-    catch ``ShadowAbortError`` first.
+    Subclasses ``BetPlacerSkipError`` (not the base ``BetPlacerError``)
+    so the orchestrator's per-opp loop and the task worker classify
+    shadow aborts as SKIPPED, NOT FAILED. Without this, a clean shadow
+    validation run reports as N consecutive failures and trips the
+    worker's circuit breaker mid-validation.
     """
     pass
 

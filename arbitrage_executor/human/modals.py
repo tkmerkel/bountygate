@@ -1,32 +1,35 @@
-"""Background modal watcher.
+"""Opportunistic modal dismisser.
 
 Sportsbook UIs interrupt with modals at unpredictable times:
   - FanDuel "Reality Check" every ~270 minutes of session activity
   - BetMGM responsible-gambling popups
   - Promotional overlays at first visit
 
-The legacy approach was to call ``_dismiss_*_modal()`` at the top of
-every navigation. That:
-  - runs even when there's no modal (no-op cost)
-  - misses modals that fire between navigations
-  - is duplicated across both placers
+Earlier design: a background thread polled each tab at 800-1500ms and
+clicked dismiss buttons opportunistically. That violated Playwright's
+sync API thread-affinity rule — calling ``page.locator()`` from a
+non-creator thread races the main thread's CDP transport. Symptom:
+intermittent ``greenlet.error`` or silently misrouted CDP responses
+under load.
 
-A background watcher polls each tab at a random cadence (800-1500ms)
-and dismisses modals opportunistically. One watcher per tab, started
-when the tab opens, stopped when it closes.
+Current design: ``ModalWatcher.start()`` registers the watcher in a
+module-level set; ``settle()`` (in ``human/waiting.py``) walks the
+registered watchers on the MAIN THREAD before each wait and calls
+``check_once()`` on each. No background thread; all Playwright calls
+happen on the thread that created the page. Public surface — start /
+stop / context manager / is_running — is preserved so call sites in
+``execute_arb.py`` don't need to change.
 
-Threading note: the watcher uses its own ``random.Random`` instance
-(the module-level ``random`` is not thread-safe). The Playwright sync
-API is also not thread-safe across calls, but read-only ``count`` /
-``is_visible`` probes are safe enough in practice — we only mutate
-the page (click) when we see a modal, and at that point the main
-thread is almost always blocked on a wait.
+Trade-off: modals that fire DURING a long Playwright op (e.g. a 10s
+``wait_for_selector``) are no longer dismissed mid-flight. They get
+caught at the next ``settle()`` call instead, which is typically a few
+hundred ms to a couple seconds later. In practice the bot calls
+``settle()`` at every flow boundary, so the latency penalty is small
+and bounded — and we lose zero hedging windows because the main
+thread, not a racing watcher, drives every page interaction.
 """
 
-import random
-import threading
-import time
-from typing import Optional
+import weakref
 
 
 # Selectors that match the modals we see most often. Order is
@@ -39,38 +42,47 @@ _MODAL_SELECTORS = (
 )
 
 
+# WeakSet so an un-stopped watcher doesn't keep its page alive after
+# Playwright closes the context. Iteration is main-thread-only — the
+# whole point of this refactor — so no lock is required.
+_active_watchers: "weakref.WeakSet[ModalWatcher]" = weakref.WeakSet()
+
+
 class ModalWatcher:
-    """Background-thread modal dismisser. Construct, ``start()``,
-    later ``stop()``. Or use as a context manager.
+    """Main-thread modal dismisser. Construct, ``start()``, later
+    ``stop()``. Or use as a context manager.
+
+    No background thread — ``settle()`` calls ``check_once()`` on every
+    active watcher before each wait.
 
     Args:
         page: Playwright Page (or test fake).
-        poll_range_ms: (min, max) for the random poll interval.
+        poll_range_ms: Kept for backward compatibility but unused. The
+            polling cadence is now whatever ``settle()`` natural cadence
+            is across the bot flow.
     """
 
     def __init__(self, page, *, poll_range_ms: tuple[int, int] = (800, 1500)):
         self._page = page
-        self._poll_lo, self._poll_hi = poll_range_ms
-        self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        # Thread-local RNG — random module is not thread-safe.
-        self._rng = random.Random()
+        # poll_range_ms is retained for call-site compatibility but the
+        # background thread it controlled is gone.
+        self._poll_range_ms = poll_range_ms
+        self._active = False
 
     def start(self) -> None:
-        if self._thread is not None:
+        if self._active:
             return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        self._active = True
+        _active_watchers.add(self)
 
     def stop(self) -> None:
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-            self._thread = None
+        if not self._active:
+            return
+        self._active = False
+        _active_watchers.discard(self)
 
     def is_running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        return self._active
 
     def __enter__(self):
         self.start()
@@ -80,22 +92,12 @@ class ModalWatcher:
         self.stop()
         return False
 
-    def _run(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                self._maybe_dismiss_once()
-            except Exception as e:
-                # NEVER let the watcher take down the main flow.
-                print(f"[human.modals] watcher tick error (ignored): {e}")
-            sleep_ms = self._rng.randint(self._poll_lo, self._poll_hi)
-            # Sleep in 50ms slices so stop() doesn't take 1.5s to land.
-            slept = 0
-            while slept < sleep_ms and not self._stop_event.is_set():
-                step = min(50, sleep_ms - slept)
-                time.sleep(step / 1000.0)
-                slept += step
-
-    def _maybe_dismiss_once(self) -> None:
+    def check_once(self) -> bool:
+        """Look for any known modal on this page; if visible, click its
+        first button. Returns True if a dismiss click fired, False
+        otherwise. Never raises — modal dismissal must NEVER take down
+        the main flow.
+        """
         for sel in _MODAL_SELECTORS:
             try:
                 modal = self._page.locator(sel)
@@ -107,6 +109,31 @@ class ModalWatcher:
                 if buttons.count() > 0:
                     print(f"[human.modals] dismissing modal via {sel}")
                     buttons.first.click()
-                    return
-            except Exception:
+                    return True
+            except Exception as e:
+                print(f"[human.modals] dismiss attempt error (ignored): {e}")
                 continue
+        return False
+
+
+def check_all_active() -> int:
+    """Call ``check_once()`` on every active watcher. Returns the
+    number of modals dismissed in this sweep.
+
+    Called by ``settle()`` before each wait. Main-thread only.
+    """
+    dismissed = 0
+    # Snapshot to a list — a dismiss-and-stop pattern in a watcher
+    # would otherwise mutate the WeakSet mid-iteration.
+    for watcher in list(_active_watchers):
+        try:
+            if watcher.check_once():
+                dismissed += 1
+        except Exception as e:
+            print(f"[human.modals] watcher tick error (ignored): {e}")
+    return dismissed
+
+
+def _active_watcher_count() -> int:
+    """Test helper — number of currently registered watchers."""
+    return len(_active_watchers)

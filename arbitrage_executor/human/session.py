@@ -157,10 +157,13 @@ def intra_book_idle(
     # trailing pad-loop's worst-case overshoot still lands inside the
     # _IDLE_UPPER_MS ceiling.
     target_total_ms = rng.randint(8000, _IDLE_UPPER_MS - _IDLE_PAD_MAX_OVERSHOOT_MS)
-    # For fakes that record waits in page.waited_ms we measure elapsed
-    # against that list; real Playwright Pages have no such attribute and
-    # the try/except in the pad loop short-circuits to a single settle.
-    start_waited = sum(getattr(page, "waited_ms", []))
+    # Accumulate the actual ms ``settle`` claims to have waited. Works
+    # equally on real Playwright Pages and on test fakes — both honor
+    # the same wait_for_timeout(ms) contract that ``settle`` returns.
+    # (Earlier impl read page.waited_ms, which existed only on the
+    # FakePage and silently no-op'd the pad loop in prod, capping idle
+    # at ~5-12s instead of the documented 8-25s.)
+    elapsed_ms = 0
 
     # 1-2 scrolls + a reading settle per scroll.
     n_scrolls = rng.randint(1, 2)
@@ -169,7 +172,7 @@ def intra_book_idle(
             page.evaluate(f"window.scrollBy(0, {rng.randint(150, 600)})")
         except Exception as e:
             print(f"[human.session] idle scroll failed: {e} (continuing)")
-        settle(page, "reading_panel", rng=rng)
+        elapsed_ms += settle(page, "reading_panel", rng=rng)
 
     # 40% chance to hover an adjacent prop tile (no click).
     if rng.random() < 0.40:
@@ -181,7 +184,7 @@ def intra_book_idle(
                 loc = page.locator(sel)
                 if loc.count() > 0 and loc.first.is_visible():
                     move_to(page, loc.first, state=state, rng=rng)
-                    settle(page, "reading_panel", rng=rng)
+                    elapsed_ms += settle(page, "reading_panel", rng=rng)
                     break
             except Exception:
                 continue
@@ -192,14 +195,8 @@ def intra_book_idle(
     # sample (_IDLE_PAD_MAX_OVERSHOOT_MS) on top of a target sampled in
     # [8000, _IDLE_UPPER_MS - _IDLE_PAD_MAX_OVERSHOOT_MS] (= 23600), so
     # the total stays at or below _IDLE_UPPER_MS.
-    while True:
-        try:
-            elapsed = sum(page.waited_ms) - start_waited
-        except Exception:
-            elapsed = target_total_ms  # real Page — break out
-        if elapsed >= target_total_ms:
-            break
-        settle(page, "slip_update", rng=rng)
+    while elapsed_ms < target_total_ms:
+        elapsed_ms += settle(page, "slip_update", rng=rng)
 
     # --- Post-idle guards ---
     if not check_slip_has_bet():
