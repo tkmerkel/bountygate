@@ -214,6 +214,30 @@ class _AccordionButton(_ClickableElement):
         super().__init__(text=label, **kwargs)
 
 
+class _PickElement(_ClickableElement):
+    """An ``ms-event-pick`` test double.
+
+    Combines bounding_box (needed by ``human.mouse.click``) with a
+    row-player ``evaluate`` response. ``find_and_click_bet`` calls
+    ``pick.evaluate(_PLAYER_NAME_FROM_PICK_JS)`` to read the player
+    name from the closest ``.option-group-row``; we just return the
+    configured name regardless of the JS string passed in.
+    """
+
+    def __init__(self, *, row_player=None, **kwargs):
+        super().__init__(**kwargs)
+        self._row_player = row_player
+
+    def evaluate(self, *args, **kwargs):
+        # The placer calls evaluate(_PLAYER_NAME_FROM_PICK_JS) — return
+        # the row_player. For the walkup-fallback JS call (when
+        # row_player is None), return an empty list so the iterator
+        # in the fallback path runs zero matches.
+        if self._row_player is None:
+            return []
+        return self._row_player
+
+
 def test_navigate_skips_with_skip_error_when_only_alt_visible(monkeypatch):
     """When the std ``Player rebounds + assists O/U`` accordion isn't on
     the page but the merged-alt ``Player rebounds + assists`` IS, the
@@ -286,3 +310,85 @@ def test_navigate_skips_with_skip_error_when_only_alt_visible(monkeypatch):
 
     with pytest.raises(BetPlacerSkipError, match="merged-alt accordion"):
         placer.navigate_and_expand_market(opp, market_config, direction="under")
+
+
+# ---------------------------------------------------------------------------
+# find_and_click_bet — humanized mouse path
+# ---------------------------------------------------------------------------
+
+def test_find_and_click_bet_uses_humanized_mouse_for_std_pick():
+    """The std-O/U pick click must go through ``human.mouse.click`` — i.e.,
+    aim at the pick's bounding box and emit down/up events on
+    ``page.mouse``, NOT call ``locator.click()`` directly.
+
+    This is the core anti-detection guarantee for Task 13: every bet
+    button click on BetMGM is driven by a Bezier-path mouse move + a
+    lognormal-jittered press hold, not a Playwright teleport-and-click.
+    """
+    player = "LeBron James"
+    line = 25.5
+    accordion_name = "Player points"
+
+    # Decoy pick: matches the line text but for a different player; the
+    # placer's player-row scoping must reject this row and keep scanning.
+    decoy = _PickElement(
+        visible=True,
+        text="O 25.5 1.92",
+        row_player="Anthony Davis",
+        attributes={"data-test-option-id": "decoy-id"},
+    )
+    # Target pick: matches the line AND the player; this is the row we
+    # expect humanized-mouse-clicked.
+    target = _PickElement(
+        visible=True,
+        text="O 25.5 1.92",
+        row_player=player,
+        # No option_id → the placer takes the direct-handle click branch
+        # rather than re-locating by selector, which exercises the
+        # straight ``mouse_click(self.page, matched_handle, ...)`` path.
+        attributes={},
+    )
+    pick_locator = FakeLocator([decoy, target])
+
+    page = _HumanizedFakePage(locators={
+        "ms-event-pick": pick_locator,
+    })
+    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
+
+    opp = {
+        "player_name": player,
+        "over_line": line,
+        "under_line": line,
+    }
+    market_config = {
+        "accordion_name": accordion_name,
+        # Default std path — no has_threshold_tabs / is_alternate, so
+        # the placer skips _detect_pick_format and goes straight to
+        # _click_betmgm_pick_for_player.
+        "is_alternate": False,
+    }
+
+    result = placer.find_and_click_bet(opp, "over", market_config)
+
+    assert result is True
+    # human.mouse.click reads the locator's bounding_box; the target's
+    # bounding_box_calls counter is the proof that the placer aimed
+    # the humanized mouse at the right element (not at the decoy).
+    assert target.mouse_clicked is True, (
+        "Humanized mouse never aimed at the target pick — find_and_click_bet "
+        "either matched the wrong row or used a non-humanized .click() path."
+    )
+    assert decoy.mouse_clicked is False, (
+        "Humanized mouse aimed at the decoy row; player-row scoping is broken."
+    )
+    # The down/up sequence proves the click went through human.mouse.click,
+    # not target.click() — FakeElement.click would set .clicked=True but
+    # would NOT emit page.mouse events.
+    assert "down" in page.mouse.events
+    assert "up" in page.mouse.events
+    assert page.mouse.events.index("down") < page.mouse.events.index("up")
+    assert target.clicked is False, (
+        "Target's locator.click() was invoked — humanized mouse path was "
+        "bypassed. find_and_click_bet must drive every bet click through "
+        "human.mouse.click, never .click() on the element."
+    )
