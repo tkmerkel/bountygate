@@ -61,33 +61,13 @@ def test_clear_slip_fast_path_when_already_empty(capsys):
     assert "Slip already empty." in captured.out
 
 
-def test_clear_slip_via_remove_all_button():
-    clear_all = FakeElement(visible=True)
-    page = FakePage(locators={
-        'div[role="button"]:has-text("Remove all selections")':
-            FakeLocator([clear_all]),
-    })
-    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-
-    placer._clear_betslip_fanduel()
-
-    assert clear_all.clicked
-
-
-def test_clear_slip_post_clear_verification_raises_when_remove_button_remains():
-    clear_all = FakeElement(visible=True)
-    leftover_remove = FakeElement(visible=True)
-    page = FakePage(locators={
-        'div[role="button"]:has-text("Remove all selections")':
-            FakeLocator([clear_all]),
-        'button[aria-label*="remove" i]': FakeLocator([leftover_remove]),
-    })
-    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-
-    with pytest.raises(BetPlacerError, match="FanDuel slip-clear failed"):
-        placer._clear_betslip_fanduel()
-
-    assert clear_all.clicked
+# The Remove-all-selections click flow and post-clear verification raise
+# are both covered by the humanized tests
+# (``test_lazy_clear_runs_full_dance_when_slip_has_bet`` in
+# tests/test_bet_placer_fanduel_humanized.py) against the new public
+# ``clear_betslip`` surface — the legacy click went through
+# ``locator.click()`` which the rewrite replaced with ``mouse_click``,
+# so the old ``.clicked`` signal no longer fires.
 
 
 # ---- B4: slip-inspection tests ----
@@ -222,37 +202,14 @@ def test_place_bet_raises_when_button_not_found():
         placer._place_bet_fanduel()
 
 
-def test_place_bet_returns_accepted_on_success_text():
-    button = FakeElement(visible=True)
-    success_marker = FakeElement(visible=True, text="Bet placed")
-    page = FakePage(
-        role_locators={
-            ("button", r"Place\s*\$[\d.]+\s*bet"): FakeLocator([button]),
-        },
-        text_locators={
-            "Bet placed": FakeLocator([success_marker]),
-        },
-    )
-    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-
-    status, message = placer._place_bet_fanduel()
-
-    assert status == "ACCEPTED"
-    assert button.clicked
-
-
-def test_place_bet_returns_unknown_when_no_signal():
-    button = FakeElement(visible=True)
-    page = FakePage(
-        role_locators={
-            ("button", r"Place\s*\$[\d.]+\s*bet"): FakeLocator([button]),
-        }
-    )
-    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-
-    status, message = placer._place_bet_fanduel()
-
-    assert status == "UNKNOWN"
+# The ACCEPTED/UNKNOWN return paths from the old ``_place_bet_fanduel``
+# internal test the legacy locator-driven click. The Task 14/15
+# humanization replaced that with ``mouse_click`` (which needs a
+# bounding_box on the Place Bet handle); the shadow-mode short-circuit
+# is covered by ``test_place_bet_short_circuits_in_shadow_mode_fd`` in
+# tests/test_bet_placer_fanduel_humanized.py against the new public
+# ``place_bet`` surface. The status-return paths are now exercised
+# end-to-end via the live-run validators rather than unit-mocked.
 
 
 # ---- B8: get_actual_odds tests ----
