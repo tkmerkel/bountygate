@@ -57,7 +57,7 @@ class CursorState:
 
 
 def _step_count(*, distance_px: float) -> int:
-    """1 step per ~20px, clamped to [12, 40]."""
+    """1 step per ~10px, clamped to [12, 40]."""
     return max(_MIN_STEPS, min(_MAX_STEPS, int(distance_px / _PX_PER_STEP)))
 
 
@@ -67,6 +67,8 @@ def _ease_out_t(i: int, steps: int) -> float:
     Returns a value in [0, 1] that grows fast at the start and slows
     at the end — matching how the cursor decelerates onto the target.
     """
+    # steps==1 is unreachable via _step_count (clamped to _MIN_STEPS=12)
+    # but kept defensive for direct callers / unit tests.
     raw = i / (steps - 1) if steps > 1 else 1.0
     return 1.0 - (1.0 - raw) ** 3
 
@@ -134,6 +136,8 @@ def _bezier_path(
     return pts
 
 
+# Used by click() and idle_jitter() in Task 6 — kept here so the
+# dwell/hold constants (_DWELL_*, _HOLD_*) live next to their consumer.
 def _sample_lognormal_ms(mu: float, sigma: float, rng: random.Random) -> int:
     return max(15, int(math.exp(rng.normalvariate(mu, sigma))))
 
@@ -151,13 +155,19 @@ def move_to(
 
     Returns the final (x, y) coordinates.
 
-    If the locator has no bounding box (off-screen or not yet rendered),
-    raises ``ValueError``.
+    If the locator has no visible bounding box (off-screen, not yet
+    rendered, or zero-area), raises ``ValueError``.
+
+    Note:
+        Emits ``_step_count(distance)`` mouse-move events on a clean
+        path, plus 5 corrective steps when the path overshoots
+        (probability ``_OVERSHOOT_PROB``). Callers that need
+        deterministic event counts should be aware of the +5 tail.
     """
     rng = rng or random.Random()
     box = locator.bounding_box()
-    if not box:
-        raise ValueError("move_to: locator has no bounding box")
+    if not box or box["width"] <= 0 or box["height"] <= 0:
+        raise ValueError("move_to: locator has no visible bounding box")
 
     # Random landing point inside the box (avoid the literal centre —
     # too constant across runs). Inset 20% on each axis to stay clear
@@ -178,7 +188,9 @@ def move_to(
         page.mouse.move(x, y)
         # Tiny inter-step pause — Playwright's mouse.move(steps=N) does
         # this internally for browser-native moves but we want explicit
-        # control over the cadence.
+        # control over the cadence. Uniform (not lognormal) — sub-frame
+        # jitter; the macro shape comes from ease-out, not the per-step
+        # delay.
         page.wait_for_timeout(rng.randint(8, 18))
 
     state.position = pts[-1]

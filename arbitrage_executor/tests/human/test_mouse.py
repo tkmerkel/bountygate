@@ -86,3 +86,46 @@ def test_move_to_traces_path_and_updates_cursor_state():
     assert 100 <= final_y <= 130
     # Cursor state mirrors the final mouse position.
     assert state.position == (final_x, final_y)
+
+
+def test_bezier_path_handles_zero_length_segment():
+    """When start ≈ end, return a flat list of N copies of end."""
+    pts = _bezier_path(
+        (100.0, 100.0),
+        (100.3, 100.4),
+        steps=15,
+        rng=random.Random(0),
+        overshoot=False,
+    )
+    assert len(pts) == 15
+    assert all(p == (100.3, 100.4) for p in pts)
+
+
+def test_move_to_raises_when_locator_has_no_box():
+    """A None bounding_box (off-screen / detached) raises ValueError."""
+    page = FakePage()
+    state = CursorState()
+    with pytest.raises(ValueError, match="bounding box"):
+        move_to(page, FakeLocator(None), state=state, rng=random.Random(0))
+
+
+def test_move_to_raises_when_locator_has_zero_area_box():
+    """A zero-area box (mid-animation hidden row) raises ValueError."""
+    page = FakePage()
+    state = CursorState()
+    box = {"x": 0, "y": 0, "width": 0, "height": 0}
+    with pytest.raises(ValueError, match="bounding box"):
+        move_to(page, FakeLocator(box), state=state, rng=random.Random(0))
+
+
+def test_overshoot_path_has_corrective_tail():
+    """overshoot=True appends 5 extra corrective steps after the main path."""
+    rng = random.Random(0)
+    pts = _bezier_path(
+        (0.0, 0.0),
+        (100.0, 0.0),
+        steps=20,
+        rng=rng,
+        overshoot=True,
+    )
+    assert len(pts) == 25, f"expected 20 main + 5 corrective steps, got {len(pts)}"
