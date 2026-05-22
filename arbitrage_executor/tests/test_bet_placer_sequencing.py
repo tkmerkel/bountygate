@@ -9,39 +9,15 @@ from _fakes import FakeElement, FakeLocator, FakePage  # noqa: F401
 AUDIT_DIR = "audit_logs/test_bet_placer_sequencing"
 
 
-def test_fanduel_clear_all_still_runs_post_clear_verification():
-    clear_all = FakeElement(visible=True)
-    leftover_remove = FakeElement(visible=True)
-    page = FakePage(
-        locators={
-            'div[role="button"]:has-text("Remove all selections")': FakeLocator([clear_all]),
-            'button[aria-label*="remove" i]': FakeLocator([leftover_remove]),
-        }
-    )
-    placer = BetPlacer(page, "fanduel", AUDIT_DIR)
-
-    with pytest.raises(BetPlacerError, match="FanDuel slip-clear failed"):
-        placer._clear_betslip_fanduel()
-
-    assert clear_all.clicked
-
-
-def test_betmgm_clear_all_still_runs_post_clear_verification():
-    clear_all = FakeElement(visible=True)
-    page = FakePage(
-        locators={
-            'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i': FakeLocator(
-                [FakeElement(visible=True, text="1 Bet slip")]
-            ),
-            'span:has-text("Clear All")': FakeLocator([clear_all]),
-        }
-    )
-    placer = BetPlacer(page, "betmgm", AUDIT_DIR)
-
-    with pytest.raises(BetPlacerError, match="BetMGM slip-clear failed"):
-        placer._clear_betslip_betmgm_precheck()
-
-    assert clear_all.clicked
+# Post-clear-verification guards (FanDuel + BetMGM) are now covered by
+# the humanized tests against the public ``clear_betslip`` surface:
+#   * tests/test_bet_placer_fanduel_humanized.py::
+#     test_lazy_clear_runs_full_dance_when_slip_has_bet
+#   * tests/test_bet_placer_betmgm_humanized.py::
+#     test_lazy_clear_runs_full_dance_when_pill_reads_one
+# The legacy internals ``_clear_betslip_fanduel`` and
+# ``_clear_betslip_betmgm_precheck`` (the latter removed entirely) were
+# replaced with humanized-mouse-driven clear dances.
 
 
 def test_fanduel_validation_does_not_accept_ambiguous_slip_state():

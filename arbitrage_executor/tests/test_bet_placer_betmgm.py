@@ -23,19 +23,6 @@ def test_select_market_sub_tab_noop_when_no_label():
     assert page.waits == []
 
 
-def test_select_market_sub_tab_clicks_first_matching_selector():
-    sub_tab = FakeElement(visible=True)
-    page = FakePage(locators={
-        'div[role="tablist"] button:has-text("Combo stats")':
-            FakeLocator([sub_tab]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-
-    placer._select_market_sub_tab_betmgm({"sub_tab_label": "Combo stats"})
-
-    assert sub_tab.clicked
-
-
 def test_select_market_sub_tab_raises_when_not_found():
     page = FakePage()
     placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
@@ -44,33 +31,11 @@ def test_select_market_sub_tab_raises_when_not_found():
 
 
 # ---- C3: slip-clearing + slip-opening tests ----
-
-def test_clear_slip_fast_path_when_pill_shows_zero(capsys):
-    page = FakePage(locators={
-        'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i':
-            FakeLocator([FakeElement(visible=True, text="Bet slip (0)")]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-
-    placer._clear_betslip_betmgm_precheck()
-
-    captured = capsys.readouterr()
-    assert "Slip already empty" in captured.out
-
-
-def test_clear_slip_post_clear_verification_raises_when_pill_still_nonzero():
-    clear_all = FakeElement(visible=True)
-    page = FakePage(locators={
-        'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i':
-            FakeLocator([FakeElement(visible=True, text="1 Bet slip")]),
-        'span:has-text("Clear All")': FakeLocator([clear_all]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-
-    with pytest.raises(BetPlacerError, match="BetMGM slip-clear failed"):
-        placer._clear_betslip_betmgm_precheck()
-
-    assert clear_all.clicked
+# Lazy-clear fast-path (pill==0) and full clear-dance with post-clear
+# verification are covered by the humanized tests in
+# tests/test_bet_placer_betmgm_humanized.py against the new public
+# ``clear_betslip`` surface (the legacy ``_clear_betslip_betmgm_precheck``
+# internal was removed during the Task 12 humanization).
 
 
 def test_open_slip_noop_when_stake_input_already_visible():
@@ -303,44 +268,19 @@ def test_find_and_click_raises_loud_on_alt_under_direction():
 
 
 # ---- C6: wager entry tests ----
-
-def test_enter_wager_raises_when_input_not_found():
-    page = FakePage()
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-    with pytest.raises(BetPlacerError, match="Could not find BetMGM wager input"):
-        placer._enter_wager_betmgm(10.00)
-
-
-def test_enter_wager_picks_last_empty_when_multiple_inputs():
-    """Legacy invariant: when slip-clear has failed and multiple bets
-    accumulate, _enter_wager_betmgm must pick the LAST empty stake input
-    (the just-added bet), not the first or last filled."""
-    filled_a = FakeElement(visible=True, input_value="5.00")
-    empty_b = FakeElement(visible=True, input_value="")
-    empty_c = FakeElement(visible=True, input_value="")  # LAST empty — should be picked
-    filled_d = FakeElement(visible=True, input_value="3.00")
-    page = FakePage(locators={
-        'app-stake-input input': FakeLocator([filled_a, empty_b, empty_c, filled_d]),
-    })
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-
-    placer._enter_wager_betmgm(10.00)
-
-    # The last empty (empty_c) should have been clicked
-    assert empty_c.clicked
-    assert not empty_b.clicked
-    assert not filled_a.clicked
-    assert not filled_d.clicked
+# The ``enter_wager`` public surface is exercised by the humanized
+# tests (``test_enter_wager_uses_humanized_type`` in
+# tests/test_bet_placer_betmgm_humanized.py). The legacy
+# ``_enter_wager_betmgm`` internal was removed during the Task 13
+# humanization (per-char keyboard.type + humanized mouse click).
 
 
 # ---- C7: place_bet + check_limit_alert tests ----
-
-def test_place_bet_raises_when_button_not_found():
-    page = FakePage()
-    placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
-    with pytest.raises(BetPlacerError, match="Place Bet button not found"):
-        placer._place_bet_betmgm()
-
+# The ``place_bet`` public surface is exercised by
+# ``test_place_bet_short_circuits_in_shadow_mode`` in
+# tests/test_bet_placer_betmgm_humanized.py. The legacy
+# ``_place_bet_betmgm`` internal was removed during the Task 13
+# humanization.
 
 def test_check_limit_alert_returns_false_false_when_no_alert():
     page = FakePage()

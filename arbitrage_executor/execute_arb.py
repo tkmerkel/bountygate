@@ -7,6 +7,7 @@ import os
 import sys
 import hashlib
 import json
+import time
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -29,6 +30,9 @@ from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 from auth import ensure_logged_in, LoginError, LoginInterventionRequired
 from screen_recorder import start_recording, stop_recording
 from dashboard_tab import ensure_dashboard_tab
+from human.session import viewport_from_cdp, warmup_browse, intra_book_idle
+from human.modals import ModalWatcher
+from human import SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError
 
 
 class OrphanedBetError(Exception):
@@ -251,11 +255,24 @@ class ArbExecutor:
         print(f"FanDuel side: {fd_direction} (market: {fd_market_key})")
         print(f"BetMGM side: {mgm_direction} (market: {mgm_market_key})\n")
 
+        # Original prices from opportunity — hoisted above Phase 1 so the
+        # intra-book idle window (run between Phase 1 and Phase 2) has a
+        # baseline FD price to drift-check against if get_actual_odds()
+        # didn't return a value.
+        fd_price_original = self.opportunity.get(f'{fd_direction}_price', 2.0)
+        mgm_price_original = self.opportunity.get(f'{mgm_direction}_price', 2.0)
+
         # Start screen recording, then warm sessions, then run phases —
         # all inside a single try/finally so the recording always stops
         # and review.pending always writes, regardless of which step
         # raises (warmup credential-modal halt, Phase login, orphan bet).
         record_proc = None
+        # Modal watchers — bound after each tab is opened so the outer
+        # finally can stop them on every exit path (early return, raise,
+        # orphan escalation) without having to thread .stop() through the
+        # ~12 page_*.close() sites scattered across error handlers.
+        fd_modal_watcher: Optional[ModalWatcher] = None
+        mgm_modal_watcher: Optional[ModalWatcher] = None
 
         try:
             # Recording first so cold-session login flows are captured.
@@ -277,6 +294,12 @@ class ArbExecutor:
                 ensure_dashboard_tab(browser)
 
                 # === PHASE 1: Tease FanDuel Limit ===
+                # Phase 1→3 wall-clock for orphan-risk visibility. The
+                # humanized layer adds 30-100s vs legacy; if this elapsed
+                # grows past ~120s the FD-odds drift window between
+                # Phase 2 placement and Phase 3 hedge gets uncomfortably
+                # wide. Watched in `logs/execution_success.log`.
+                phase_1_start_monotonic = time.monotonic()
                 print(f"\n{'─'*60}")
                 print(f"PHASE 1: DISCOVER FANDUEL MAX WAGER")
                 print(f"{'─'*60}\n")
@@ -284,7 +307,9 @@ class ArbExecutor:
                 # Open FanDuel page
                 print("Opening FanDuel tab...")
                 page_fd = context.new_page()
-                page_fd.set_viewport_size({"width": 943, "height": 944})
+                viewport_from_cdp(page_fd)
+                fd_modal_watcher = ModalWatcher(page_fd)
+                fd_modal_watcher.start()
 
                 try:
                     ensure_logged_in(page_fd, "fanduel", self.audit_dir)
@@ -321,6 +346,37 @@ class ArbExecutor:
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
+                    # ---- INTRA-BOOK IDLE (Phase 1 → Phase 2) ----
+                    # Browse FD adjacent props for 8-25s before opening BetMGM. Reduces
+                    # the cross-book temporal correlation that risk teams cluster on.
+                    # By design, NO idle between Phase 2 and Phase 3 (orphan window).
+                    try:
+                        intra_book_idle(
+                            page_fd,
+                            site="fanduel",
+                            check_slip_has_bet=placer_fd.slip_has_visible_selection,
+                            current_fd_odds=fd_actual_odds or fd_price_original,
+                            read_fd_odds=placer_fd.get_actual_odds,
+                        )
+                    except (SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError) as idle_err:
+                        print(f"⏭ Idle-window skip: {idle_err}")
+                        ExecutionLogger.log_execution_failure(
+                            f"Intra-book idle benign skip: {type(idle_err).__name__}",
+                            self.opportunity, "fanduel", idle_err,
+                        )
+                        try:
+                            page_fd.close()
+                        except Exception:
+                            pass
+                        raise  # subclass of BetPlacerSkipError → main loop advances
+
+                except BetPlacerSkipError:
+                    # Idle-window benign skip (slip drained / FD odds drifted).
+                    # Re-raise unwrapped so the outer ``except BetPlacerSkipError``
+                    # branch surfaces it to main() without counting as an attempt.
+                    # Must be ordered BEFORE ``except BetPlacerError`` since
+                    # BetPlacerSkipError subclasses BetPlacerError.
+                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 1 failed: {e}")
                     ExecutionLogger.log_execution_failure("FanDuel limit discovery failed", self.opportunity, "fanduel", e)
@@ -347,7 +403,9 @@ class ArbExecutor:
                 # that's actually clickable.
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
-                page_mgm.set_viewport_size({"width": 1920, "height": 1080})
+                viewport_from_cdp(page_mgm)
+                mgm_modal_watcher = ModalWatcher(page_mgm)
+                mgm_modal_watcher.start()
 
                 try:
                     ensure_logged_in(page_mgm, "betmgm", self.audit_dir)
@@ -374,10 +432,6 @@ class ArbExecutor:
                     return False
 
                 placer_mgm = BetPlacer(page_mgm, "betmgm", self.audit_dir)
-
-                # Original prices from opportunity
-                mgm_price_original = self.opportunity.get(f'{mgm_direction}_price', 2.0)
-                fd_price_original = self.opportunity.get(f'{fd_direction}_price', 2.0)
 
                 try:
                     placer_mgm.navigate_and_expand_market(self.opportunity, mgm_config, mgm_direction)
@@ -526,6 +580,33 @@ class ArbExecutor:
 
                 print(f"Hedge stake (calculated): ${fd_hedge_stake:.2f}\n")
 
+                # Log Phase 1→3 entry elapsed + Phase 3 entry FD odds.
+                # NEVER abort Phase 3 on drift — by here BetMGM is placed,
+                # aborting = orphan. Always hedge, even at worse odds. The
+                # logs are for visibility into the humanized-flow tax.
+                phase_1_to_3_entry_ms = int(
+                    (time.monotonic() - phase_1_start_monotonic) * 1000
+                )
+                try:
+                    phase_3_entry_fd_odds = placer_fd.get_actual_odds()
+                except Exception:
+                    phase_3_entry_fd_odds = None
+                fd_odds_drift = (
+                    phase_3_entry_fd_odds - fd_price
+                    if phase_3_entry_fd_odds is not None
+                    else None
+                )
+                drift_str = (
+                    f"drift={fd_odds_drift:+.3f}"
+                    if fd_odds_drift is not None
+                    else "drift=unknown"
+                )
+                print(
+                    f"[timing] phase_1_to_3_entry={phase_1_to_3_entry_ms}ms "
+                    f"fd_odds_phase1={fd_price:.3f} "
+                    f"fd_odds_phase3={phase_3_entry_fd_odds} {drift_str}"
+                )
+
                 try:
                     # FanDuel already has bet in slip, just update wager
                     placer_fd.enter_wager(fd_hedge_stake)
@@ -641,6 +722,23 @@ class ArbExecutor:
             ExecutionLogger.log_execution_failure(f"Unexpected error: {e}", self.opportunity, error=e)
             return False
         finally:
+            # Stop modal watchers BEFORE recording stop / review marker so
+            # any background-thread page activity (modal probe in flight)
+            # quiesces before the pages are torn down by the surrounding
+            # context manager. stop() swallows internal exceptions and is
+            # idempotent (see human/modals.py); safe to call from every
+            # exit path even when the watcher was never started.
+            if mgm_modal_watcher is not None:
+                try:
+                    mgm_modal_watcher.stop()
+                except Exception as _e:
+                    print(f"[modal] mgm watcher stop error (ignored): {_e}")
+            if fd_modal_watcher is not None:
+                try:
+                    fd_modal_watcher.stop()
+                except Exception as _e:
+                    print(f"[modal] fd watcher stop error (ignored): {_e}")
+
             stop_recording(record_proc)
             try:
                 with open(os.path.join(self.audit_dir, "review.pending"), "w") as _f:
@@ -719,6 +817,16 @@ class ArbExecutor:
                 try:
                     warm_page = context.new_page()
                     ensure_logged_in(warm_page, site, self.audit_dir)
+                    # Watch for modals (e.g. FanDuel "Reality Check" can
+                    # fire during the 12-35s warmup browse) while we do
+                    # the homepage dwell that humanizes the session.
+                    with ModalWatcher(warm_page):
+                        try:
+                            warmup_browse(warm_page, site=site)
+                        except Exception as warm_err:
+                            # Non-fatal: warmup is best-effort. The real
+                            # Phase 1/2 attempt does the actual work.
+                            print(f"[warmup] {site} warmup_browse failed (non-fatal): {warm_err}")
                 except LoginInterventionRequired as e:
                     ExecutionLogger.log_critical(
                         reason=f"LOGIN INTERVENTION REQUIRED on {site} (warmup): {e}",

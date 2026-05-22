@@ -1,13 +1,50 @@
-"""BetMGM-specific bet placement implementation."""
+"""BetMGM humanized bet placer.
 
+Rewrite of the legacy bet_placer_betmgm.py against the new
+``arbitrage_executor/human/`` primitives. Public interface preserved
+(see ``bet_placer.BetPlacer`` ABC).
+
+Task 12 surface: ``__init__``, ``navigate_and_expand_market``,
+``clear_betslip``, ``assert_betslip_has_bet``, ``assert_betslip_empty``.
+Task 13a adds ``find_and_click_bet`` (+ alt/std dispatch helpers).
+Wager/place/odds/limit-check land in Task 13b.
+"""
+
+import os
 import re
 from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from selector_finder import calculate_alternate_tab_value
+from bet_placer import (
+    BetPlacer,
+    BetPlacerError,
+    BetPlacerSkipError,
+    ShadowAbortError,
+)
+from human.mouse import CursorState, click as mouse_click
+from human.navigation import click_through
+from human.typing import TypingProfile, humanized_type
+from human.waiting import settle
 from text_match import fuzzy_contains
-from bet_placer import BetPlacer, BetPlacerError, BetPlacerSkipError
+
+
+# Slip-pill regex selector — matches "Bet slip", "Bet slip (N)", and
+# "N Bet slip" variants the prod page ships. Used three times: lazy
+# short-circuit, post-clear verification, and slip-has-bet probe.
+_SLIP_PILL_SELECTOR = (
+    'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
+)
+
+
+def _pill_count(text: str) -> Optional[int]:
+    """Parse the slip-pill text (e.g. ``"Bet slip (3)"`` / ``"3 Bet slip"``).
+    Returns the parsed count, or None if the text doesn't match either form.
+    """
+    m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text or "", re.I)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
 
 
 # Returns just the player name text from the row containing the given pick.
@@ -34,24 +71,42 @@ _PLAYER_NAME_FROM_PICK_JS = """
 """
 
 
+# Tight-walkup JS for non-NBA / unknown DOM shapes. max_text_len=150 keeps
+# the scan inside a single player row; the prior 600-char cap allowed the
+# wrapping container holding the full 10-player list to slip through, which
+# is how every pick fuzzy-matched any target player and the first
+# direction+line match always won.
+_WALKUP_JS = """
+(el, args) => {
+    const max_depth = args.max_depth;
+    const max_text_len = args.max_text_len;
+    const out = [];
+    let cur = el;
+    for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
+        cur = cur.parentElement;
+        const text = (cur.innerText || cur.textContent || '').trim();
+        if (text.length <= max_text_len) out.push(text);
+    }
+    return out;
+}
+"""
+
+
 class BetmgmBetPlacer(BetPlacer):
     """Handles bet placement on BetMGM."""
 
-    @staticmethod
-    def _player_name_for_pick(pick) -> Optional[str]:
-        """Return the player name from the ``.option-group-row`` containing
-        ``pick``, or None if the BetMGM player-row DOM shape isn't present
-        (e.g., non-NBA accordions, or DOM changed). Scoped to a single row,
-        so it cannot leak adjacent players' names — this is the primary
-        defense against the cross-row matching bug where a loose ancestor
-        walkup matched the wrapping container that held all 10 players."""
-        try:
-            name = pick.evaluate(_PLAYER_NAME_FROM_PICK_JS)
-            if not isinstance(name, str):
-                return None
-            return name.strip() or None
-        except Exception:
-            return None
+    def __init__(self, page, site, audit_dir):
+        super().__init__(page, site, audit_dir)
+        # Per-session humanization state. CursorState carries cursor
+        # position across calls so successive Bezier paths stitch
+        # naturally; TypingProfile rotates daily so typing rhythm is
+        # consistent within a day but drifts across days.
+        self._cursor = CursorState()
+        self._typing = TypingProfile.for_today()
+
+    # ------------------------------------------------------------------
+    # Static helpers — preserved from legacy unchanged (LOGIC.md hard rule)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _alt_sibling_if_std_missing(accordion_name: str, visible_names):
@@ -73,37 +128,44 @@ class BetmgmBetPlacer(BetPlacer):
                 return sibling
         return None
 
-    def navigate_and_expand_market(self, opportunity, market_config, direction=None):
-        """Navigate BetMGM to event and expand the market accordion."""
-        self._navigate_betmgm(opportunity, market_config, direction)
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
 
-    def _navigate_betmgm(self, opportunity: Dict, market_config: Dict, direction: str = None):
-        """Navigate BetMGM to event and expand market accordion."""
+    def navigate_and_expand_market(self, opportunity: Dict, market_config: Dict,
+                                   direction: str = None) -> None:
+        """Navigate BetMGM to the event and expand the market accordion.
+
+        Humanized: every ``wait_for_timeout`` is replaced by a categorized
+        ``settle()``; the team-name search uses ``humanized_type``; the
+        event-page navigation goes through ``click_through`` so the bot
+        clicks an anchor rather than goto-ing a constructed URL.
+        """
         home_team = opportunity['home_team']
         away_team = opportunity['away_team']
         sport = (opportunity.get('sport_title') or '').upper()
         accordion_name = market_config.get('accordion_name', '')
-        is_alternate = market_config.get('is_alternate', False) or market_config.get('has_threshold_tabs', False)
+        is_alternate = (
+            market_config.get('is_alternate', False)
+            or market_config.get('has_threshold_tabs', False)
+        )
 
-        # Start on the regular homepage, not the betfinder popup. The
-        # ?popup=betfinder querystring overlays a search modal on top of
-        # the slip widget, which makes the subsequent slip-clear race
-        # against the modal (observed: slip-clear silently no-op'd while
-        # the modal sat on top, leaving stale bets in the slip). From the
-        # plain /en/sports page the slip pill at the bottom is reliably
-        # clickable and the page state is unambiguous. The betfinder
-        # popup opens later, after the slip is clean.
+        # Start on the plain homepage so the slip pill at the bottom is
+        # reachable. The betfinder popup overlays a search modal that
+        # would race the subsequent slip-clear; clear first, then open
+        # search. See legacy notes for the original observation.
         print(f"[BETMGM] Loading homepage... (sport: {sport})")
-        self.page.goto("https://www.mo.betmgm.com/en/sports", wait_until="domcontentloaded")
-        self.page.wait_for_timeout(2000)
+        self.page.goto(
+            "https://www.mo.betmgm.com/en/sports",
+            wait_until="domcontentloaded",
+        )
+        settle(self.page, "page_load", rng=self._typing.rng)
 
-        # Auth-and-render probe: when the BetMGM session is dead, the
-        # homepage renders a "Log in" link in the header instead of the
-        # account/balance widget. Cheap visual check — if the link is
-        # there, we'd otherwise click around as logged-out and the run
-        # would degrade silently. Fail loud, let the operator log back in.
+        # Auth probe — fail loud if the session expired.
         try:
-            login_link = self.page.locator('a[href*="/login"]:has-text("Log in")')
+            login_link = self.page.locator(
+                'a[href*="/login"]:has-text("Log in")'
+            )
             if login_link.count() > 0 and login_link.first.is_visible():
                 self._screenshot("session_expired")
                 raise BetPlacerError(
@@ -114,21 +176,18 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             print(f"[BETMGM] ⚠ Auth probe failed: {e} (continuing — assuming logged in)")
 
-        # Clear any leftover bets from a previous failed run. The slip
-        # icon at the bottom shows "(N)" when items are queued — those
-        # must come out before our click adds a new one cleanly. Done
-        # from the homepage so the slip drawer isn't fighting the search
-        # modal for pointer events.
-        self._clear_betslip_betmgm_precheck()
+        # Clean any leftover bets BEFORE opening the betfinder popup.
+        self.clear_betslip()
 
-        # Now open the betfinder popup for the actual team lookup. After
-        # this nav the page renders the search modal on top of the
-        # (already-cleaned) homepage.
+        # Now open the betfinder popup for the actual team lookup.
         print(f"[BETMGM] Opening betfinder search...")
-        self.page.goto("https://www.mo.betmgm.com/en/sports?popup=betfinder", wait_until="domcontentloaded")
-        self.page.wait_for_timeout(2000)
+        self.page.goto(
+            "https://www.mo.betmgm.com/en/sports?popup=betfinder",
+            wait_until="domcontentloaded",
+        )
+        settle(self.page, "page_load", rng=self._typing.rng)
 
-        # Search for team — MLB needs autocomplete suggestion click, others use Enter
+        # Search — humanized typing, then Enter (with pre-submit dwell).
         try:
             search_input = self.page.locator(
                 'div.cdk-overlay-container input, '
@@ -137,65 +196,70 @@ class BetmgmBetPlacer(BetPlacer):
             ).first
             search_input.wait_for(state="visible", timeout=10000)
             print(f"[BETMGM] Searching for: {home_team}")
-            search_input.fill(home_team)
+            humanized_type(self.page, search_input, home_team, profile=self._typing)
 
             if sport == 'MLB':
-                # MLB: click autocomplete suggestion (BetMGM shows Futures that interfere with Enter)
-                self.page.wait_for_timeout(2000)
+                # MLB: click autocomplete suggestion (BetMGM shows Futures
+                # that interfere with Enter).
+                settle(self.page, "search_results", rng=self._typing.rng)
                 suggestion_clicked = False
                 try:
-                    suggestions = self.page.locator('ms-search-suggestions-list-item')
+                    suggestions = self.page.locator(
+                        'ms-search-suggestions-list-item'
+                    )
                     suggestions.first.wait_for(state="visible", timeout=5000)
                     for i in range(suggestions.count()):
                         item = suggestions.nth(i)
                         item_text = (item.text_content() or "").lower()
-                        if home_team.lower() in item_text and "future" not in item_text:
-                            print(f"[BETMGM] Clicking search suggestion: {item_text.strip()[:60]}")
-                            item.click()
+                        if (home_team.lower() in item_text
+                                and "future" not in item_text):
+                            print(
+                                f"[BETMGM] Clicking suggestion: "
+                                f"{item_text.strip()[:60]}"
+                            )
+                            mouse_click(self.page, item, state=self._cursor,
+                                        rng=self._typing.rng)
                             suggestion_clicked = True
-                            self.page.wait_for_timeout(3000)
+                            settle(self.page, "search_results",
+                                   rng=self._typing.rng)
                             break
                 except Exception:
                     pass
 
                 if not suggestion_clicked:
                     print(f"[BETMGM] No suggestion found, pressing Enter...")
-                    search_input.press("Enter")
-                    self.page.wait_for_timeout(3000)
+                    settle(self.page, "pre_submit_dwell", rng=self._typing.rng)
+                    self.page.keyboard.press("Enter")
+                    settle(self.page, "search_results", rng=self._typing.rng)
             else:
-                # NBA/NHL/NFL: standard Enter-based search
+                # NBA/NHL/NFL: standard Enter-based search.
+                settle(self.page, "pre_submit_dwell", rng=self._typing.rng)
                 self.page.keyboard.press("Enter")
-                self.page.wait_for_timeout(3000)
-
+                settle(self.page, "search_results", rng=self._typing.rng)
         except Exception as e:
             raise BetPlacerError(f"Search failed: {e}")
 
-        # Navigate to the event page.
-        #
-        # BetMGM removed the "All Wagers" intermediate link from event cards
-        # in mid-2026 — the whole card is now a single
-        # <a href="/en/sports/events/<slug>-<id>"> anchor. The previous code
-        # path of "find the All Wagers span inside the card" stopped finding
-        # anything; the fallback that hunted `ms-event-footer` likewise
-        # misses because that footer element no longer ships.
-        #
-        # New strategy: scan every `a[href*="/sports/events/"]` on the page,
-        # pick the one whose text contains both team names (or whose href
-        # slug matches both), and navigate to its href directly. This skips
-        # the click-and-wait dance and is more robust to layout changes
-        # (search-results, team-detail page, betfinder grid all share the
-        # same anchor pattern).
+        # Resolve the event link. BetMGM moved to whole-card anchors
+        # mid-2026 — scan every `/sports/events/` anchor and pick the one
+        # whose text + href slug covers both teams. Then navigate via
+        # ``click_through`` so the bot scrolls and clicks rather than
+        # goto-ing a constructed URL.
         try:
             current_url = self.page.url.lower()
             home_slug = home_team.lower().replace(" ", "-")
             away_slug = away_team.lower().replace(" ", "-")
 
-            if "/events/" in current_url and (home_slug in current_url or away_slug in current_url):
+            if "/events/" in current_url and (
+                home_slug in current_url or away_slug in current_url
+            ):
                 print(f"[BETMGM] Already on event page: {current_url}")
             else:
                 anchors = self.page.locator('a[href*="/sports/events/"]')
                 n = anchors.count()
-                print(f"[BETMGM] Scanning {n} event anchor(s) for {away_team} @ {home_team}")
+                print(
+                    f"[BETMGM] Scanning {n} event anchor(s) for "
+                    f"{away_team} @ {home_team}"
+                )
 
                 target_href = None
                 best_score = 0
@@ -221,49 +285,89 @@ class BetmgmBetPlacer(BetPlacer):
                         best_score = score
                         target_href = href
 
-                # Require both teams represented somewhere (text or href slug).
-                # Score >= 2 covers: both names in text, OR one name in text +
-                # one slug in href, OR both slugs in href.
                 if not target_href or best_score < 2:
                     self._screenshot("event_link_not_found")
                     raise BetPlacerError(
-                        f"Could not find event link: {away_team} @ {home_team} "
-                        f"(scanned {n} anchors, best score={best_score})"
+                        f"Could not find event link: {away_team} @ "
+                        f"{home_team} (scanned {n} anchors, "
+                        f"best score={best_score})"
                     )
 
-                # Normalize relative href; BetMGM mixes absolute and relative.
-                if target_href.startswith("/"):
-                    target_href = "https://www.mo.betmgm.com" + target_href
-                print(f"[BETMGM] Navigating to event: {target_href}")
-                self.page.goto(target_href, wait_until="domcontentloaded")
-                self.page.wait_for_timeout(2000)
+                # Click-through navigation: scroll + click the anchor
+                # rather than goto-ing the constructed URL. On miss,
+                # falls back to a direct goto with a loud log.
+                fallback_url = (
+                    target_href
+                    if target_href.startswith("http")
+                    else "https://www.mo.betmgm.com" + target_href
+                )
+                click_through(
+                    self.page,
+                    start_url=self.page.url,
+                    link_selector=f'a[href="{target_href}"]',
+                    fallback_url=fallback_url,
+                    state=self._cursor,
+                    rng=self._typing.rng,
+                )
 
-            # Add ?market=PlayerProps to land directly on the full props view.
+            # Add ?market=PlayerProps to land on the full props view.
             current_url = self.page.url
             if "market=PlayerProps" not in current_url:
-                new_url = current_url + ("&" if "?" in current_url else "?") + "market=PlayerProps"
+                new_url = current_url + (
+                    "&" if "?" in current_url else "?"
+                ) + "market=PlayerProps"
                 print(f"[BETMGM] Navigating to player props: {new_url}")
                 self.page.goto(new_url, wait_until="domcontentloaded")
-                self.page.wait_for_timeout(2000)
-
+                settle(self.page, "page_load", rng=self._typing.rng)
         except BetPlacerError:
             raise
         except Exception as e:
             self._screenshot("navigation_failed")
             raise BetPlacerError(f"Event navigation failed: {e}")
 
-        # Click market sub-tab first (e.g. "Combo stats" for player_points_rebounds)
-        # — the sub-tab determines which accordion is visible at all.
+        # Sub-tab + accordion expansion.
         self._select_market_sub_tab_betmgm(market_config)
+        self._expand_accordion_betmgm(accordion_name, is_alternate,
+                                      opportunity, market_config, direction)
 
-        # Expand accordion
+    def _select_market_sub_tab_betmgm(self, market_config: Dict) -> None:
+        """Click a market sub-tab (e.g. 'Combo stats') if configured.
+
+        No-op if the market has no ``sub_tab_label``.
+        """
+        sub_tab = market_config.get("sub_tab_label")
+        if not sub_tab:
+            return
+        print(f"[BETMGM] Selecting market sub-tab: {sub_tab}")
+        for selector in (
+            f'div[role="tablist"] button:has-text("{sub_tab}")',
+            f'[role="tab"]:has-text("{sub_tab}")',
+            f'button:has-text("{sub_tab}")',
+        ):
+            try:
+                loc = self.page.locator(selector)
+                if loc.count() > 0 and loc.first.is_visible():
+                    mouse_click(self.page, loc.first, state=self._cursor,
+                                rng=self._typing.rng)
+                    settle(self.page, "ui_expansion", rng=self._typing.rng)
+                    print(f"[BETMGM] ✓ Sub-tab '{sub_tab}' selected")
+                    self._screenshot("sub_tab_selected")
+                    return
+            except Exception as e:
+                print(f"[BETMGM] Sub-tab selector failed ({selector}): {e}")
+                continue
+        self._screenshot("sub_tab_not_found")
+        raise BetPlacerError(f"Could not find BetMGM sub-tab '{sub_tab}'")
+
+    def _expand_accordion_betmgm(self, accordion_name: str, is_alternate: bool,
+                                 opportunity: Dict, market_config: Dict,
+                                 direction: str) -> None:
+        """Locate the accordion by exact text, expand it, raise SkipError
+        when only the merged-alt sibling is visible (LOGIC.md)."""
         try:
             print(f"[BETMGM] Expanding accordion: {accordion_name}")
-            # Use :text-is for an EXACT match — BetMGM ships sibling
-            # accordions like "Player rebounds + assists" and "Player
-            # rebounds + assists O/U" at the same level. :has-text would
-            # match both via substring and pick whichever came first in
-            # DOM order, often expanding the wrong market silently.
+            # Exact-text match — :has-text would match the alt sibling
+            # by substring and silently expand the wrong accordion.
             exact_selector = (
                 f'button[dsaccordiontoggle]:text-is("{accordion_name}")'
             )
@@ -273,18 +377,9 @@ class BetmgmBetPlacer(BetPlacer):
             if accordion.count() > 0:
                 target = accordion.first
             else:
-                # No fuzzy fallback. The previous fuzzy-score path silently
-                # masked YAML/UI drift — e.g. PR #12 found 10 batter_*
-                # YAML entries with a wrong "Player" prefix that fuzzy-
-                # matched onto neighboring accordions, putting the bot in
-                # the wrong market context and surfacing two layers later
-                # as a misleading "No bet found for X under 0.5" error.
-                #
-                # Instead: iterate visible accordions with a normalized
-                # exact match (whitespace + case insensitive) to absorb
-                # BetMGM's minor label wobble, and on miss raise loudly
-                # with the full visible list so the operator's next move
-                # is one obvious YAML edit.
+                # No fuzzy fallback — iterate visible accordions with a
+                # normalized exact match, then on miss either skip
+                # (alt sibling present) or raise loud (real drift).
                 need_norm = " ".join((accordion_name or "").lower().split())
                 visible_names: list = []
                 for btn in self.page.locator('button[dsaccordiontoggle]').all():
@@ -300,13 +395,8 @@ class BetmgmBetPlacer(BetPlacer):
                         break
 
                 if target is None:
-                    # Structural-skip path: this std opp's "O/U" accordion
-                    # isn't on the live page, but the merged-alt sibling
-                    # IS. BetMGM ships per-event variance — a lower-profile
-                    # game may only carry the alt-merged accordion. Falling
-                    # back to it can't satisfy direction='under' (alt is
-                    # Yes-only), so the opp is structurally unbettable.
-                    # Mark SKIPPED, not FAILED. See LOGIC.md.
+                    # Structural skip: std O/U missing, merged-alt sibling
+                    # present → SkipError (worker classifies as SKIPPED).
                     alt_sibling = self._alt_sibling_if_std_missing(
                         accordion_name, visible_names
                     )
@@ -327,198 +417,180 @@ class BetmgmBetPlacer(BetPlacer):
                         f"of these."
                     )
 
-            # Accordion buttons are toggles — if a prior session left it
-            # expanded, clicking again COLLAPSES. Check aria-expanded and
-            # skip the click in that case.
+            # Accordion buttons toggle — skip the click if already expanded.
             try:
-                already_expanded = (target.get_attribute("aria-expanded") == "true")
+                already_expanded = (
+                    target.get_attribute("aria-expanded") == "true"
+                )
             except Exception:
                 already_expanded = False
             if already_expanded:
                 print(f"[BETMGM] Accordion already expanded; skipping click.")
             else:
-                target.click()
+                mouse_click(self.page, target, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "ui_expansion", rng=self._typing.rng)
 
-            # Fast-fail: wait up to 5s for at least one ms-event-pick row.
-            # Replaces a fixed 1.5s sleep that previously let stuck-search /
-            # wrong-sub-tab cases stall ~67s downstream before surfacing.
+            # Fast-fail: wait for at least one ms-event-pick row.
             try:
-                self.page.wait_for_selector("ms-event-pick", timeout=5000, state="visible")
+                self.page.wait_for_selector(
+                    "ms-event-pick", timeout=5000, state="visible",
+                )
             except PlaywrightTimeoutError as e:
                 self._screenshot("betmgm_accordion_empty")
                 raise BetPlacerError(
-                    "BetMGM accordion expanded but no ms-event-pick rows in 5s "
-                    "— likely wrong sub-tab, market not offered, or stuck search overlay"
+                    "BetMGM accordion expanded but no ms-event-pick rows "
+                    "in 5s — likely wrong sub-tab, market not offered, or "
+                    "stuck search overlay"
                 ) from e
 
-            # Click "Show More" until all players visible
-            show_more_selector = 'ms-option-panel-bottom-action:has-text("Show More")'
-            attempts = 0
-            while attempts < 5:
-                show_more = self.page.locator(show_more_selector)
-                if show_more.count() == 0:
-                    break
-                show_more.first.click()
-                self.page.wait_for_timeout(1000)
-                attempts += 1
+            # Click "Show More" until all players visible.
+            self._click_show_more_repeatedly_betmgm()
 
             print(f"[BETMGM] ✓ Market expanded")
             self._screenshot("market_expanded")
 
-            # For alternate markets, select the threshold tab
+            # Alt markets: select the threshold tab.
             if is_alternate and direction:
-                self._select_alternate_tab_betmgm(opportunity, market_config, direction)
-
+                self._select_alternate_tab_betmgm(opportunity, market_config,
+                                                  direction)
         except BetPlacerSkipError:
-            # Structural skip — surface to caller unwrapped so the worker
-            # can classify the task as SKIPPED, not FAILED.
+            raise
+        except BetPlacerError:
             raise
         except Exception as e:
             self._screenshot("accordion_expansion_failed")
             raise BetPlacerError(f"Accordion expansion failed: {e}")
 
-    def _select_market_sub_tab_betmgm(self, market_config: Dict) -> None:
-        """Click a market sub-tab (e.g. 'Combo stats') if configured.
+    # Selector cascade for the BetMGM "Show more" / "Show More" pagination
+    # button at the bottom of a player-list accordion. Tried in order;
+    # first match wins. The first entry (``ms-option-panel-bottom-action``)
+    # was the historical wrapper element; BetMGM's Angular bundle drops
+    # it intermittently and the role-only / button-only fallbacks rescue
+    # us when that happens. Without this, the player list stays paginated
+    # at ~11 visible rows and players past the fold never get scanned.
+    _SHOW_MORE_SELECTORS = (
+        'ms-option-panel-bottom-action:has-text("Show More")',
+        'ms-option-panel-bottom-action:has-text("Show more")',
+        'button:has-text("Show More")',
+        'button:has-text("Show more")',
+        '[role="button"]:has-text("Show More")',
+        '[role="button"]:has-text("Show more")',
+    )
 
-        For non-default BetMGM markets like player_points_rebounds, the
-        correct accordion lives under a sub-tab that isn't selected by
-        default. No-op if the market has no `sub_tab_label`.
+    def _click_show_more_repeatedly_betmgm(self, *, max_attempts: int = 5) -> int:
+        """Click whichever "Show more" pagination button is currently on
+        the page, up to ``max_attempts`` times. Returns the click count
+        for diagnostics.
+
+        Each iteration re-probes the selector cascade because BetMGM
+        sometimes re-renders the wrapper between expansions.
         """
-        sub_tab = market_config.get("sub_tab_label")
-        if not sub_tab:
-            return
-
-        print(f"[BETMGM] Selecting market sub-tab: {sub_tab}")
-        for selector in (
-            f'div[role="tablist"] button:has-text("{sub_tab}")',
-            f'[role="tab"]:has-text("{sub_tab}")',
-            f'button:has-text("{sub_tab}")',
-        ):
+        clicks = 0
+        for _ in range(max_attempts):
+            matched_selector: Optional[str] = None
+            show_more = None
+            for sel in self._SHOW_MORE_SELECTORS:
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() == 0:
+                        continue
+                    if not loc.first.is_visible():
+                        continue
+                    show_more = loc.first
+                    matched_selector = sel
+                    break
+                except Exception:
+                    continue
+            if show_more is None:
+                break
             try:
-                loc = self.page.locator(selector)
-                if loc.count() > 0 and loc.first.is_visible():
-                    loc.first.click()
-                    self.page.wait_for_timeout(800)
-                    print(f"[BETMGM] ✓ Sub-tab '{sub_tab}' selected via {selector}")
-                    self._screenshot("sub_tab_selected")
-                    return
+                print(f"[BETMGM] Show more via: {matched_selector}")
+                mouse_click(self.page, show_more, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "ui_expansion", rng=self._typing.rng)
+                clicks += 1
             except Exception as e:
-                print(f"[BETMGM] Sub-tab selector failed ({selector}): {e}")
-                continue
+                print(f"[BETMGM] Show more click failed ({matched_selector}): {e}")
+                break
+        if clicks == 0:
+            print("[BETMGM] No 'Show more' button found — list may be fully expanded")
+        return clicks
 
-        self._screenshot("sub_tab_not_found")
-        raise BetPlacerError(f"Could not find BetMGM sub-tab '{sub_tab}'")
-
-    def _select_alternate_tab_betmgm(self, opportunity: Dict, market_config: Dict, direction: str):
-        """Select threshold tab in BetMGM alternate accordion.
-
-        For alternate markets, BetMGM shows tabs like "5+", "7+", "9+" for different thresholds.
-        This method selects the correct tab based on the betting line.
+    def _select_alternate_tab_betmgm(self, opportunity: Dict,
+                                     market_config: Dict,
+                                     direction: str) -> None:
+        """Select the alt threshold tab (e.g. ``5+``) matching the line.
+        Best-effort — logs and continues on miss; the find/click path is
+        what ultimately raises if the wrong picks rendered.
         """
-        line = opportunity.get('over_line') if direction == 'over' else opportunity.get('under_line')
+        from selector_finder import calculate_alternate_tab_value
+        line = (opportunity.get('over_line') if direction == 'over'
+                else opportunity.get('under_line'))
         if line is None:
-            print(f"[BETMGM] ⚠ No line found for direction {direction}, skipping tab selection")
+            print(f"[BETMGM] ⚠ No line for direction {direction}; skip tab")
             return
-
         tab_value = calculate_alternate_tab_value(line)
         tab_text = f"{tab_value}+"
-
         print(f"[BETMGM] Selecting alternate tab: {tab_text} (line: {line})")
 
-        # Try multiple tab selector patterns
         tab_selectors = [
             f'button:has-text("{tab_text}")',
             f'[role="tab"]:has-text("{tab_text}")',
             f'div[role="tablist"] button:has-text("{tab_text}")',
-            market_config.get('tab_selector_pattern', '').format(threshold=tab_value) if market_config.get('tab_selector_pattern') else None,
         ]
+        pattern = market_config.get('tab_selector_pattern')
+        if pattern:
+            tab_selectors.append(pattern.format(threshold=tab_value))
 
         for selector in tab_selectors:
-            if not selector:
-                continue
             try:
                 tab = self.page.locator(selector)
                 if tab.count() > 0 and tab.first.is_visible():
                     print(f"[BETMGM] Found tab using: {selector}")
-                    tab.first.click()
-                    self.page.wait_for_timeout(1000)
-                    print(f"[BETMGM] ✓ Tab {tab_text} selected")
+                    mouse_click(self.page, tab.first, state=self._cursor,
+                                rng=self._typing.rng)
+                    settle(self.page, "ui_expansion", rng=self._typing.rng)
                     self._screenshot("alternate_tab_selected")
-                    # Tab selection re-renders the player list to the first ~5
-                    # players. The next bet-find step looks for a specific
-                    # player by aria-label; if that player isn't in the first
-                    # render, the lookup misses. Click Show More until the
-                    # full list is on the page. Mirrors the post-expand Show
-                    # More loop in _expand_accordion_betmgm.
-                    show_more_selector = (
-                        'ms-option-panel-bottom-action:has-text("Show More")'
-                    )
-                    attempts = 0
-                    while attempts < 5:
-                        show_more = self.page.locator(show_more_selector)
-                        if show_more.count() == 0:
-                            break
-                        try:
-                            if not show_more.first.is_visible():
-                                break
-                            show_more.first.click()
-                            self.page.wait_for_timeout(1000)
-                        except Exception:
-                            break
-                        attempts += 1
-                    if attempts:
-                        print(f"[BETMGM] ✓ Expanded player list ({attempts}× Show More)")
+                    # Re-expand the player list after tab switch.
+                    self._click_show_more_repeatedly_betmgm()
                     return
             except Exception as e:
                 print(f"[BETMGM] Tab selector failed: {selector} - {e}")
                 continue
-
-        # If we couldn't find the tab, log warning but continue
-        print(f"[BETMGM] ⚠ Could not find tab '{tab_text}', continuing without tab selection")
+        print(f"[BETMGM] ⚠ Could not find tab '{tab_text}'; continuing")
         self._screenshot("alternate_tab_not_found")
 
-    def clear_betslip(self):
-        """Empty the BetMGM betslip; fail if it remains non-empty."""
-        self._clear_betslip_betmgm_precheck()
+    # ------------------------------------------------------------------
+    # Slip clearing — lazy fast-path
+    # ------------------------------------------------------------------
 
-    def _clear_betslip_betmgm_precheck(self) -> None:
-        """Empty the BetMGM betslip if it isn't already.
+    def clear_betslip(self) -> None:
+        """Empty the BetMGM betslip; fail if it remains non-empty.
 
-        Same rationale as the FanDuel version: stale items leave the
-        accordion-click path in an ambiguous state and cause toggle-off
-        side-effects. Best-effort, never raises.
+        **Lazy fast-path:** the very first action is the cheap pill read.
+        If the pill reads ``(0)`` / ``0 Bet slip``, return immediately —
+        no slip open, no sweep, no extra settle. Stale-bet cleanup only
+        runs when the pill says we actually have items to clear.
         """
+        # Fast-path: pill==0 → done.
         try:
-            # BetMGM shows a "Bet slip (N)" pill at the bottom. If N == 0
-            # there's nothing to clear and the icon is just "Bet slip".
-            try:
-                slip_pill = self.page.locator(
-                    'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
-                )
-                text = ""
-                if slip_pill.count() > 0:
-                    text = (slip_pill.first.text_content() or "").strip()
-                # Match "(0)" -> empty; "(1)" -> has bets.
-                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
-                if m and int(m.group(1) or m.group(2)) == 0:
+            slip_pill = self.page.locator(_SLIP_PILL_SELECTOR)
+            if slip_pill.count() > 0:
+                pill_text = (slip_pill.first.text_content() or "").strip()
+                count = _pill_count(pill_text)
+                if count == 0:
                     print(f"[BETMGM] Slip already empty.")
                     return
-            except Exception:
-                pass
+        except Exception:
+            # If the probe blew up, fall through to the full clear path.
+            pass
 
-            clicked_clear_all = False
-
-            # Open the slip to access remove controls. The pill at the
-            # bottom is a non-button element ("0 Bet slip" / "1 Bet slip"
-            # in a span/div). Earlier `button:has-text("Bet slip")`
-            # selectors matched nothing and the subsequent "Clear all"
-            # click hit a wrong button on the page (or no-op'd) while
-            # bets accumulated across iterations.
+        # Full clear dance — slip is (probably) non-empty.
+        try:
             self._open_betmgm_slip()
 
-            # "Remove all" sweep. In desktop right-rail layout the actual
-            # clickable Clear All element is a <span> (not a <button>).
-            # Mobile-layout variants render it as a button or div[role=button].
+            clicked_clear_all = False
             for sel in (
                 'span:has-text("Clear All")',
                 'button:has-text("Clear All")',
@@ -532,9 +604,12 @@ class BetmgmBetPlacer(BetPlacer):
                     loc = self.page.locator(sel)
                     if loc.count() > 0 and loc.first.is_visible():
                         print(f"[BETMGM] Clearing slip via {sel}")
-                        loc.first.click()
-                        self.page.wait_for_timeout(800)
-                        # Some BetMGM flows show a confirmation dialog.
+                        mouse_click(self.page, loc.first, state=self._cursor,
+                                    rng=self._typing.rng)
+                        settle(self.page, "slip_update",
+                               rng=self._typing.rng)
+                        # Confirm-dialog dismissal — some BetMGM flows
+                        # gate Clear All behind a Yes/Remove/Confirm.
                         for confirm_sel in (
                             'button:has-text("Yes")',
                             'button:has-text("Remove")',
@@ -542,9 +617,13 @@ class BetmgmBetPlacer(BetPlacer):
                         ):
                             try:
                                 cloc = self.page.locator(confirm_sel)
-                                if cloc.count() > 0 and cloc.first.is_visible():
-                                    cloc.first.click()
-                                    self.page.wait_for_timeout(500)
+                                if (cloc.count() > 0
+                                        and cloc.first.is_visible()):
+                                    mouse_click(self.page, cloc.first,
+                                                state=self._cursor,
+                                                rng=self._typing.rng)
+                                    settle(self.page, "modal_dismiss",
+                                           rng=self._typing.rng)
                                     break
                             except Exception:
                                 continue
@@ -553,7 +632,7 @@ class BetmgmBetPlacer(BetPlacer):
                 except Exception:
                     continue
 
-            # Otherwise individual remove icons.
+            # Per-bet remove sweep if Clear All wasn't available.
             if not clicked_clear_all:
                 for _ in range(10):
                     removed = False
@@ -569,8 +648,11 @@ class BetmgmBetPlacer(BetPlacer):
                                 cand = loc.nth(i)
                                 try:
                                     if cand.is_visible():
-                                        cand.click(timeout=2000)
-                                        self.page.wait_for_timeout(400)
+                                        mouse_click(self.page, cand,
+                                                    state=self._cursor,
+                                                    rng=self._typing.rng)
+                                        settle(self.page, "slip_update",
+                                               rng=self._typing.rng)
                                         removed = True
                                         break
                                 except Exception:
@@ -585,18 +667,16 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             print(f"[BETMGM] ⚠ Slip clear failed: {e} (continuing).")
 
-        # Post-clear verification: re-read the slip pill. If "(N)" with N > 0
-        # remains, the clear didn't take and we should halt before placing.
+        # Post-clear verification: pill must read 0 (or be absent).
         try:
-            slip_pill = self.page.locator(
-                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
-            )
+            slip_pill = self.page.locator(_SLIP_PILL_SELECTOR)
             if slip_pill.count() > 0:
-                text = (slip_pill.first.text_content() or "").strip()
-                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
-                if m and int(m.group(1) or m.group(2)) > 0:
+                pill_text = (slip_pill.first.text_content() or "").strip()
+                count = _pill_count(pill_text)
+                if count is not None and count > 0:
                     raise BetPlacerError(
-                        f"BetMGM slip-clear failed: pill still reads {text!r}"
+                        f"BetMGM slip-clear failed: pill still reads "
+                        f"{pill_text!r}"
                     )
         except BetPlacerError:
             raise
@@ -604,18 +684,16 @@ class BetmgmBetPlacer(BetPlacer):
             pass
 
     def _open_betmgm_slip(self) -> None:
-        """Click the bottom-docked Bet slip pill to expand the slip panel.
+        """Click the bottom slip pill to expand the slip panel.
 
-        BetMGM's slip is collapsed by default after a bet is added —
-        the wager input doesn't exist in the DOM until the slip
-        expands. Tries multiple selectors (text variants seen in
-        production: 'pays out', 'to win', plain 'Bet slip').
-        Idempotent — if the slip is already open, returns silently.
+        Idempotent — if a stake input is already visible, return.
         """
         try:
-            # If a stake input is already visible, slip is already expanded.
-            for probe in ('app-stake-input input', 'bs-stake-input input',
-                          'input[inputmode="decimal"]'):
+            for probe in (
+                'app-stake-input input',
+                'bs-stake-input input',
+                'input[inputmode="decimal"]',
+            ):
                 try:
                     loc = self.page.locator(probe)
                     if loc.count() > 0 and loc.first.is_visible():
@@ -623,7 +701,6 @@ class BetmgmBetPlacer(BetPlacer):
                 except Exception:
                     continue
 
-            # Click any visible slip-pill affordance.
             for sel in (
                 'div:has-text("pays out")',
                 'span:has-text("pays out")',
@@ -636,15 +713,16 @@ class BetmgmBetPlacer(BetPlacer):
                     loc = self.page.locator(sel)
                     if loc.count() == 0:
                         continue
-                    # Pick the FIRST visible candidate; bottom-pill is
-                    # usually the only visible match.
                     for i in range(min(loc.count(), 5)):
                         cand = loc.nth(i)
                         try:
                             if cand.is_visible():
                                 print(f"[BETMGM] Opening slip via {sel}")
-                                cand.click()
-                                self.page.wait_for_timeout(1500)
+                                mouse_click(self.page, cand,
+                                            state=self._cursor,
+                                            rng=self._typing.rng)
+                                settle(self.page, "ui_expansion",
+                                       rng=self._typing.rng)
                                 return
                         except Exception:
                             continue
@@ -654,14 +732,18 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             print(f"[BETMGM] ⚠ Slip-open probe failed: {e} (continuing)")
 
-    def assert_betslip_has_bet(self):
+    # ------------------------------------------------------------------
+    # Slip assertions
+    # ------------------------------------------------------------------
+
+    def assert_betslip_has_bet(self) -> None:
         """Assert a selected bet actually reached the slip."""
         self._open_betmgm_slip()
         if not self._betmgm_slip_has_bet():
             self._screenshot("validation_slip_empty")
             raise BetPlacerError("BetMGM slip is empty after bet click")
 
-    def assert_betslip_empty(self):
+    def assert_betslip_empty(self) -> None:
         """Assert the slip is empty after cleanup."""
         self._open_betmgm_slip()
         if self._betmgm_slip_has_bet():
@@ -670,31 +752,25 @@ class BetmgmBetPlacer(BetPlacer):
 
     def _betmgm_slip_has_bet(self) -> bool:
         """Return True if BetMGM's slip appears to contain at least one bet.
-
-        Conservative on ambiguous states: if the page exposes remove controls
-        or a non-zero slip pill, report True. If a clear empty marker is
-        visible, report False.
+        Conservative on ambiguous states.
         """
         try:
             for text in ("No bet selections", "Betslip empty"):
                 empty_marker = self.page.get_by_text(text, exact=False)
-                if empty_marker.count() > 0 and empty_marker.first.is_visible():
+                if (empty_marker.count() > 0
+                        and empty_marker.first.is_visible()):
                     return False
         except Exception:
             pass
-
         try:
-            slip_pill = self.page.locator(
-                'text=/^\\s*(?:\\d+\\s+)?Bet slip\\s*(?:\\(\\s*\\d+\\s*\\))?\\s*$/i'
-            )
+            slip_pill = self.page.locator(_SLIP_PILL_SELECTOR)
             if slip_pill.count() > 0:
-                text = (slip_pill.first.text_content() or "").strip()
-                m = re.search(r"\((\d+)\)|^\s*(\d+)\s+Bet slip", text, re.I)
-                if m:
-                    return int(m.group(1) or m.group(2)) > 0
+                pill_text = (slip_pill.first.text_content() or "").strip()
+                count = _pill_count(pill_text)
+                if count is not None:
+                    return count > 0
         except Exception:
             pass
-
         try:
             for sel in (
                 'bs-bet-slip-item',
@@ -712,8 +788,97 @@ class BetmgmBetPlacer(BetPlacer):
                         continue
         except Exception:
             pass
-
         return False
+
+    # ------------------------------------------------------------------
+    # Find + click — Task 13a
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _player_name_for_pick(pick) -> Optional[str]:
+        """Return the player name from the ``.option-group-row`` containing
+        ``pick``, or None if the BetMGM player-row DOM shape isn't present
+        (e.g., non-NBA accordions, or DOM changed). Scoped to a single row,
+        so it cannot leak adjacent players' names — this is the primary
+        defense against the cross-row matching bug where a loose ancestor
+        walkup matched the wrapping container that held all 10 players."""
+        try:
+            name = pick.evaluate(_PLAYER_NAME_FROM_PICK_JS)
+            if not isinstance(name, str):
+                return None
+            return name.strip() or None
+        except Exception:
+            return None
+
+    def _accordion_root_locator(self, accordion_name: str):
+        """Return a Locator scoped to the ``ds-accordion`` whose toggle
+        button text equals ``accordion_name`` (normalized).
+
+        Why this exists instead of a plain string selector: Playwright's
+        ``:text-is()`` and ``:text-matches("^X$")`` engines don't match
+        BetMGM's toggle buttons reliably — the button's rendered text
+        contains hidden child content (avatars, period chips, etc.) that
+        breaks Playwright's text normalization. We iterate
+        ``button[dsaccordiontoggle]`` and filter by normalized
+        ``text_content`` on the Python side, then walk up to the
+        surrounding ``ds-accordion`` via ``xpath=ancestor::``. Picks
+        scoped to that accordion are guaranteed to live inside one
+        market panel, not bleed across siblings.
+
+        Returns ``None`` if no matching button is found.
+        """
+        need_norm = " ".join((accordion_name or "").lower().split())
+        candidates = self.page.locator(
+            f'button[dsaccordiontoggle]:has-text("{accordion_name}")'
+        )
+        try:
+            count = candidates.count()
+        except Exception:
+            return None
+        for i in range(count):
+            try:
+                txt = (candidates.nth(i).text_content() or "").strip()
+            except Exception:
+                continue
+            if " ".join(txt.lower().split()) == need_norm:
+                return candidates.nth(i).locator(
+                    'xpath=ancestor::ds-accordion[1]'
+                )
+        return None
+
+    def _detect_pick_format(self, accordion_name: str) -> str:
+        """Inspect the first few picks in the panel to decide ``'std'``
+        vs ``'alt'``.
+
+        Returns ``'std'`` if any pick starts with ``O `` or ``U `` (a
+        line is in the pick text); ``'alt'`` otherwise. ``'std'`` is the
+        default when no picks are visible — that route raises a useful
+        downstream error if the accordion is genuinely empty, while
+        defaulting to ``'alt'`` would silently misclick under direction
+        on a panel that just hadn't rendered yet.
+        """
+        acc = self._accordion_root_locator(accordion_name)
+        if acc is None:
+            print(f"[BETMGM] _detect_pick_format: no accordion match for "
+                  f"{accordion_name!r}; defaulting to 'std'")
+            return 'std'
+        picks = acc.locator('ms-event-pick')
+        n = picks.count()
+        if n == 0:
+            print(f"[BETMGM] _detect_pick_format: 0 picks inside "
+                  f"{accordion_name!r}; defaulting to 'std'")
+            return 'std'
+        # Sample up to 5 picks; even one std-format pick is enough to
+        # commit to the std path (NHL panels rarely mix formats).
+        for i in range(min(n, 5)):
+            try:
+                txt = (picks.nth(i).text_content() or "").strip()
+                norm = " ".join(txt.split())
+                if re.match(r'^[OU]\s', norm):
+                    return 'std'
+            except Exception:
+                continue
+        return 'alt'
 
     def find_and_click_bet(self, opportunity, direction, market_config):
         """Find and click the bet for the specified player/line/direction.
@@ -725,8 +890,8 @@ class BetmgmBetPlacer(BetPlacer):
         * **std O/U** — picks read ``O 11.5 1.92`` / ``U 11.5 1.92``.
           The pick's own text contains the line, so we filter to the
           target line first, then walk up to find the matching player
-          row. This is the original path; covers NHL, MLB std, NFL,
-          and NBA Player blocks / quarter markets.
+          row. Covers NHL, MLB std, NFL, and NBA Player blocks /
+          quarter markets.
 
         * **alt Yes-only** — picks read ``Yes 1.07`` (or just a price
           for some Yes/No markets). No line in the pick text — there's
@@ -742,13 +907,15 @@ class BetmgmBetPlacer(BetPlacer):
         O/U picks — we'd misclick if we blindly trusted the flag.
         """
         player_name = opportunity['player_name']
-        line = opportunity['over_line'] if direction == 'over' else opportunity['under_line']
+        line = (opportunity['over_line'] if direction == 'over'
+                else opportunity['under_line'])
         accordion_name = market_config.get('accordion_name', '')
 
         print(f"[BETMGM] Finding bet: {player_name} {direction} {line}")
 
         pick_format = 'std'
-        if market_config.get('has_threshold_tabs') or market_config.get('is_alternate'):
+        if (market_config.get('has_threshold_tabs')
+                or market_config.get('is_alternate')):
             pick_format = self._detect_pick_format(accordion_name)
             print(f"[BETMGM] Detected pick format: {pick_format!r}")
 
@@ -761,21 +928,33 @@ class BetmgmBetPlacer(BetPlacer):
                 # wrong upstream — fail loud rather than misclick.
                 self._screenshot("alt_under_direction")
                 raise BetPlacerError(
-                    f"BetMGM alt-only accordion can't take direction={direction!r}; "
-                    f"only 'over' (Yes pick) is supported. Market: {accordion_name!r}"
+                    f"BetMGM alt-only accordion can't take "
+                    f"direction={direction!r}; only 'over' (Yes pick) is "
+                    f"supported. Market: {accordion_name!r}"
                 )
-            clicked = self._click_betmgm_alt_yes_pick_for_player(player_name, accordion_name)
+            clicked = self._click_betmgm_alt_yes_pick_for_player(
+                player_name, accordion_name
+            )
         else:
-            clicked = self._click_betmgm_pick_for_player(player_name, line, direction)
+            clicked = self._click_betmgm_pick_for_player(
+                player_name, line, direction
+            )
 
         if clicked:
-            # Expand viewport for betslip interaction
-            print(f"[BETMGM] Expanding viewport to 1920x945...")
+            # Slip-phase pin: intentionally clobbers the orchestrator's
+            # per-session viewport noise from viewport_from_cdp. Below
+            # ~958px wide, BetMGM flips to a mobile-takeover slip layout
+            # where "Clear All" lives in a position the placer's
+            # selectors miss; 1920x945 is the smallest known-good
+            # desktop layout. The navigation-phase nudge applied earlier
+            # still carries most of the cross-session fingerprint
+            # variability.
+            print(f"[BETMGM] Pinning viewport to 1920x945 for slip phase...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
-            self.page.wait_for_timeout(500)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
             return True
 
-        # Miss-path diagnostic + raise (mirrors legacy lines 686-734)
+        # Miss-path diagnostic + raise (mirrors legacy lines 686-734).
         try:
             aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
             aria_dump = []
@@ -827,15 +1006,21 @@ class BetmgmBetPlacer(BetPlacer):
         # the viewport).
         try:
             self.page.wait_for_timeout(5000)
-            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight)"
+            )
             self.page.wait_for_timeout(5000)
         except Exception:
             pass
         self._screenshot("bet_not_found_after_scroll")
-        raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
+        raise BetPlacerError(
+            f"No bet found for {player_name} {direction} {line}"
+        )
 
-    def _click_betmgm_pick_for_player(self, player_name: str, line: float, direction: str) -> bool:
-        """Find and click the BetMGM ms-event-pick that matches this player+line+direction.
+    def _click_betmgm_pick_for_player(self, player_name: str, line: float,
+                                      direction: str) -> bool:
+        """Find and click the BetMGM ms-event-pick that matches this
+        player+line+direction.
 
         BetMGM's player-prop rows lay out as:
             [avatar][player name][stat avg][chart icon][ms-event-pick: "O 11.5  2.00"]
@@ -855,17 +1040,22 @@ class BetmgmBetPlacer(BetPlacer):
         """
         direction_letter = "O" if direction == "over" else "U"
         target_text = f"{direction_letter} {line}"
-        target_text_alt = f"{direction_letter} {int(line)}" if float(line).is_integer() else None
+        target_text_alt = (
+            f"{direction_letter} {int(line)}"
+            if float(line).is_integer() else None
+        )
 
         # Best-effort: scroll the page to its bottom to coax virtual-scroll
         # / lazy-load picks into the DOM. Some BetMGM pages keep below-fold
         # picks unrendered until they enter the viewport — we previously
         # missed Fox's Under-3.5 pick this way. Cheap, idempotent.
         try:
-            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            self.page.wait_for_timeout(400)
+            self.page.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight)"
+            )
+            settle(self.page, "micro_pause", rng=self._typing.rng)
             self.page.evaluate("window.scrollTo(0, 0)")
-            self.page.wait_for_timeout(200)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
         except Exception:
             pass
 
@@ -873,29 +1063,6 @@ class BetmgmBetPlacer(BetPlacer):
         pick_count = all_picks.count()
         print(f"[BETMGM] scanning {pick_count} ms-event-pick(s) for "
               f"{target_text!r} on player {player_name!r}")
-
-        # Row-scoped player match: pull the player name from the closest
-        # .option-group-row → .player-props-player-name (NBA player-prop
-        # accordions). If that DOM shape isn't present (other sports /
-        # accordion types), fall back to a TIGHTLY-bounded walkup —
-        # max_text_len=150 is tuned for one row only; the prior 600-char
-        # cap allowed the wrapping container holding the full 10-player
-        # list to slip through, which is how every pick fuzzy-matched any
-        # target player and the first direction+line match always won.
-        walkup_js = """
-        (el, args) => {
-            const max_depth = args.max_depth;
-            const max_text_len = args.max_text_len;
-            const out = [];
-            let cur = el;
-            for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
-                cur = cur.parentElement;
-                const text = (cur.innerText || cur.textContent || '').trim();
-                if (text.length <= max_text_len) out.push(text);
-            }
-            return out;
-        }
-        """
 
         matched_option_id = None
         matched_handle = None
@@ -907,8 +1074,8 @@ class BetmgmBetPlacer(BetPlacer):
                 # Deliberately NOT calling pick.is_visible() — the previous
                 # impl skipped DOM-attached but not-yet-rendered picks (e.g.
                 # below the fold), which is exactly how Fox's Under-3.5
-                # disappeared. Playwright's click() will auto-scroll into
-                # view, so unrendered-but-attached is fine here.
+                # disappeared. The humanized click will auto-scroll into
+                # view via move_to's bounding-box read.
                 txt = (pick.text_content() or "").strip()
                 norm = " ".join(txt.split())
                 if target_text not in norm and (
@@ -919,12 +1086,13 @@ class BetmgmBetPlacer(BetPlacer):
                 # Primary: row-scoped player name (NBA player-prop DOM).
                 row_player = self._player_name_for_pick(pick)
                 if row_player is not None:
-                    if not fuzzy_contains(row_player, player_name, threshold=90):
+                    if not fuzzy_contains(row_player, player_name,
+                                          threshold=90):
                         continue
                 else:
                     # Fallback for non-NBA / unknown DOM shapes.
                     ancestor_texts = pick.evaluate(
-                        walkup_js,
+                        _WALKUP_JS,
                         {"max_depth": 8, "max_text_len": 150},
                     )
                     player_found = any(
@@ -937,8 +1105,13 @@ class BetmgmBetPlacer(BetPlacer):
                 option_id = pick.get_attribute("data-test-option-id")
                 matched_option_id = option_id
                 matched_handle = pick
-                row_player_meta = f" row_player={row_player!r}" if row_player else " (walkup-fallback)"
-                matched_meta = f"text={norm!r} option_id={option_id!r}{row_player_meta}"
+                row_player_meta = (
+                    f" row_player={row_player!r}" if row_player
+                    else " (walkup-fallback)"
+                )
+                matched_meta = (
+                    f"text={norm!r} option_id={option_id!r}{row_player_meta}"
+                )
                 break
             except Exception as e:
                 print(f"[BETMGM] pick #{i} scan error: {e}")
@@ -951,17 +1124,19 @@ class BetmgmBetPlacer(BetPlacer):
 
         print(f"[BETMGM] matched bet: {matched_meta}")
         # Prefer clicking via the stable data-test-option-id selector when
-        # one is present — the locator handle can go stale across the click's
-        # auto-scroll if Angular re-renders the row.
+        # one is present — the locator handle can go stale across the
+        # click's auto-scroll if Angular re-renders the row.
         try:
             if matched_option_id:
                 target = self.page.locator(
                     f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
                 )
-                target.first.click(timeout=10000)
+                mouse_click(self.page, target.first, state=self._cursor,
+                            rng=self._typing.rng)
             else:
-                matched_handle.click(timeout=10000)
-            self.page.wait_for_timeout(1500)
+                mouse_click(self.page, matched_handle, state=self._cursor,
+                            rng=self._typing.rng)
+            settle(self.page, "slip_update", rng=self._typing.rng)
             self._screenshot("bet_clicked")
             print(f"[BETMGM] ✓ Bet added to slip")
             return True
@@ -969,83 +1144,8 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("click_failed")
             raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
-    def _accordion_root_locator(self, accordion_name: str):
-        """Return a Locator scoped to the ``ds-accordion`` whose toggle
-        button text equals ``accordion_name`` (normalized).
-
-        Why this exists instead of a plain string selector:
-
-        Playwright's ``:text-is()`` and ``:text-matches("^X$")``
-        engines don't match BetMGM's toggle buttons reliably — the
-        button's rendered text contains hidden child content (avatars,
-        period chips, etc.) that breaks Playwright's text
-        normalization. Verified 2026-05-20 against Spurs @ Thunder:
-        ``button[dsaccordiontoggle]:text-is("Player points")`` returns
-        0 matches even though ``button.innerText.trim() === "Player
-        points"`` in the JS evaluator.
-
-        The accordion expander already works around this by iterating
-        ``button[dsaccordiontoggle]`` and filtering by normalized
-        ``text_content`` on the Python side. We do the same here, then
-        walk up to the surrounding ``ds-accordion`` via
-        ``xpath=ancestor::``. Picks scoped to that accordion are
-        guaranteed to live inside one market panel, not bleed across
-        siblings.
-
-        Returns ``None`` if no matching button is found.
-        """
-        need_norm = " ".join((accordion_name or "").lower().split())
-        candidates = self.page.locator(
-            f'button[dsaccordiontoggle]:has-text("{accordion_name}")'
-        )
-        try:
-            count = candidates.count()
-        except Exception:
-            return None
-        for i in range(count):
-            try:
-                txt = (candidates.nth(i).text_content() or "").strip()
-            except Exception:
-                continue
-            if " ".join(txt.lower().split()) == need_norm:
-                return candidates.nth(i).locator('xpath=ancestor::ds-accordion[1]')
-        return None
-
-    def _detect_pick_format(self, accordion_name: str) -> str:
-        """Inspect the first few picks in the panel to decide ``'std'``
-        vs ``'alt'``.
-
-        Returns ``'std'`` if any pick starts with ``O `` or ``U `` (a
-        line is in the pick text); ``'alt'`` otherwise. ``'std'`` is the
-        default when no picks are visible — that route raises a useful
-        downstream error if the accordion is genuinely empty, while
-        defaulting to ``'alt'`` would silently misclick under direction
-        on a panel that just hadn't rendered yet.
-        """
-        acc = self._accordion_root_locator(accordion_name)
-        if acc is None:
-            print(f"[BETMGM] _detect_pick_format: no accordion match for "
-                  f"{accordion_name!r}; defaulting to 'std'")
-            return 'std'
-        picks = acc.locator('ms-event-pick')
-        n = picks.count()
-        if n == 0:
-            print(f"[BETMGM] _detect_pick_format: 0 picks inside "
-                  f"{accordion_name!r}; defaulting to 'std'")
-            return 'std'
-        # Sample up to 5 picks; even one std-format pick is enough to
-        # commit to the std path (NHL panels rarely mix formats).
-        for i in range(min(n, 5)):
-            try:
-                txt = (picks.nth(i).text_content() or "").strip()
-                norm = " ".join(txt.split())
-                if re.match(r'^[OU]\s', norm):
-                    return 'std'
-            except Exception:
-                continue
-        return 'alt'
-
-    def _click_betmgm_alt_yes_pick_for_player(self, player_name: str, accordion_name: str) -> bool:
+    def _click_betmgm_alt_yes_pick_for_player(self, player_name: str,
+                                              accordion_name: str) -> bool:
         """Click the lone ``Yes <price>`` pick on the row for ``player_name``.
 
         Used when the expanded accordion ships alternate-only picks
@@ -1061,7 +1161,8 @@ class BetmgmBetPlacer(BetPlacer):
         """
         acc = self._accordion_root_locator(accordion_name)
         if acc is None:
-            print(f"[BETMGM] alt-mode: no accordion match for {accordion_name!r}")
+            print(f"[BETMGM] alt-mode: no accordion match for "
+                  f"{accordion_name!r}")
             return False
 
         # Coax virtual-scrolled picks into the DOM by scrolling to bottom
@@ -1073,10 +1174,12 @@ class BetmgmBetPlacer(BetPlacer):
         # appeared on its own a second later. Watcher caught this with
         # the Wembanyama miss on 2026-05-21.
         try:
-            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            self.page.wait_for_timeout(400)
+            self.page.evaluate(
+                "window.scrollTo(0, document.body.scrollHeight)"
+            )
+            settle(self.page, "micro_pause", rng=self._typing.rng)
             self.page.evaluate("window.scrollTo(0, 0)")
-            self.page.wait_for_timeout(200)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
         except Exception:
             pass
 
@@ -1084,23 +1187,6 @@ class BetmgmBetPlacer(BetPlacer):
         pick_count = all_picks.count()
         print(f"[BETMGM] alt-mode: scanning {pick_count} pick(s) inside "
               f"{accordion_name!r} for player {player_name!r}")
-
-        # Row-scoped player match (NBA player-prop DOM) with tight-walkup
-        # fallback for other shapes — see std path for the full rationale.
-        walkup_js = """
-        (el, args) => {
-            const max_depth = args.max_depth;
-            const max_text_len = args.max_text_len;
-            const out = [];
-            let cur = el;
-            for (let i = 0; i < max_depth && cur && cur.parentElement; i++) {
-                cur = cur.parentElement;
-                const text = (cur.innerText || cur.textContent || '').trim();
-                if (text.length <= max_text_len) out.push(text);
-            }
-            return out;
-        }
-        """
 
         matched_handle = None
         matched_option_id = None
@@ -1113,11 +1199,12 @@ class BetmgmBetPlacer(BetPlacer):
 
                 row_player = self._player_name_for_pick(pick)
                 if row_player is not None:
-                    if not fuzzy_contains(row_player, player_name, threshold=90):
+                    if not fuzzy_contains(row_player, player_name,
+                                          threshold=90):
                         continue
                 else:
                     ancestor_texts = pick.evaluate(
-                        walkup_js,
+                        _WALKUP_JS,
                         {"max_depth": 8, "max_text_len": 150},
                     )
                     player_found = any(
@@ -1130,8 +1217,13 @@ class BetmgmBetPlacer(BetPlacer):
                 option_id = pick.get_attribute("data-test-option-id")
                 matched_handle = pick
                 matched_option_id = option_id
-                row_player_meta = f" row_player={row_player!r}" if row_player else " (walkup-fallback)"
-                matched_meta = f"text={txt!r} option_id={option_id!r}{row_player_meta}"
+                row_player_meta = (
+                    f" row_player={row_player!r}" if row_player
+                    else " (walkup-fallback)"
+                )
+                matched_meta = (
+                    f"text={txt!r} option_id={option_id!r}{row_player_meta}"
+                )
                 break
             except Exception as e:
                 print(f"[BETMGM] alt pick #{i} scan error: {e}")
@@ -1148,10 +1240,12 @@ class BetmgmBetPlacer(BetPlacer):
                 target = self.page.locator(
                     f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
                 )
-                target.first.click(timeout=10000)
+                mouse_click(self.page, target.first, state=self._cursor,
+                            rng=self._typing.rng)
             else:
-                matched_handle.click(timeout=10000)
-            self.page.wait_for_timeout(1500)
+                mouse_click(self.page, matched_handle, state=self._cursor,
+                            rng=self._typing.rng)
+            settle(self.page, "slip_update", rng=self._typing.rng)
             self._screenshot("alt_bet_clicked")
             print(f"[BETMGM] ✓ Alt-mode bet added to slip")
             return True
@@ -1159,24 +1253,30 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("alt_click_failed")
             raise BetPlacerError(f"Failed to click BetMGM alt bet: {e}")
 
-    def enter_wager(self, amount):
-        """Enter wager amount in the betslip."""
-        print(f"[BETMGM] Entering wager: ${amount:.2f}")
-        return self._enter_wager_betmgm(amount)
+    # ------------------------------------------------------------------
+    # Task 13b — wager entry, place, odds, limit
+    # ------------------------------------------------------------------
 
-    def _enter_wager_betmgm(self, amount: float) -> bool:
-        """Enter wager on BetMGM."""
+    def enter_wager(self, amount: float) -> bool:
+        """Enter wager amount in the BetMGM slip via humanized typing.
+
+        Replaces the legacy ``keyboard.type(amount_str, delay=80)`` with
+        ``humanized_type``, which emits per-character keystrokes through
+        the active ``TypingProfile`` (lognormal inter-key delays + the
+        occasional typo-and-correct). The pre-submit dwell that the
+        legacy code wrote as a 1000ms fixed wait becomes a categorized
+        ``settle(..., "pre_submit_dwell")`` so the cadence drifts daily.
+        """
+        print(f"[BETMGM] Entering wager: ${amount:.2f}")
         try:
-            # BetMGM docks the slip at the bottom of the screen, collapsed
-            # to a "1 Bet slip — $X.XX pays out $Y.YY" pill. The wager
-            # input only mounts when the slip is expanded. Click the pill
-            # (or any visible "pays out"/"Bet slip" affordance) to expand.
+            # The wager input only mounts once the slip is expanded;
+            # idempotent if it's already open.
             self._open_betmgm_slip()
 
-            # BetMGM stake input — historically `app-stake-input input`,
-            # but the prefix and component name drift. Broaden the cascade
-            # to durable signals: inputmode=decimal, aria-label / placeholder
-            # patterns, and the data-testid families we've seen.
+            # Cascade of selectors — see legacy notes. Durable signals
+            # first (inputmode=decimal, aria-label patterns), the more
+            # brittle component-prefixed selectors next, and a text
+            # last-resort.
             wager_selectors = [
                 'app-stake-input input',
                 'bs-stake-input input',
@@ -1191,11 +1291,10 @@ class BetmgmBetPlacer(BetPlacer):
                 'input[type="text"]',  # last-resort fallback
             ]
 
-            # When slip-clear fails and multiple bets accumulate, the slip
-            # has multiple stake inputs and we must enter the wager into
-            # the one for the just-added bet. Heuristic: prefer the LAST
-            # visible EMPTY stake input (just-added bets have no value;
-            # previously-filled bets retain their value across iterations).
+            # If slip-clear failed and prior bets accumulated, the slip
+            # has multiple stake inputs. Prefer the LAST visible EMPTY
+            # input (= the just-added bet); only fall back to the last
+            # filled one if every visible input is non-empty.
             wager_input = None
             for selector in wager_selectors:
                 try:
@@ -1217,13 +1316,14 @@ class BetmgmBetPlacer(BetPlacer):
                             continue
                     if not visible_inputs:
                         continue
-                    empty_inputs = [el for el, v in visible_inputs if not v.strip()]
+                    empty_inputs = [el for el, v in visible_inputs
+                                    if not v.strip()]
                     if empty_inputs:
-                        wager_input = empty_inputs[-1]  # last empty = just-added bet
+                        wager_input = empty_inputs[-1]
                         print(f"[BETMGM] Found wager input via {selector} "
                               f"(picked last empty of {len(visible_inputs)})")
                     else:
-                        wager_input = visible_inputs[-1][0]  # last filled — best guess
+                        wager_input = visible_inputs[-1][0]
                         print(f"[BETMGM] Found wager input via {selector} "
                               f"(all {len(visible_inputs)} filled; picked last)")
                     break
@@ -1231,7 +1331,7 @@ class BetmgmBetPlacer(BetPlacer):
                     continue
 
             if wager_input is None:
-                # Diagnostic dump on miss — what visible inputs DO exist?
+                # Diagnostic dump — what visible inputs DO exist?
                 try:
                     inputs = self.page.locator("input")
                     dump = []
@@ -1255,131 +1355,157 @@ class BetmgmBetPlacer(BetPlacer):
                 self._screenshot("wager_input_not_found")
                 raise BetPlacerError("Could not find BetMGM wager input")
 
-            # Enter the amount via individual keystrokes. BetMGM uses a
-            # custom Angular numpad widget; .fill() sets the input value
-            # in DOM but doesn't fire the keydown events the widget's
-            # form-state machine listens for, so the Place Bet button
-            # stays aria-disabled='true'. .pw_type() generates real
-            # keystroke events that the widget accepts.
-            wager_input.click()
-            self.page.wait_for_timeout(200)
-            # Clear any existing content first (Ctrl+A, Delete) so the
-            # new digits don't get appended.
+            # Focus + clear the input, then humanized-type the amount.
+            # The Angular numpad widget listens on keydown events; we
+            # must NOT use .fill() (which sets DOM value but doesn't
+            # fire keydown), or the Place Bet button will stay
+            # aria-disabled='true'.
+            mouse_click(self.page, wager_input, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
+            # Clear existing content so the new digits don't append.
             self.page.keyboard.press("Control+A")
             self.page.keyboard.press("Delete")
-            self.page.wait_for_timeout(200)
-            amount_str = f"{amount:.2f}"
-            # Use keyboard.type with a small per-char delay so each
-            # digit triggers a clean keypress that the numpad widget
-            # processes individually.
-            self.page.keyboard.type(amount_str, delay=80)
-            self.page.wait_for_timeout(500)
+            settle(self.page, "micro_pause", rng=self._typing.rng)
 
-            # Press Tab/ArrowDown to blur the input and trigger validation
-            # — needed so the Place Bet button transitions from disabled
-            # to enabled.
+            amount_str = f"{amount:.2f}"
+            humanized_type(self.page, wager_input, amount_str,
+                           profile=self._typing)
+
+            # Blur the input so the form-state machine validates and
+            # the Place Bet button transitions disabled→enabled.
             self.page.keyboard.press("Tab")
-            self.page.wait_for_timeout(1000)
+            settle(self.page, "pre_submit_dwell", rng=self._typing.rng)
 
             self._screenshot("wager_entered")
             print(f"[BETMGM] ✓ Wager entered: ${amount:.2f}")
             return True
 
+        except BetPlacerError:
+            raise
         except Exception as e:
             self._screenshot("wager_entry_failed")
             raise BetPlacerError(f"Failed to enter wager: {e}")
 
-    def place_bet(self):
-        """Click the Place Bet button and check for success/failure."""
+    def place_bet(self) -> Tuple[str, str]:
+        """Click the Place Bet button and poll for the success/failure
+        confirmation. In shadow mode (``BG_SHADOW_MODE=1``), aborts
+        BEFORE the click so a recorded run can validate the whole
+        pre-submit flow without actually placing real money.
+        """
         print(f"[BETMGM] Placing bet...")
-        return self._place_bet_betmgm()
-
-    def _place_bet_betmgm(self) -> Tuple[str, str]:
-        """Place bet on BetMGM."""
         try:
-            # BetMGM: button with "Place Bet" text
-            place_btn = self.page.get_by_role("button", name=re.compile(r"Place\s+Bet", re.I))
+            place_btn = self.page.get_by_role(
+                "button", name=re.compile(r"Place\s+Bet", re.I)
+            )
 
             if place_btn.count() == 0:
                 self._screenshot("place_bet_not_found")
                 raise BetPlacerError("Place Bet button not found")
 
-            print(f"[BETMGM] Clicking Place Bet...")
-            place_btn.first.click()
-            self.page.wait_for_timeout(2000)
+            # Shadow-mode short-circuit: the slip is loaded, the button
+            # is visible — we've validated the pre-submit flow end-to-end.
+            # Abort here, BEFORE the humanized click, so no real money
+            # changes hands. ShadowAbortError subclasses BetPlacerError;
+            # the worker classifies it as SKIPPED, not FAILED.
+            if os.getenv("BG_SHADOW_MODE") == "1":
+                raise ShadowAbortError(
+                    "BG_SHADOW_MODE=1: aborted before Place Bet click "
+                    "(shadow run)"
+                )
 
-            # Check for success/failure - poll for result
-            for _ in range(10):  # 5 seconds max
-                # Check for success: "Your bet has been accepted" in pc-richtext section
-                accepted_msg = self.page.get_by_text("Your bet has been accepted")
-                if accepted_msg.count() > 0 and accepted_msg.first.is_visible():
+            print(f"[BETMGM] Clicking Place Bet...")
+            mouse_click(self.page, place_btn.first, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "slip_update", rng=self._typing.rng)
+
+            # Poll for confirmation — accepted / alt-success / rejected.
+            # 10 attempts × slip_update settle ≈ 5s window (matches
+            # legacy 10×500ms).
+            for _ in range(10):
+                accepted_msg = self.page.get_by_text(
+                    "Your bet has been accepted"
+                )
+                if (accepted_msg.count() > 0
+                        and accepted_msg.first.is_visible()):
                     self._screenshot("bet_placed_success")
                     print(f"[BETMGM] ✓ Bet ACCEPTED")
                     self._close_betslip_betmgm()
                     return "ACCEPTED", "Your bet has been accepted"
 
-                # Alternative success messages
-                alt_success = self.page.get_by_text(re.compile(r"Bet Placed|Wager Accepted", re.I))
-                if alt_success.count() > 0 and alt_success.first.is_visible():
+                alt_success = self.page.get_by_text(
+                    re.compile(r"Bet Placed|Wager Accepted", re.I)
+                )
+                if (alt_success.count() > 0
+                        and alt_success.first.is_visible()):
                     self._screenshot("bet_placed_success")
                     print(f"[BETMGM] ✓ Bet ACCEPTED")
                     self._close_betslip_betmgm()
                     return "ACCEPTED", "Bet placed successfully"
 
-                # Check for error messages
-                error_msg = self.page.get_by_text(re.compile(r"limit exceeded|Error|rejected", re.I))
-                if error_msg.count() > 0 and error_msg.first.is_visible():
+                error_msg = self.page.get_by_text(
+                    re.compile(r"limit exceeded|Error|rejected", re.I)
+                )
+                if (error_msg.count() > 0
+                        and error_msg.first.is_visible()):
                     msg = error_msg.first.text_content() or "Unknown error"
                     self._screenshot("bet_rejected")
                     print(f"[BETMGM] ✗ Bet REJECTED: {msg}")
                     return "REJECTED", msg
 
-                self.page.wait_for_timeout(500)
+                settle(self.page, "slip_update", rng=self._typing.rng)
 
-            # Unknown state
+            # Unknown state — neither success nor rejection observed.
             self._screenshot("bet_status_unknown")
             print(f"[BETMGM] ? Bet status UNKNOWN")
             return "UNKNOWN", "Could not determine bet status"
 
+        except ShadowAbortError:
+            raise
+        except BetPlacerError:
+            raise
         except Exception as e:
             self._screenshot("place_bet_failed")
             raise BetPlacerError(f"Place bet failed: {e}")
 
-    def _close_betslip_betmgm(self):
-        """Close the betslip after a successful bet on BetMGM."""
+    def _close_betslip_betmgm(self) -> None:
+        """Close the slip after a successful bet. Best-effort — failures
+        here are non-fatal; the next iteration's slip-clear will reset.
+        """
         try:
-            # From recording: aria/Close or bs-linear-result-summary button
             close_selectors = [
                 'bs-linear-result-summary button',
                 '[aria-label="Close"]',
             ]
-
             for selector in close_selectors:
                 try:
                     close_btn = self.page.locator(selector)
-                    if close_btn.count() > 0 and close_btn.first.is_visible():
+                    if (close_btn.count() > 0
+                            and close_btn.first.is_visible()):
                         print(f"[BETMGM] Closing betslip...")
-                        close_btn.first.click()
-                        self.page.wait_for_timeout(500)
+                        mouse_click(self.page, close_btn.first,
+                                    state=self._cursor,
+                                    rng=self._typing.rng)
+                        settle(self.page, "modal_dismiss",
+                               rng=self._typing.rng)
                         print(f"[BETMGM] ✓ Betslip closed")
                         return
                 except Exception:
                     continue
-
-            print(f"[BETMGM] ⚠ Could not find close button, continuing anyway...")
+            print(f"[BETMGM] ⚠ Could not find close button, "
+                  f"continuing anyway...")
         except Exception as e:
             print(f"[BETMGM] ⚠ Error closing betslip: {e}")
 
-    def get_actual_odds(self):
-        """Extract actual odds from BetMGM betslip.
+    def get_actual_odds(self) -> Optional[float]:
+        """Extract the decimal odds rendered in the BetMGM slip.
 
-        BetMGM displays decimal odds in: span.odds-indicator__lite--default
-
-        Returns:
-            Decimal odds as float, or None if not found
+        Pure DOM probe — no clicks, so no humanized mouse path. Selector
+        cascade and regex are preserved verbatim from the legacy
+        implementation; the regex is load-bearing for parsing prices
+        like "1.75" out of the odds span.
         """
         try:
-            # Primary selector for BetMGM odds
             odds_selectors = [
                 'span.odds-indicator__lite--default',
                 'span[class*="odds-indicator"]',
@@ -1392,34 +1518,34 @@ class BetmgmBetPlacer(BetPlacer):
                     if odds_elem.count() > 0:
                         text = odds_elem.first.text_content() or ""
                         text = text.strip()
-
-                        # Parse decimal odds (e.g., "1.75")
                         decimal_match = re.search(r'(\d+\.?\d*)', text)
                         if decimal_match:
                             decimal_odds = float(decimal_match.group(1))
-                            print(f"[BETMGM] Extracted odds: {decimal_odds:.3f}")
+                            print(f"[BETMGM] Extracted odds: "
+                                  f"{decimal_odds:.3f}")
                             return decimal_odds
                 except Exception:
                     continue
 
             print(f"[BETMGM] ⚠ Could not extract odds from betslip")
             return None
-
         except Exception as e:
             print(f"[BETMGM] ⚠ Error extracting odds: {e}")
             return None
 
-    def check_limit_alert(self):
-        """Check if BetMGM shows the max limit alert and get adjusted stake.
+    def check_limit_alert(self) -> Tuple[bool, Optional[float]]:
+        """Detect BetMGM's "over the allowed limit" alert and parse the
+        adjusted stake.
 
-        When the requested bet exceeds BetMGM's limit, they show an alert:
-        "Your requested bet is over the allowed limit. The maximum stake has been adjusted..."
+        Pure text/DOM probe — no clicks. Returns ``(True, adjusted)`` if
+        the alert fired and the adjusted stake parsed cleanly,
+        ``(True, None)`` if the alert fired but the stake couldn't be
+        parsed, ``(False, None)`` otherwise.
 
-        Returns:
-            (limit_hit: bool, adjusted_stake: float or None)
+        Regex patterns are preserved verbatim — the ``"$6.76"`` /
+        ``"6,762.50"`` shape parsing is load-bearing.
         """
         try:
-            # Check for the limit alert message
             alert_selectors = [
                 'p.alert-content__message',
                 '.alert-content__message',
@@ -1434,33 +1560,42 @@ class BetmgmBetPlacer(BetPlacer):
                         if "over the allowed limit" in alert_text.lower():
                             print(f"[BETMGM] ⚠ Max limit alert detected!")
 
-                            # Extract the adjusted stake from betslip summary
                             stake_selectors = [
                                 'span.betslip-summary-value',
                                 '.betslip-summary-value',
                             ]
 
                             for stake_selector in stake_selectors:
-                                stake_elem = self.page.locator(stake_selector).first
+                                stake_elem = self.page.locator(
+                                    stake_selector
+                                ).first
                                 if stake_elem.count() > 0:
-                                    stake_text = stake_elem.text_content() or ""
-                                    # Parse "$6.76" format
-                                    stake_match = re.search(r'\$?([\d,]+\.?\d*)', stake_text)
+                                    stake_text = (
+                                        stake_elem.text_content() or ""
+                                    )
+                                    stake_match = re.search(
+                                        r'\$?([\d,]+\.?\d*)', stake_text
+                                    )
                                     if stake_match:
-                                        adjusted_stake = float(stake_match.group(1).replace(',', ''))
-                                        print(f"[BETMGM] Adjusted stake: ${adjusted_stake:.2f}")
-                                        self._screenshot("limit_alert_detected")
+                                        adjusted_stake = float(
+                                            stake_match.group(1)
+                                            .replace(',', '')
+                                        )
+                                        print(f"[BETMGM] Adjusted stake: "
+                                              f"${adjusted_stake:.2f}")
+                                        self._screenshot(
+                                            "limit_alert_detected"
+                                        )
                                         return True, adjusted_stake
 
-                            # Alert found but couldn't parse stake
-                            print(f"[BETMGM] ⚠ Could not parse adjusted stake")
+                            print(f"[BETMGM] ⚠ Could not parse "
+                                  f"adjusted stake")
                             self._screenshot("limit_alert_no_stake")
                             return True, None
                 except Exception:
                     continue
 
             return False, None
-
         except Exception as e:
             print(f"[BETMGM] ⚠ Error checking limit alert: {e}")
             return False, None
