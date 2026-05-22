@@ -29,7 +29,8 @@ from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 from auth import ensure_logged_in, LoginError, LoginInterventionRequired
 from screen_recorder import start_recording, stop_recording
 from dashboard_tab import ensure_dashboard_tab
-from human.session import viewport_from_cdp
+from human.session import viewport_from_cdp, warmup_browse
+from human.modals import ModalWatcher
 
 
 class OrphanedBetError(Exception):
@@ -257,6 +258,12 @@ class ArbExecutor:
         # and review.pending always writes, regardless of which step
         # raises (warmup credential-modal halt, Phase login, orphan bet).
         record_proc = None
+        # Modal watchers — bound after each tab is opened so the outer
+        # finally can stop them on every exit path (early return, raise,
+        # orphan escalation) without having to thread .stop() through the
+        # ~12 page_*.close() sites scattered across error handlers.
+        fd_modal_watcher: Optional[ModalWatcher] = None
+        mgm_modal_watcher: Optional[ModalWatcher] = None
 
         try:
             # Recording first so cold-session login flows are captured.
@@ -286,6 +293,8 @@ class ArbExecutor:
                 print("Opening FanDuel tab...")
                 page_fd = context.new_page()
                 viewport_from_cdp(page_fd)
+                fd_modal_watcher = ModalWatcher(page_fd)
+                fd_modal_watcher.start()
 
                 try:
                     ensure_logged_in(page_fd, "fanduel", self.audit_dir)
@@ -349,6 +358,8 @@ class ArbExecutor:
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
                 viewport_from_cdp(page_mgm)
+                mgm_modal_watcher = ModalWatcher(page_mgm)
+                mgm_modal_watcher.start()
 
                 try:
                     ensure_logged_in(page_mgm, "betmgm", self.audit_dir)
@@ -642,6 +653,23 @@ class ArbExecutor:
             ExecutionLogger.log_execution_failure(f"Unexpected error: {e}", self.opportunity, error=e)
             return False
         finally:
+            # Stop modal watchers BEFORE recording stop / review marker so
+            # any background-thread page activity (modal probe in flight)
+            # quiesces before the pages are torn down by the surrounding
+            # context manager. stop() swallows internal exceptions and is
+            # idempotent (see human/modals.py); safe to call from every
+            # exit path even when the watcher was never started.
+            if mgm_modal_watcher is not None:
+                try:
+                    mgm_modal_watcher.stop()
+                except Exception as _e:
+                    print(f"[modal] mgm watcher stop error (ignored): {_e}")
+            if fd_modal_watcher is not None:
+                try:
+                    fd_modal_watcher.stop()
+                except Exception as _e:
+                    print(f"[modal] fd watcher stop error (ignored): {_e}")
+
             stop_recording(record_proc)
             try:
                 with open(os.path.join(self.audit_dir, "review.pending"), "w") as _f:
@@ -720,6 +748,16 @@ class ArbExecutor:
                 try:
                     warm_page = context.new_page()
                     ensure_logged_in(warm_page, site, self.audit_dir)
+                    # Watch for modals (e.g. FanDuel "Reality Check" can
+                    # fire during the 12-35s warmup browse) while we do
+                    # the homepage dwell that humanizes the session.
+                    with ModalWatcher(warm_page):
+                        try:
+                            warmup_browse(warm_page, site=site)
+                        except Exception as warm_err:
+                            # Non-fatal: warmup is best-effort. The real
+                            # Phase 1/2 attempt does the actual work.
+                            print(f"[warmup] {site} warmup_browse failed (non-fatal): {warm_err}")
                 except LoginInterventionRequired as e:
                     ExecutionLogger.log_critical(
                         reason=f"LOGIN INTERVENTION REQUIRED on {site} (warmup): {e}",
