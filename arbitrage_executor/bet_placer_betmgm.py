@@ -817,6 +817,21 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception:
             pass
         self._screenshot("bet_not_found")
+        # Hold the page in view long enough for the recording to capture
+        # what BetMGM actually shipped — the bot otherwise navigates away
+        # within milliseconds and the watcher can't verify whether the
+        # player/market was on the page or whether the bot just missed it.
+        # 5s at the top, then scroll to bottom, then 5s at the bottom
+        # surfaces both the visible accordion and any below-fold rows
+        # (e.g. virtual-scrolled picks that only render once they enter
+        # the viewport).
+        try:
+            self.page.wait_for_timeout(5000)
+            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.wait_for_timeout(5000)
+        except Exception:
+            pass
+        self._screenshot("bet_not_found_after_scroll")
         raise BetPlacerError(f"No bet found for {player_name} {direction} {line}")
 
     def _click_betmgm_pick_for_player(self, player_name: str, line: float, direction: str) -> bool:
@@ -1048,6 +1063,23 @@ class BetmgmBetPlacer(BetPlacer):
         if acc is None:
             print(f"[BETMGM] alt-mode: no accordion match for {accordion_name!r}")
             return False
+
+        # Coax virtual-scrolled picks into the DOM by scrolling to bottom
+        # then back to top — same dance as std-mode. Without this, alt
+        # accordions with more rows than fit in the viewport (e.g. the
+        # 2+ threes tab on Thunder@Spurs) only render the top few player
+        # rows; the scan counts those few, misses the player we want,
+        # and reports "no row matched" even though the row would have
+        # appeared on its own a second later. Watcher caught this with
+        # the Wembanyama miss on 2026-05-21.
+        try:
+            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self.page.wait_for_timeout(400)
+            self.page.evaluate("window.scrollTo(0, 0)")
+            self.page.wait_for_timeout(200)
+        except Exception:
+            pass
+
         all_picks = acc.locator('ms-event-pick')
         pick_count = all_picks.count()
         print(f"[BETMGM] alt-mode: scanning {pick_count} pick(s) inside "
