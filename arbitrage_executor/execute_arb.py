@@ -29,6 +29,7 @@ from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 from auth import ensure_logged_in, LoginError, LoginInterventionRequired
 from screen_recorder import start_recording, stop_recording
 from dashboard_tab import ensure_dashboard_tab
+from human.session import viewport_from_cdp
 
 
 class OrphanedBetError(Exception):
@@ -284,7 +285,7 @@ class ArbExecutor:
                 # Open FanDuel page
                 print("Opening FanDuel tab...")
                 page_fd = context.new_page()
-                page_fd.set_viewport_size({"width": 943, "height": 944})
+                viewport_from_cdp(page_fd)
 
                 try:
                     ensure_logged_in(page_fd, "fanduel", self.audit_dir)
@@ -347,7 +348,7 @@ class ArbExecutor:
                 # that's actually clickable.
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
-                page_mgm.set_viewport_size({"width": 1920, "height": 1080})
+                viewport_from_cdp(page_mgm)
 
                 try:
                     ensure_logged_in(page_mgm, "betmgm", self.audit_dir)

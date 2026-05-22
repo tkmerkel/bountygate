@@ -36,6 +36,7 @@ from auth import LoginError, LoginInterventionRequired, ensure_logged_in
 from bet_placer import BetPlacer, BetPlacerError
 from chrome_helpers import CDP_PORT, ensure_chrome_cdp, profile_dir
 from db_connection import fetch_data
+from human.session import viewport_from_cdp
 from selector_finder import SelectorManager
 
 VALID_SITES = {"fanduel", "betmgm"}
@@ -364,10 +365,7 @@ def validate_selector(
         context = browser.contexts[0] if browser.contexts else browser.new_context()
         page = context.new_page()
         try:
-            if site == "betmgm":
-                page.set_viewport_size({"width": 1920, "height": 1080})
-            else:
-                page.set_viewport_size({"width": 943, "height": 944})
+            viewport_from_cdp(page)
 
             ensure_logged_in(page, site, audit_dir)
             placer = BetPlacer(page, site, audit_dir)
