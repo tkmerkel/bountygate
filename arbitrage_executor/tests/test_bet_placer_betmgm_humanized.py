@@ -1,8 +1,10 @@
-"""Tests for the humanized BetMGM placer (Task 12 surface).
+"""Tests for the humanized BetMGM placer (Tasks 12 + 13).
 
 Covers the lazy slip-clear (pill==0 short-circuit), the full clear dance
-when the pill is non-zero, and the structural-skip BetPlacerSkipError
-path when only the merged-alt accordion is on the page.
+when the pill is non-zero, the structural-skip BetPlacerSkipError path
+when only the merged-alt accordion is on the page, and the Task 13
+surface (find/click humanized, wager humanized-typed, shadow-mode
+abort, odds/limit DOM probes).
 
 The FakePage harness here extends the one in ``tests/_fakes.py`` with the
 extra surface ``human.mouse.click`` needs (a ``mouse`` attr that records
@@ -10,10 +12,12 @@ move/down/up, and ``bounding_box`` on the elements we expect to click).
 We don't import the existing FakePage because adding ``mouse`` to it
 would propagate to every existing test; keep this localized.
 """
+import re
+
 import pytest
 
 from _fakes import FakeElement, FakeLocator, FakeKeyboard
-from bet_placer import BetPlacerError, BetPlacerSkipError
+from bet_placer import BetPlacerError, BetPlacerSkipError, ShadowAbortError
 from bet_placer_betmgm import BetmgmBetPlacer
 
 
@@ -73,9 +77,11 @@ class _HumanizedFakePage:
     we don't disturb tests that rely on the older (mouse-less) shape.
     """
 
-    def __init__(self, *, locators=None, text_locators=None, url=""):
+    def __init__(self, *, locators=None, text_locators=None, role_locators=None,
+                 url=""):
         self.locators = locators or {}
         self.text_locators = text_locators or {}
+        self.role_locators = role_locators or {}
         self.url = url
         self.waits: list[int] = []
         self.navigations: list[str] = []
@@ -91,6 +97,13 @@ class _HumanizedFakePage:
         if hasattr(text, "pattern"):
             return self.text_locators.get(text.pattern, FakeLocator())
         return self.text_locators.get(text, FakeLocator())
+
+    def get_by_role(self, role, name=None):
+        if name is not None and hasattr(name, "pattern"):
+            key = (role, name.pattern)
+        else:
+            key = (role, name)
+        return self.role_locators.get(key, FakeLocator())
 
     def wait_for_timeout(self, ms):
         self.waits.append(int(ms))
