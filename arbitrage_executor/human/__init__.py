@@ -10,10 +10,12 @@ from human.errors import (
     FdOddsDriftedDuringIdleError,
 )
 from human.waiting import settle, WAIT_CATEGORIES
+from human.typing import TypingProfile
 
 __all__ = [
     "SlipDrainedDuringIdleError",
     "FdOddsDriftedDuringIdleError",
     "settle",
     "WAIT_CATEGORIES",
+    "TypingProfile",
 ]
