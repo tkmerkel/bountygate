@@ -230,6 +230,19 @@ def click(
     dwell_ms = _sample_lognormal_ms(_DWELL_MU, _DWELL_SIGMA, rng)
     page.wait_for_timeout(dwell_ms)
 
+    # Sweep any active modal before the click dispatches. Once
+    # locator.click() enters Playwright's actionability retry loop the
+    # main thread is pinned for up to 30s; nothing else fires settle()
+    # to drive ModalWatcher. A Reality Check / responsible-gambling
+    # modal that opens between move_to and click would silently
+    # intercept pointer events for the full timeout otherwise (FD
+    # player_assists, revalidate sweep #2, 2026-05-22).
+    try:
+        from human.modals import check_all_active
+        check_all_active()
+    except Exception:
+        pass
+
     # Hold-time delay is preserved as the ``delay`` between mousedown
     # and mouseup inside locator.click — Playwright supports this
     # natively, so we keep the lognormal variability for the dispatched

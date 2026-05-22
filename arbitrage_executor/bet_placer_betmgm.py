@@ -445,18 +445,7 @@ class BetmgmBetPlacer(BetPlacer):
                 ) from e
 
             # Click "Show More" until all players visible.
-            show_more_selector = (
-                'ms-option-panel-bottom-action:has-text("Show More")'
-            )
-            attempts = 0
-            while attempts < 5:
-                show_more = self.page.locator(show_more_selector)
-                if show_more.count() == 0:
-                    break
-                mouse_click(self.page, show_more.first, state=self._cursor,
-                            rng=self._typing.rng)
-                settle(self.page, "ui_expansion", rng=self._typing.rng)
-                attempts += 1
+            self._click_show_more_repeatedly_betmgm()
 
             print(f"[BETMGM] ✓ Market expanded")
             self._screenshot("market_expanded")
@@ -472,6 +461,61 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             self._screenshot("accordion_expansion_failed")
             raise BetPlacerError(f"Accordion expansion failed: {e}")
+
+    # Selector cascade for the BetMGM "Show more" / "Show More" pagination
+    # button at the bottom of a player-list accordion. Tried in order;
+    # first match wins. The first entry (``ms-option-panel-bottom-action``)
+    # was the historical wrapper element; BetMGM's Angular bundle drops
+    # it intermittently and the role-only / button-only fallbacks rescue
+    # us when that happens. Without this, the player list stays paginated
+    # at ~11 visible rows and players past the fold never get scanned.
+    _SHOW_MORE_SELECTORS = (
+        'ms-option-panel-bottom-action:has-text("Show More")',
+        'ms-option-panel-bottom-action:has-text("Show more")',
+        'button:has-text("Show More")',
+        'button:has-text("Show more")',
+        '[role="button"]:has-text("Show More")',
+        '[role="button"]:has-text("Show more")',
+    )
+
+    def _click_show_more_repeatedly_betmgm(self, *, max_attempts: int = 5) -> int:
+        """Click whichever "Show more" pagination button is currently on
+        the page, up to ``max_attempts`` times. Returns the click count
+        for diagnostics.
+
+        Each iteration re-probes the selector cascade because BetMGM
+        sometimes re-renders the wrapper between expansions.
+        """
+        clicks = 0
+        for _ in range(max_attempts):
+            matched_selector: Optional[str] = None
+            show_more = None
+            for sel in self._SHOW_MORE_SELECTORS:
+                try:
+                    loc = self.page.locator(sel)
+                    if loc.count() == 0:
+                        continue
+                    if not loc.first.is_visible():
+                        continue
+                    show_more = loc.first
+                    matched_selector = sel
+                    break
+                except Exception:
+                    continue
+            if show_more is None:
+                break
+            try:
+                print(f"[BETMGM] Show more via: {matched_selector}")
+                mouse_click(self.page, show_more, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "ui_expansion", rng=self._typing.rng)
+                clicks += 1
+            except Exception as e:
+                print(f"[BETMGM] Show more click failed ({matched_selector}): {e}")
+                break
+        if clicks == 0:
+            print("[BETMGM] No 'Show more' button found — list may be fully expanded")
+        return clicks
 
     def _select_alternate_tab_betmgm(self, opportunity: Dict,
                                      market_config: Dict,
@@ -509,25 +553,7 @@ class BetmgmBetPlacer(BetPlacer):
                     settle(self.page, "ui_expansion", rng=self._typing.rng)
                     self._screenshot("alternate_tab_selected")
                     # Re-expand the player list after tab switch.
-                    show_more_selector = (
-                        'ms-option-panel-bottom-action:has-text("Show More")'
-                    )
-                    attempts = 0
-                    while attempts < 5:
-                        show_more = self.page.locator(show_more_selector)
-                        if show_more.count() == 0:
-                            break
-                        try:
-                            if not show_more.first.is_visible():
-                                break
-                            mouse_click(self.page, show_more.first,
-                                        state=self._cursor,
-                                        rng=self._typing.rng)
-                            settle(self.page, "ui_expansion",
-                                   rng=self._typing.rng)
-                        except Exception:
-                            break
-                        attempts += 1
+                    self._click_show_more_repeatedly_betmgm()
                     return
             except Exception as e:
                 print(f"[BETMGM] Tab selector failed: {selector} - {e}")
