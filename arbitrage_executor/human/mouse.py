@@ -208,6 +208,10 @@ def click(
 
     The dwell-and-hold timing is sampled from lognormal so it varies
     across clicks without being suspiciously constant.
+
+    Raises:
+        ValueError: propagated from ``move_to`` when the locator has
+            no visible bounding box.
     """
     rng = rng or random.Random()
     move_to(page, locator, state=state, rng=rng)
@@ -230,21 +234,31 @@ def idle_jitter(
     """Drift the cursor by a few pixels over ``duration_ms``.
 
     Mimics the small involuntary movements humans make while a page is
-    loading or while reading. Called during ``settle`` for waits longer
-    than a few hundred ms.
+    loading or while reading. Intended to be wired into long-wait
+    paths in later tasks (``intra_book_idle`` in Task 10; long
+    ``settle`` calls in Tasks 17-18).
 
-    Stays within ~50px of the current state.position so it doesn't
-    accidentally hover over a button and trigger a tooltip.
+    Anchor sampling caps drift at ~42px (sqrt(2)*30) from the
+    starting position so the cursor never accidentally hovers an
+    adjacent button and triggers a tooltip.
+
+    Note: each move has a 50ms minimum; ``duration_ms`` values
+    below ~150ms will overshoot the requested duration because the
+    floor dominates.
     """
     rng = rng or random.Random()
     # 2-6 small moves over the duration.
     n_moves = rng.randint(2, 6)
     per_move_ms = max(50, duration_ms // n_moves)
-    cx, cy = state.position
+    # Anchor sampling: every move is drawn from a box centered on the
+    # ORIGINAL position, not the previous sample. This caps cumulative
+    # drift at ~42px (the diagonal of the ±30 box) instead of letting
+    # a random walk wander far enough to hover over an adjacent button.
+    ax, ay = state.position
+    nx, ny = ax, ay
     for _ in range(n_moves):
-        nx = cx + rng.uniform(-30, 30)
-        ny = cy + rng.uniform(-30, 30)
+        nx = ax + rng.uniform(-30, 30)
+        ny = ay + rng.uniform(-30, 30)
         page.mouse.move(nx, ny)
         page.wait_for_timeout(per_move_ms)
-        cx, cy = nx, ny
-    state.position = (cx, cy)
+    state.position = (nx, ny)

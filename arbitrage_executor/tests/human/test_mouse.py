@@ -161,6 +161,9 @@ def test_click_emits_move_down_hold_up_sequence():
     assert "up" in page.mouse.events
     # 'down' must precede 'up'.
     assert page.mouse.events.index("down") < page.mouse.events.index("up")
+    # move_to runs INSIDE click before mousedown — verify by checking
+    # FakeMouse.moves is non-empty (movement happened) before any down.
+    assert len(page.mouse.moves) > 0, "no cursor movement recorded before mousedown"
 
 
 def test_click_includes_a_dwell_before_mousedown():
@@ -183,8 +186,28 @@ def test_idle_jitter_makes_a_few_small_moves():
 
     idle_jitter(page, state=state, rng=random.Random(0), duration_ms=600)
 
-    # 2-6 moves in a 600ms window.
-    assert 1 <= len(page.mouse.moves) <= 8
-    # Each move must be within ~30px of the starting position.
+    # 2-6 moves in a 600ms window (per spec).
+    assert 2 <= len(page.mouse.moves) <= 6
+    # Anchor sampling — each move is within sqrt(2)*30 ≈ 42.4px of the
+    # ORIGINAL position. Test bound 45 includes a comfortable margin
+    # without being so loose that a regression to random-walk drift
+    # would pass.
     for (x, y) in page.mouse.moves:
-        assert math.hypot(x - 400, y - 300) < 50
+        assert math.hypot(x - 400, y - 300) < 45, (
+            f"move {(x, y)} drifted >45px from origin (400, 300)"
+        )
+
+
+def test_idle_jitter_anchor_sampling_caps_drift_across_seeds():
+    """Anchor sampling: every move is in a ±30 box around the original
+    position, regardless of seed. This is a regression test for the
+    random-walk bug where cumulative drift could exceed 100px.
+    """
+    for seed in range(50):
+        page = FakePage()
+        state = CursorState((400.0, 300.0))
+        idle_jitter(page, state=state, rng=random.Random(seed), duration_ms=600)
+        for (x, y) in page.mouse.moves:
+            assert math.hypot(x - 400, y - 300) < 45, (
+                f"seed {seed}: move {(x, y)} drifted >45px"
+            )
