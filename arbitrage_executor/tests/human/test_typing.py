@@ -87,3 +87,100 @@ def test_adjacent_typo_char_empty_string_does_not_raise():
     p = TypingProfile.for_date(date(2026, 5, 21))
     result = p.adjacent_typo_char("")
     assert result in "abcdefghijklmnopqrstuvwxyz"
+
+
+from datetime import date
+
+from human.typing import TypingProfile, humanized_type
+
+
+class FakeKeyboard:
+    def __init__(self):
+        self.keys: list[str] = []
+        self.types: list[str] = []
+
+    def type(self, value, **kwargs):
+        self.types.append(value)
+        self.keys.append(value)
+
+    def press(self, key, **kwargs):
+        self.keys.append(f"<{key}>")
+
+
+class FakeLocator:
+    def __init__(self, attrs=None):
+        self.fills: list[str] = []
+        self._attrs = attrs or {}
+
+    def fill(self, value):
+        self.fills.append(value)
+
+    def get_attribute(self, name):
+        return self._attrs.get(name)
+
+
+class FakePage:
+    def __init__(self, locator_attrs=None):
+        self.keyboard = FakeKeyboard()
+        self.locator_obj = FakeLocator(attrs=locator_attrs)
+        self.waited_ms: list[int] = []
+
+    def wait_for_timeout(self, ms):
+        self.waited_ms.append(int(ms))
+
+
+def test_humanized_type_writes_each_character():
+    """Each intended character ends up in the keyboard log."""
+    page = FakePage()
+    profile = TypingProfile(rng=__import__("random").Random(0))
+    # Force should_typo to always return False by patching profile.
+    profile.should_typo = lambda **kw: False  # type: ignore
+
+    humanized_type(page, page.locator_obj, "Anthony Edwards", profile=profile)
+
+    # Compose the typed text from non-bracket entries.
+    typed = "".join(k for k in page.keyboard.keys if not k.startswith("<"))
+    assert typed == "Anthony Edwards"
+
+
+def test_humanized_type_emits_typo_and_correction():
+    """When typo fires, a stray char + backspace appear before the intended char."""
+    page = FakePage()
+    profile = TypingProfile(rng=__import__("random").Random(0))
+    # Force one typo on the 5th character (text length is 15 so >= 6).
+    call_count = {"n": 0}
+    def stub_typo(**kw):
+        call_count["n"] += 1
+        return call_count["n"] == 5
+    profile.should_typo = stub_typo  # type: ignore
+    profile.adjacent_typo_char = lambda intended: "x"  # type: ignore
+
+    humanized_type(page, page.locator_obj, "Anthony Edwards", profile=profile)
+
+    # Expect to see <Backspace> in the key log AND an "x" before that.
+    keys = page.keyboard.keys
+    backspace_idx = keys.index("<Backspace>")
+    # The character just before Backspace must be the stray 'x'.
+    assert keys[backspace_idx - 1] == "x"
+
+
+def test_humanized_type_falls_back_to_fill_for_react_combobox():
+    """When the locator has role='combobox', the helper also calls .fill() at end."""
+    page = FakePage(locator_attrs={"role": "combobox"})
+    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile.should_typo = lambda **kw: False  # type: ignore
+
+    humanized_type(page, page.locator_obj, "Anthony", profile=profile)
+
+    assert page.locator_obj.fills == ["Anthony"]
+
+
+def test_humanized_type_no_fill_when_locator_is_plain_input():
+    """No fill fallback when the locator has no React heuristic markers."""
+    page = FakePage(locator_attrs={"type": "text"})
+    profile = TypingProfile(rng=__import__("random").Random(0))
+    profile.should_typo = lambda **kw: False  # type: ignore
+
+    humanized_type(page, page.locator_obj, "Anthony", profile=profile)
+
+    assert page.locator_obj.fills == []

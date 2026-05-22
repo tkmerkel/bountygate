@@ -18,6 +18,8 @@ import random
 from dataclasses import dataclass, field
 from datetime import date
 
+from human.waiting import settle
+
 
 # Mu and sigma for the lognormal inter-key delay.
 # Target: median 120ms, p95 ~220ms.
@@ -136,3 +138,83 @@ _QWERTY_NEIGHBOURS: dict[str, str] = {
     "l": "kop", "z": "asx", "x": "zsdc", "c": "xdfv", "v": "cfgb",
     "b": "vghn", "n": "bhjm", "m": "njk",
 }
+
+
+_REACT_HEURISTIC_ATTRS = ("aria-controls",)
+_REACT_HEURISTIC_ROLES = ("combobox",)
+_REACT_HEURISTIC_TESTIDS = ("search",)
+
+
+def _looks_react_controlled(locator) -> bool:
+    """Heuristic: does this locator look like a React-controlled input?
+
+    React-controlled inputs sometimes ignore character-by-character
+    keypress events and only update their internal state on a fill()
+    or input event with the whole value. We can't tell with certainty
+    without instrumentation, so we use signals that are common in the
+    FanDuel and BetMGM search-input components.
+    """
+    try:
+        for attr in _REACT_HEURISTIC_ATTRS:
+            if locator.get_attribute(attr):
+                return True
+        role = locator.get_attribute("role")
+        if role and role in _REACT_HEURISTIC_ROLES:
+            return True
+        testid = locator.get_attribute("data-testid") or ""
+        if any(marker in testid.lower() for marker in _REACT_HEURISTIC_TESTIDS):
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def humanized_type(
+    page,
+    locator,
+    text: str,
+    *,
+    profile: TypingProfile | None = None,
+) -> None:
+    """Type ``text`` into the input ``locator`` one character at a time
+    with humanized delays, optional typo-and-correction, and a
+    pre-submit dwell.
+
+    Caller is responsible for pressing Enter / submitting; this
+    function intentionally stops after the last character + dwell.
+
+    Args:
+        page: Playwright Page (or test fake) — needs ``keyboard.press``,
+            ``keyboard.type``, ``wait_for_timeout``.
+        locator: Playwright Locator (or test fake) for the target
+            input. Used both as the React-heuristic target and as the
+            ``fill()`` fallback receiver.
+        text: the text to type.
+        profile: optional TypingProfile. Defaults to today's profile.
+    """
+    profile = profile or TypingProfile.for_today()
+    text_len = len(text)
+    prev = ""
+    for ch in text:
+        page.wait_for_timeout(profile.next_delay_ms(prev, ch))
+        if profile.should_typo(text_length=text_len):
+            stray = profile.adjacent_typo_char(ch)
+            page.keyboard.type(stray)
+            settle(page, "micro_pause", rng=profile.rng)
+            page.keyboard.press("Backspace")
+            settle(page, "micro_pause", rng=profile.rng)
+        page.keyboard.type(ch)
+        prev = ch
+
+    # Pre-submit dwell — the human-paced "did I type this right?" beat.
+    settle(page, "pre_submit_dwell", rng=profile.rng)
+
+    # React fallback: if the locator looks like a React-controlled
+    # input, also call .fill() to ensure the framework state is set.
+    # This is belt-and-suspenders — many React inputs DO accept the
+    # keypress events, but some only commit state on input events.
+    if _looks_react_controlled(locator):
+        try:
+            locator.fill(text)
+        except Exception as e:
+            print(f"[human.typing] React fill fallback failed: {e} (continuing)")
