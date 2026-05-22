@@ -4,7 +4,7 @@ Goal: stop typing instantly into search boxes. Real users have:
     - variable inter-key delays drawn from a fat-tailed distribution
       (lognormal works well; median ~120ms, p95 ~220ms)
     - faster transitions for common bigrams (th, he, in, er, an, ...)
-    - slower transitions for same-finger bigrams (rt, ed, ol, ...)
+    - slower transitions for same-finger bigrams (rt, hj, oo, rr, ...)
     - occasional typos with a corrective backspace
 
 The profile seed rotates daily so the same machine has consistent
@@ -16,7 +16,7 @@ drifts across days (rotation makes per-session fingerprinting harder).
 import math
 import random
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 
 
 # Mu and sigma for the lognormal inter-key delay.

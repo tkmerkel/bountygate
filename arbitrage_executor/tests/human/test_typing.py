@@ -63,3 +63,27 @@ def test_typo_disabled_on_short_text():
     p = TypingProfile.for_date(date(2026, 5, 21))
     typo_count = sum(1 for _ in range(1000) if p.should_typo(text_length=5))
     assert typo_count == 0
+
+
+def test_adjacent_typo_char_uppercase_uses_lowercase_neighbours():
+    """A typo on 'A' looks up 'a' and returns a lowercase neighbour."""
+    p = TypingProfile.for_date(date(2026, 5, 21))
+    result = p.adjacent_typo_char("A")
+    assert result in "qwsz", f"expected a neighbour of 'a', got {result!r}"
+
+
+def test_adjacent_typo_char_non_letter_falls_back_to_random_letter():
+    """A typo on a digit or hyphen returns SOME lowercase a-z without raising."""
+    p = TypingProfile.for_date(date(2026, 5, 21))
+    for ch in ("1", "-", "."):
+        result = p.adjacent_typo_char(ch)
+        assert result in "abcdefghijklmnopqrstuvwxyz", (
+            f"non-letter {ch!r} → {result!r} not in a-z"
+        )
+
+
+def test_adjacent_typo_char_empty_string_does_not_raise():
+    """Empty intended char hits the random-letter fallback without exception."""
+    p = TypingProfile.for_date(date(2026, 5, 21))
+    result = p.adjacent_typo_char("")
+    assert result in "abcdefghijklmnopqrstuvwxyz"
