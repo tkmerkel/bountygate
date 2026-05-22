@@ -11,6 +11,7 @@ from human.errors import (
 )
 from human.waiting import settle, WAIT_CATEGORIES
 from human.typing import TypingProfile, humanized_type
+from human.mouse import CursorState, move_to
 
 __all__ = [
     "SlipDrainedDuringIdleError",
@@ -19,4 +20,6 @@ __all__ = [
     "WAIT_CATEGORIES",
     "TypingProfile",
     "humanized_type",
+    "CursorState",
+    "move_to",
 ]
