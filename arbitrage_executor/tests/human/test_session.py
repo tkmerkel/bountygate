@@ -88,3 +88,89 @@ def test_warmup_rejects_unknown_site():
     page = FakePage()
     with pytest.raises(KeyError):
         warmup_browse(page, site="unknown", rng=random.Random(0))
+
+
+from human.errors import (
+    SlipDrainedDuringIdleError,
+    FdOddsDriftedDuringIdleError,
+)
+from human.session import intra_book_idle
+
+
+def _ok_check_slip_has_bet():
+    return True
+
+
+def _slip_drained_check():
+    return False
+
+
+def test_intra_book_idle_runs_only_for_fanduel():
+    page = FakePage()
+    # Should raise ValueError if called for non-fanduel.
+    with pytest.raises(ValueError):
+        intra_book_idle(
+            page,
+            site="betmgm",
+            check_slip_has_bet=_ok_check_slip_has_bet,
+            current_fd_odds=2.0,
+            read_fd_odds=lambda: 2.0,
+            rng=random.Random(0),
+        )
+
+
+def test_intra_book_idle_total_duration_is_in_band():
+    """Idle window should be 8-25s total (a bit shorter than warmup)."""
+    page = FakePage()
+    intra_book_idle(
+        page,
+        site="fanduel",
+        check_slip_has_bet=_ok_check_slip_has_bet,
+        current_fd_odds=2.10,
+        read_fd_odds=lambda: 2.10,
+        rng=random.Random(0),
+    )
+    total_ms = sum(page.waited_ms)
+    assert 8000 <= total_ms <= 25000
+
+
+def test_intra_book_idle_raises_when_slip_drained():
+    page = FakePage()
+    with pytest.raises(SlipDrainedDuringIdleError):
+        intra_book_idle(
+            page,
+            site="fanduel",
+            check_slip_has_bet=_slip_drained_check,
+            current_fd_odds=2.10,
+            read_fd_odds=lambda: 2.10,
+            rng=random.Random(0),
+        )
+
+
+def test_intra_book_idle_raises_when_odds_drifted_beyond_epsilon():
+    page = FakePage()
+    with pytest.raises(FdOddsDriftedDuringIdleError) as exc:
+        intra_book_idle(
+            page,
+            site="fanduel",
+            check_slip_has_bet=_ok_check_slip_has_bet,
+            current_fd_odds=2.10,
+            read_fd_odds=lambda: 1.99,  # |Δ| = 0.11 > default 0.05
+            rng=random.Random(0),
+            epsilon=0.05,
+        )
+    assert exc.value.old_odds == 2.10
+    assert exc.value.new_odds == 1.99
+
+
+def test_intra_book_idle_tolerates_small_drift():
+    page = FakePage()
+    intra_book_idle(
+        page,
+        site="fanduel",
+        check_slip_has_bet=_ok_check_slip_has_bet,
+        current_fd_odds=2.10,
+        read_fd_odds=lambda: 2.13,  # |Δ| = 0.03 < default 0.05
+        rng=random.Random(0),
+        epsilon=0.05,
+    )  # no raise
