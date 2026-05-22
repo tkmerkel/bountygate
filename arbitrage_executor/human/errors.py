@@ -5,6 +5,15 @@ existing ``except BetPlacerSkipError`` branches classify them as
 benign skips. They can only fire during ``intra_book_idle`` (between
 Phase 1 and Phase 2) — by hard rule there is no idle between Phase 2
 and Phase 3, so neither can fire inside the orphan window.
+
+Worker classification path (verified Task 19):
+  raise SlipDrainedDuringIdleError / FdOddsDriftedDuringIdleError
+    → execute()'s ``except BetPlacerSkipError: raise`` re-raises
+    → execute_arb.main()'s per-opp ``except BetPlacerSkipError`` advances
+      to next candidate WITHOUT setting attempted_any
+    → main() returns (False, False) when nothing else attempted
+    → task_worker.py's "No viable opportunity" branch marks SKIPPED
+      (does NOT increment the circuit-breaker counter).
 """
 
 from bet_placer import BetPlacerSkipError
