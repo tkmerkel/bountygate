@@ -29,8 +29,9 @@ from chrome_helpers import CDP_PORT, profile_dir, ensure_chrome_cdp
 from auth import ensure_logged_in, LoginError, LoginInterventionRequired
 from screen_recorder import start_recording, stop_recording
 from dashboard_tab import ensure_dashboard_tab
-from human.session import viewport_from_cdp, warmup_browse
+from human.session import viewport_from_cdp, warmup_browse, intra_book_idle
 from human.modals import ModalWatcher
+from human import SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError
 
 
 class OrphanedBetError(Exception):
@@ -253,6 +254,13 @@ class ArbExecutor:
         print(f"FanDuel side: {fd_direction} (market: {fd_market_key})")
         print(f"BetMGM side: {mgm_direction} (market: {mgm_market_key})\n")
 
+        # Original prices from opportunity — hoisted above Phase 1 so the
+        # intra-book idle window (run between Phase 1 and Phase 2) has a
+        # baseline FD price to drift-check against if get_actual_odds()
+        # didn't return a value.
+        fd_price_original = self.opportunity.get(f'{fd_direction}_price', 2.0)
+        mgm_price_original = self.opportunity.get(f'{mgm_direction}_price', 2.0)
+
         # Start screen recording, then warm sessions, then run phases —
         # all inside a single try/finally so the recording always stops
         # and review.pending always writes, regardless of which step
@@ -331,6 +339,37 @@ class ArbExecutor:
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
+                    # ---- INTRA-BOOK IDLE (Phase 1 → Phase 2) ----
+                    # Browse FD adjacent props for 8-25s before opening BetMGM. Reduces
+                    # the cross-book temporal correlation that risk teams cluster on.
+                    # By design, NO idle between Phase 2 and Phase 3 (orphan window).
+                    try:
+                        intra_book_idle(
+                            page_fd,
+                            site="fanduel",
+                            check_slip_has_bet=lambda: placer_fd._fanduel_slip_has_visible_selection(),
+                            current_fd_odds=fd_actual_odds or fd_price_original,
+                            read_fd_odds=placer_fd.get_actual_odds,
+                        )
+                    except (SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError) as idle_err:
+                        print(f"⏭ Idle-window skip: {idle_err}")
+                        ExecutionLogger.log_execution_failure(
+                            f"Intra-book idle benign skip: {type(idle_err).__name__}",
+                            self.opportunity, "fanduel", idle_err,
+                        )
+                        try:
+                            page_fd.close()
+                        except Exception:
+                            pass
+                        raise  # subclass of BetPlacerSkipError → main loop advances
+
+                except BetPlacerSkipError:
+                    # Idle-window benign skip (slip drained / FD odds drifted).
+                    # Re-raise unwrapped so the outer ``except BetPlacerSkipError``
+                    # branch surfaces it to main() without counting as an attempt.
+                    # Must be ordered BEFORE ``except BetPlacerError`` since
+                    # BetPlacerSkipError subclasses BetPlacerError.
+                    raise
                 except BetPlacerError as e:
                     print(f"❌ Phase 1 failed: {e}")
                     ExecutionLogger.log_execution_failure("FanDuel limit discovery failed", self.opportunity, "fanduel", e)
@@ -386,10 +425,6 @@ class ArbExecutor:
                     return False
 
                 placer_mgm = BetPlacer(page_mgm, "betmgm", self.audit_dir)
-
-                # Original prices from opportunity
-                mgm_price_original = self.opportunity.get(f'{mgm_direction}_price', 2.0)
-                fd_price_original = self.opportunity.get(f'{fd_direction}_price', 2.0)
 
                 try:
                     placer_mgm.navigate_and_expand_market(self.opportunity, mgm_config, mgm_direction)
