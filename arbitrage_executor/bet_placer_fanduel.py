@@ -21,7 +21,7 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from _bet_placer_helpers import first_visible
+from _bet_placer_helpers import dump_miss_context, first_visible
 from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
@@ -561,38 +561,9 @@ class FanduelBetPlacer(BetPlacer):
         )
 
         if not candidates:
-            # Diagnostic dumps on the failure path — preserved verbatim
-            # from legacy so the audit log still surfaces the same
-            # selector-update hints.
-            try:
-                aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
-                aria_dump = []
-                for i in range(min(aria_loc.count(), 10)):
-                    try:
-                        aria_dump.append(
-                            aria_loc.nth(i).get_attribute("aria-label")
-                        )
-                    except Exception:
-                        continue
-                print(f"[FANDUEL] aria-labels mentioning {player_name!r} "
-                      f"({len(aria_dump)}): {aria_dump!r}")
-            except Exception:
-                pass
-            try:
-                btn_dump = []
-                btn_loc = self.page.locator(
-                    f'button:has-text("{player_name}")'
-                )
-                for i in range(min(btn_loc.count(), 10)):
-                    try:
-                        txt = (btn_loc.nth(i).text_content() or "").strip()[:120]
-                        btn_dump.append(txt)
-                    except Exception:
-                        continue
-                print(f"[FANDUEL] buttons mentioning {player_name!r} "
-                      f"({len(btn_dump)}): {btn_dump!r}")
-            except Exception:
-                pass
+            dump_miss_context(
+                self.page, site=self.site, player_name=player_name
+            )
             self._screenshot("bet_not_found")
             raise BetPlacerError(
                 f"No bet found for {player_name} {direction} {line}"
@@ -841,6 +812,9 @@ class FanduelBetPlacer(BetPlacer):
                 self._screenshot("alternate_click_failed")
                 raise BetPlacerError(f"Failed to click alternate bet: {e}")
 
+        dump_miss_context(
+            self.page, site=self.site, player_name=player_name
+        )
         self._screenshot("alternate_bet_not_found")
         raise BetPlacerError(
             f"No alternate bet found for {player_name} {threshold}+ "

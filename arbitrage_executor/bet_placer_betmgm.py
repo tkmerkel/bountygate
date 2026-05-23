@@ -16,7 +16,7 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from _bet_placer_helpers import first_visible
+from _bet_placer_helpers import dump_miss_context, first_visible
 from bet_placer import (
     BetPlacer,
     BetPlacerError,
@@ -946,46 +946,17 @@ class BetmgmBetPlacer(BetPlacer):
             return True
 
         # Miss-path diagnostic + raise (mirrors legacy lines 686-734).
-        try:
-            aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
-            aria_dump = []
-            for i in range(min(aria_loc.count(), 10)):
-                try:
-                    aria_dump.append(aria_loc.nth(i).get_attribute("aria-label"))
-                except Exception:
-                    continue
-            print(f"[BETMGM] aria-labels mentioning {player_name!r} "
-                  f"({len(aria_dump)}): {aria_dump!r}")
-        except Exception:
-            pass
-        try:
-            btn_dump = []
-            btn_loc = self.page.locator(f'button:has-text("{player_name}")')
-            for i in range(min(btn_loc.count(), 10)):
-                try:
-                    txt = (btn_loc.nth(i).text_content() or "").strip()[:120]
-                    btn_dump.append(txt)
-                except Exception:
-                    continue
-            print(f"[BETMGM] buttons mentioning {player_name!r} "
-                  f"({len(btn_dump)}): {btn_dump!r}")
-        except Exception:
-            pass
-        try:
-            pick_loc = self.page.locator("ms-event-pick")
-            pick_count = pick_loc.count()
-            pick_dump = []
-            for i in range(min(pick_count, 20)):
-                try:
-                    txt = (pick_loc.nth(i).text_content() or "").strip()[:80]
-                    if player_name.lower() in txt.lower():
-                        pick_dump.append(txt)
-                except Exception:
-                    continue
-            print(f"[BETMGM] ms-event-pick elements mentioning "
-                  f"{player_name!r} ({len(pick_dump)}): {pick_dump!r}")
-        except Exception:
-            pass
+        dump_miss_context(
+            self.page,
+            site=self.site,
+            player_name=player_name,
+            extra_locators=[
+                (
+                    "ms-event-pick elements",
+                    f'ms-event-pick:has-text("{player_name}")',
+                ),
+            ],
+        )
         self._screenshot("bet_not_found")
         # Hold the page in view long enough for the recording to capture
         # what BetMGM actually shipped — the bot otherwise navigates away
