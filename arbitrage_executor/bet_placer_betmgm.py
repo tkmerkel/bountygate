@@ -23,7 +23,6 @@ from bet_placer import (
     ShadowAbortError,
 )
 from human.mouse import CursorState, click as mouse_click
-from human.navigation import click_through
 from human.typing import TypingProfile, humanized_type
 from human.waiting import settle
 from text_match import fuzzy_contains
@@ -137,9 +136,10 @@ class BetmgmBetPlacer(BetPlacer):
         """Navigate BetMGM to the event and expand the market accordion.
 
         Humanized: every ``wait_for_timeout`` is replaced by a categorized
-        ``settle()``; the team-name search uses ``humanized_type``; the
-        event-page navigation goes through ``click_through`` so the bot
-        clicks an anchor rather than goto-ing a constructed URL.
+        ``settle()`` and the team-name search uses ``humanized_type``.
+        Event-page nav is a direct ``page.goto`` of the event URL because
+        BetMGM's betfinder modal overlay intercepts clicks on the
+        underlying anchors — see the in-method comment.
         """
         home_team = opportunity['home_team']
         away_team = opportunity['away_team']
@@ -293,22 +293,22 @@ class BetmgmBetPlacer(BetPlacer):
                         f"best score={best_score})"
                     )
 
-                # Click-through navigation: scroll + click the anchor
-                # rather than goto-ing the constructed URL. On miss,
-                # falls back to a direct goto with a loud log.
-                fallback_url = (
+                # Direct goto, not click_through. BetMGM's betfinder
+                # results render inside a modal overlay that intercepts
+                # pointer events on the underlying event anchors —
+                # force=True bypasses Playwright's check but the
+                # browser still routes the click to the overlay, so
+                # the nav never fires. Cost sweep #3 17 failures on
+                # 2026-05-23.
+                event_url = (
                     target_href
                     if target_href.startswith("http")
                     else "https://www.mo.betmgm.com" + target_href
                 )
-                click_through(
-                    self.page,
-                    start_url=self.page.url,
-                    link_selector=f'a[href="{target_href}"]',
-                    fallback_url=fallback_url,
-                    state=self._cursor,
-                    rng=self._typing.rng,
-                )
+                # Brief "reading the results" beat before nav.
+                settle(self.page, "reading_panel", rng=self._typing.rng)
+                self.page.goto(event_url, wait_until="domcontentloaded")
+                settle(self.page, "page_load", rng=self._typing.rng)
 
             # Add ?market=PlayerProps to land on the full props view.
             current_url = self.page.url
