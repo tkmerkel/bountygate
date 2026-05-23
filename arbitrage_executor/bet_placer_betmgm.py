@@ -140,11 +140,11 @@ class BetmgmBetPlacer(BetPlacer):
                                    direction: str = None) -> None:
         """Navigate BetMGM to the event and expand the market accordion.
 
-        Humanized: every ``wait_for_timeout`` is replaced by a categorized
-        ``settle()`` and the team-name search uses ``humanized_type``.
-        Event-page nav is a direct ``page.goto`` of the event URL because
-        BetMGM's betfinder modal overlay intercepts clicks on the
-        underlying anchors — see the in-method comment.
+        Four-phase orchestrator: load homepage (with auth probe + slip
+        clear), search the betfinder for the event, navigate to the
+        event page, then select the sub-tab + expand the accordion.
+        Humanization (``settle()`` cadence, ``humanized_type``) lives
+        in the phase methods.
         """
         home_team = opportunity['home_team']
         away_team = opportunity['away_team']
@@ -155,10 +155,19 @@ class BetmgmBetPlacer(BetPlacer):
             or market_config.get('has_threshold_tabs', False)
         )
 
-        # Start on the plain homepage so the slip pill at the bottom is
-        # reachable. The betfinder popup overlays a search modal that
-        # would race the subsequent slip-clear; clear first, then open
-        # search. See legacy notes for the original observation.
+        self._load_betmgm_homepage(sport)
+        self._search_betmgm_for_event(home_team, sport)
+        self._navigate_to_event_page_betmgm(home_team, away_team)
+        self._select_market_sub_tab_betmgm(market_config)
+        self._expand_accordion_betmgm(accordion_name, is_alternate,
+                                      opportunity, market_config, direction)
+
+    def _load_betmgm_homepage(self, sport: str) -> None:
+        """Goto the plain homepage, auth-probe, clear any leftover slip,
+        then open the betfinder popup. The slip pill is only reachable
+        from the plain homepage — the betfinder popup overlays it and
+        would race a subsequent slip-clear; clear first, then open
+        search."""
         print(f"[BETMGM] Loading homepage... (sport: {sport})")
         self.page.goto(
             "https://www.mo.betmgm.com/en/sports",
@@ -192,7 +201,11 @@ class BetmgmBetPlacer(BetPlacer):
         )
         settle(self.page, "page_load", rng=self._typing.rng)
 
-        # Search — humanized typing, then Enter (with pre-submit dwell).
+    def _search_betmgm_for_event(self, home_team: str, sport: str) -> None:
+        """Humanized-type the home-team name into the betfinder search
+        input, then trigger results. MLB goes via the autocomplete
+        suggestion (BetMGM injects Futures markets that confuse Enter);
+        other sports press Enter."""
         try:
             search_input = self.page.locator(
                 'div.cdk-overlay-container input, '
@@ -244,11 +257,13 @@ class BetmgmBetPlacer(BetPlacer):
         except Exception as e:
             raise BetPlacerError(f"Search failed: {e}")
 
-        # Resolve the event link. BetMGM moved to whole-card anchors
-        # mid-2026 — scan every `/sports/events/` anchor and pick the one
-        # whose text + href slug covers both teams. Then navigate via
-        # ``click_through`` so the bot scrolls and clicks rather than
-        # goto-ing a constructed URL.
+    def _navigate_to_event_page_betmgm(self, home_team: str,
+                                       away_team: str) -> None:
+        """Resolve the event-page URL from the search-result anchors and
+        goto it. BetMGM moved to whole-card anchors mid-2026 — scan
+        every ``/sports/events/`` anchor and pick the one whose text +
+        href slug covers both teams. After landing, append
+        ``?market=PlayerProps`` if the URL doesn't already carry it."""
         with with_screenshot_on_error(
             self, "navigation_failed", "Event navigation failed"
         ):
@@ -326,11 +341,6 @@ class BetmgmBetPlacer(BetPlacer):
                 print(f"[BETMGM] Navigating to player props: {new_url}")
                 self.page.goto(new_url, wait_until="domcontentloaded")
                 settle(self.page, "page_load", rng=self._typing.rng)
-
-        # Sub-tab + accordion expansion.
-        self._select_market_sub_tab_betmgm(market_config)
-        self._expand_accordion_betmgm(accordion_name, is_alternate,
-                                      opportunity, market_config, direction)
 
     def _select_market_sub_tab_betmgm(self, market_config: Dict) -> None:
         """Click a market sub-tab (e.g. 'Combo stats') if configured.
