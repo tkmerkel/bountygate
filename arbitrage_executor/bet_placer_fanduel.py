@@ -21,7 +21,11 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from _bet_placer_helpers import dump_miss_context, first_visible
+from _bet_placer_helpers import (
+    dump_miss_context,
+    first_visible,
+    with_screenshot_on_error,
+)
 from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
@@ -583,7 +587,7 @@ class FanduelBetPlacer(BetPlacer):
 
         print(f"[FANDUEL] Clicking bet: {selected.preview_text[:60]}")
 
-        try:
+        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
             # Pick the first VISIBLE match. FanDuel renders hidden DOM
             # duplicates (mobile-layout, promo cards) ahead of the real
             # tile, and ``.first`` will silently grab one of those and
@@ -622,11 +626,6 @@ class FanduelBetPlacer(BetPlacer):
             self._screenshot("bet_clicked")
             print(f"[FANDUEL] ✓ Bet added to slip")
             return True
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("click_failed")
-            raise BetPlacerError(f"Failed to click bet: {e}")
 
     def _find_and_click_alternate_bet_fanduel(self, opportunity: Dict,
                                               direction: str,
@@ -796,7 +795,9 @@ class FanduelBetPlacer(BetPlacer):
 
         if candidates:
             selected = candidates[0]
-            try:
+            with with_screenshot_on_error(
+                self, "alternate_click_failed", "Failed to click alternate bet"
+            ):
                 locator = self.page.locator(selected.selector).first
                 mouse_click(self.page, locator, state=self._cursor,
                             rng=self._typing.rng)
@@ -808,9 +809,6 @@ class FanduelBetPlacer(BetPlacer):
                 self._screenshot("alternate_bet_clicked")
                 print(f"[FANDUEL] ✓ Alternate bet added to slip (via fallback)")
                 return True
-            except Exception as e:
-                self._screenshot("alternate_click_failed")
-                raise BetPlacerError(f"Failed to click alternate bet: {e}")
 
         dump_miss_context(
             self.page, site=self.site, player_name=player_name
@@ -848,7 +846,9 @@ class FanduelBetPlacer(BetPlacer):
         the audit log so a follow-up selector update has data to work
         from.
         """
-        try:
+        with with_screenshot_on_error(
+            self, "wager_entry_failed", "Failed to enter wager"
+        ):
             # Step 1: Make sure the betslip panel is actually open. After
             # ``find_and_click_bet`` the slip *usually* auto-expands on a
             # desktop viewport, but a re-rendered DOM can leave it
@@ -1063,12 +1063,6 @@ class FanduelBetPlacer(BetPlacer):
             print(f"[FANDUEL] ✓ Wager entered: ${amount:.2f}")
             return True
 
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("wager_entry_failed")
-            raise BetPlacerError(f"Failed to enter wager: {e}")
-
     # ------------------------------------------------------------------
     # Place bet — shadow-mode short-circuit before the click
     # ------------------------------------------------------------------
@@ -1093,7 +1087,9 @@ class FanduelBetPlacer(BetPlacer):
         testid was missing and only the text pattern matched. Try
         multiple strategies in order of durability.
         """
-        try:
+        with with_screenshot_on_error(
+            self, "place_bet_failed", "Place bet failed"
+        ):
             # FanDuel runs a location/odds verification step after wager
             # entry; the Place Bet button doesn't render until that
             # completes (~1-3s). On 2026-05-21 this delay produced an
@@ -1263,14 +1259,6 @@ class FanduelBetPlacer(BetPlacer):
             print(f"[FANDUEL] ? Bet status UNKNOWN")
             return "UNKNOWN", "Could not determine bet status"
 
-        except ShadowAbortError:
-            raise
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("place_bet_failed")
-            raise BetPlacerError(f"Place bet failed: {e}")
-
     # ------------------------------------------------------------------
     # Odds probe — pure DOM read, no humanized mouse
     # ------------------------------------------------------------------
@@ -1355,7 +1343,9 @@ class FanduelBetPlacer(BetPlacer):
         """
         print(f"[FANDUEL] Discovering max wager (entering 99999)...")
 
-        try:
+        with with_screenshot_on_error(
+            self, "max_wager_discovery_failed", "Max wager discovery failed"
+        ):
             self._enter_wager_fanduel(99999.00)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
@@ -1397,9 +1387,3 @@ class FanduelBetPlacer(BetPlacer):
             self._screenshot("max_wager_discovered")
             print(f"[FANDUEL] ✓ Max wager: ${best_amount:.2f}")
             return best_amount, best_text
-
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("max_wager_discovery_failed")
-            raise BetPlacerError(f"Max wager discovery failed: {e}")

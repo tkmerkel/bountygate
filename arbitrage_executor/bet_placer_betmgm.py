@@ -16,7 +16,11 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from _bet_placer_helpers import dump_miss_context, first_visible
+from _bet_placer_helpers import (
+    dump_miss_context,
+    first_visible,
+    with_screenshot_on_error,
+)
 from bet_placer import (
     BetPlacer,
     BetPlacerError,
@@ -245,7 +249,9 @@ class BetmgmBetPlacer(BetPlacer):
         # whose text + href slug covers both teams. Then navigate via
         # ``click_through`` so the bot scrolls and clicks rather than
         # goto-ing a constructed URL.
-        try:
+        with with_screenshot_on_error(
+            self, "navigation_failed", "Event navigation failed"
+        ):
             current_url = self.page.url.lower()
             home_slug = home_team.lower().replace(" ", "-")
             away_slug = away_team.lower().replace(" ", "-")
@@ -320,11 +326,6 @@ class BetmgmBetPlacer(BetPlacer):
                 print(f"[BETMGM] Navigating to player props: {new_url}")
                 self.page.goto(new_url, wait_until="domcontentloaded")
                 settle(self.page, "page_load", rng=self._typing.rng)
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("navigation_failed")
-            raise BetPlacerError(f"Event navigation failed: {e}")
 
         # Sub-tab + accordion expansion.
         self._select_market_sub_tab_betmgm(market_config)
@@ -365,7 +366,9 @@ class BetmgmBetPlacer(BetPlacer):
                                  direction: str) -> None:
         """Locate the accordion by exact text, expand it, raise SkipError
         when only the merged-alt sibling is visible (LOGIC.md)."""
-        try:
+        with with_screenshot_on_error(
+            self, "accordion_expansion_failed", "Accordion expansion failed"
+        ):
             print(f"[BETMGM] Expanding accordion: {accordion_name}")
             # Exact-text match — :has-text would match the alt sibling
             # by substring and silently expand the wrong accordion.
@@ -455,13 +458,6 @@ class BetmgmBetPlacer(BetPlacer):
             if is_alternate and direction:
                 self._select_alternate_tab_betmgm(opportunity, market_config,
                                                   direction)
-        except BetPlacerSkipError:
-            raise
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("accordion_expansion_failed")
-            raise BetPlacerError(f"Accordion expansion failed: {e}")
 
     # Selector cascade for the BetMGM "Show more" / "Show More" pagination
     # button at the bottom of a player-list accordion. Tried in order;
@@ -1088,7 +1084,9 @@ class BetmgmBetPlacer(BetPlacer):
         # Prefer clicking via the stable data-test-option-id selector when
         # one is present — the locator handle can go stale across the
         # click's auto-scroll if Angular re-renders the row.
-        try:
+        with with_screenshot_on_error(
+            self, "click_failed", "Failed to click BetMGM bet"
+        ):
             if matched_option_id:
                 target = self.page.locator(
                     f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
@@ -1102,9 +1100,6 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("bet_clicked")
             print(f"[BETMGM] ✓ Bet added to slip")
             return True
-        except Exception as e:
-            self._screenshot("click_failed")
-            raise BetPlacerError(f"Failed to click BetMGM bet: {e}")
 
     def _click_betmgm_alt_yes_pick_for_player(self, player_name: str,
                                               accordion_name: str) -> bool:
@@ -1197,7 +1192,9 @@ class BetmgmBetPlacer(BetPlacer):
             return False
 
         print(f"[BETMGM] alt-mode matched: {matched_meta}")
-        try:
+        with with_screenshot_on_error(
+            self, "alt_click_failed", "Failed to click BetMGM alt bet"
+        ):
             if matched_option_id:
                 target = self.page.locator(
                     f'ms-event-pick[data-test-option-id="{matched_option_id}"]'
@@ -1211,9 +1208,6 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("alt_bet_clicked")
             print(f"[BETMGM] ✓ Alt-mode bet added to slip")
             return True
-        except Exception as e:
-            self._screenshot("alt_click_failed")
-            raise BetPlacerError(f"Failed to click BetMGM alt bet: {e}")
 
     # ------------------------------------------------------------------
     # Task 13b — wager entry, place, odds, limit
@@ -1230,7 +1224,9 @@ class BetmgmBetPlacer(BetPlacer):
         ``settle(..., "pre_submit_dwell")`` so the cadence drifts daily.
         """
         print(f"[BETMGM] Entering wager: ${amount:.2f}")
-        try:
+        with with_screenshot_on_error(
+            self, "wager_entry_failed", "Failed to enter wager"
+        ):
             # The wager input only mounts once the slip is expanded;
             # idempotent if it's already open.
             self._open_betmgm_slip()
@@ -1343,12 +1339,6 @@ class BetmgmBetPlacer(BetPlacer):
             print(f"[BETMGM] ✓ Wager entered: ${amount:.2f}")
             return True
 
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("wager_entry_failed")
-            raise BetPlacerError(f"Failed to enter wager: {e}")
-
     def place_bet(self) -> Tuple[str, str]:
         """Click the Place Bet button and poll for the success/failure
         confirmation. In shadow mode (``BG_SHADOW_MODE=1``), aborts
@@ -1356,7 +1346,9 @@ class BetmgmBetPlacer(BetPlacer):
         pre-submit flow without actually placing real money.
         """
         print(f"[BETMGM] Placing bet...")
-        try:
+        with with_screenshot_on_error(
+            self, "place_bet_failed", "Place bet failed"
+        ):
             place_btn = self.page.get_by_role(
                 "button", name=re.compile(r"Place\s+Bet", re.I)
             )
@@ -1421,14 +1413,6 @@ class BetmgmBetPlacer(BetPlacer):
             self._screenshot("bet_status_unknown")
             print(f"[BETMGM] ? Bet status UNKNOWN")
             return "UNKNOWN", "Could not determine bet status"
-
-        except ShadowAbortError:
-            raise
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("place_bet_failed")
-            raise BetPlacerError(f"Place bet failed: {e}")
 
     def _close_betslip_betmgm(self) -> None:
         """Close the slip after a successful bet. Best-effort — failures
