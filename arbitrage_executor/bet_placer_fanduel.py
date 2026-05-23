@@ -21,6 +21,7 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from _bet_placer_helpers import first_visible
 from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
@@ -283,29 +284,27 @@ class FanduelBetPlacer(BetPlacer):
             # button:has-text() selectors silently missed it across an
             # entire session — every iteration's "slip cleared" log was
             # a false positive while the slip retained a stale tease.
-            for sel in (
-                '[data-testid="remove-all-selections-button"]',
-                '[data-test-id="remove-all-selections-button"]',
-                'div[role="button"]:has-text("Remove all selections")',
-                'div[role="button"]:has-text("Remove all")',
-                '[role="button"]:has-text("Remove all selections")',
-                'button[aria-label*="remove all" i]',
-                'button[aria-label*="clear all" i]',
-                'button:has-text("Remove all")',
-                'button:has-text("Clear all")',
-            ):
-                try:
-                    loc = self.page.locator(sel)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        print(f"[FANDUEL] Clearing slip via {sel}")
-                        mouse_click(self.page, loc.first, state=self._cursor,
-                                    rng=self._typing.rng)
-                        settle(self.page, "slip_update",
-                               rng=self._typing.rng)
-                        clicked_clear_all = True
-                        break
-                except Exception:
-                    continue
+            clear_loc = first_visible(
+                self.page,
+                [
+                    '[data-testid="remove-all-selections-button"]',
+                    '[data-test-id="remove-all-selections-button"]',
+                    'div[role="button"]:has-text("Remove all selections")',
+                    'div[role="button"]:has-text("Remove all")',
+                    '[role="button"]:has-text("Remove all selections")',
+                    'button[aria-label*="remove all" i]',
+                    'button[aria-label*="clear all" i]',
+                    'button:has-text("Remove all")',
+                    'button:has-text("Clear all")',
+                ],
+                label="Clearing slip",
+                site=self.site,
+            )
+            if clear_loc is not None:
+                mouse_click(self.page, clear_loc, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "slip_update", rng=self._typing.rng)
+                clicked_clear_all = True
 
             # 2. Otherwise, click individual remove buttons until empty.
             if not clicked_clear_all:
@@ -994,21 +993,17 @@ class FanduelBetPlacer(BetPlacer):
 
             # 2d. Attribute-based fallbacks scoped to the slip area.
             if wager_input is None:
-                attr_selectors = [
-                    'input[aria-label*="wager" i]',
-                    'input[aria-label*="stake" i]',
-                    'input[name*="wager" i]',
-                    'input[name*="stake" i]',
-                ]
-                for sel in attr_selectors:
-                    try:
-                        loc = self.page.locator(sel)
-                        if loc.count() > 0 and loc.first.is_visible():
-                            wager_input = loc.first
-                            print(f"[FANDUEL] Found wager input via {sel}")
-                            break
-                    except Exception:
-                        continue
+                wager_input = first_visible(
+                    self.page,
+                    [
+                        'input[aria-label*="wager" i]',
+                        'input[aria-label*="stake" i]',
+                        'input[name*="wager" i]',
+                        'input[name*="stake" i]',
+                    ],
+                    label="Found wager input",
+                    site=self.site,
+                )
 
             # 2e. Old class-chained fallbacks (rotate frequently).
             if wager_input is None:

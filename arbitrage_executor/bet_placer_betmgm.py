@@ -16,6 +16,7 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from _bet_placer_helpers import first_visible
 from bet_placer import (
     BetPlacer,
     BetPlacerError,
@@ -339,23 +340,23 @@ class BetmgmBetPlacer(BetPlacer):
         if not sub_tab:
             return
         print(f"[BETMGM] Selecting market sub-tab: {sub_tab}")
-        for selector in (
-            f'div[role="tablist"] button:has-text("{sub_tab}")',
-            f'[role="tab"]:has-text("{sub_tab}")',
-            f'button:has-text("{sub_tab}")',
-        ):
-            try:
-                loc = self.page.locator(selector)
-                if loc.count() > 0 and loc.first.is_visible():
-                    mouse_click(self.page, loc.first, state=self._cursor,
-                                rng=self._typing.rng)
-                    settle(self.page, "ui_expansion", rng=self._typing.rng)
-                    print(f"[BETMGM] ✓ Sub-tab '{sub_tab}' selected")
-                    self._screenshot("sub_tab_selected")
-                    return
-            except Exception as e:
-                print(f"[BETMGM] Sub-tab selector failed ({selector}): {e}")
-                continue
+        sub_tab_loc = first_visible(
+            self.page,
+            [
+                f'div[role="tablist"] button:has-text("{sub_tab}")',
+                f'[role="tab"]:has-text("{sub_tab}")',
+                f'button:has-text("{sub_tab}")',
+            ],
+            label=f"Sub-tab '{sub_tab}'",
+            site=self.site,
+        )
+        if sub_tab_loc is not None:
+            mouse_click(self.page, sub_tab_loc, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "ui_expansion", rng=self._typing.rng)
+            print(f"[BETMGM] ✓ Sub-tab '{sub_tab}' selected")
+            self._screenshot("sub_tab_selected")
+            return
         self._screenshot("sub_tab_not_found")
         raise BetPlacerError(f"Could not find BetMGM sub-tab '{sub_tab}'")
 
@@ -543,21 +544,20 @@ class BetmgmBetPlacer(BetPlacer):
         if pattern:
             tab_selectors.append(pattern.format(threshold=tab_value))
 
-        for selector in tab_selectors:
-            try:
-                tab = self.page.locator(selector)
-                if tab.count() > 0 and tab.first.is_visible():
-                    print(f"[BETMGM] Found tab using: {selector}")
-                    mouse_click(self.page, tab.first, state=self._cursor,
-                                rng=self._typing.rng)
-                    settle(self.page, "ui_expansion", rng=self._typing.rng)
-                    self._screenshot("alternate_tab_selected")
-                    # Re-expand the player list after tab switch.
-                    self._click_show_more_repeatedly_betmgm()
-                    return
-            except Exception as e:
-                print(f"[BETMGM] Tab selector failed: {selector} - {e}")
-                continue
+        tab_loc = first_visible(
+            self.page,
+            tab_selectors,
+            label="Found tab",
+            site=self.site,
+        )
+        if tab_loc is not None:
+            mouse_click(self.page, tab_loc, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "ui_expansion", rng=self._typing.rng)
+            self._screenshot("alternate_tab_selected")
+            # Re-expand the player list after tab switch.
+            self._click_show_more_repeatedly_betmgm()
+            return
         print(f"[BETMGM] ⚠ Could not find tab '{tab_text}'; continuing")
         self._screenshot("alternate_tab_not_found")
 
@@ -591,46 +591,39 @@ class BetmgmBetPlacer(BetPlacer):
             self._open_betmgm_slip()
 
             clicked_clear_all = False
-            for sel in (
-                'span:has-text("Clear All")',
-                'button:has-text("Clear All")',
-                'button:has-text("Remove all")',
-                'button:has-text("Clear all")',
-                'button[aria-label*="remove all" i]',
-                'div[role="button"]:has-text("Clear All")',
-                '[role="button"]:has-text("Clear All")',
-            ):
-                try:
-                    loc = self.page.locator(sel)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        print(f"[BETMGM] Clearing slip via {sel}")
-                        mouse_click(self.page, loc.first, state=self._cursor,
-                                    rng=self._typing.rng)
-                        settle(self.page, "slip_update",
-                               rng=self._typing.rng)
-                        # Confirm-dialog dismissal — some BetMGM flows
-                        # gate Clear All behind a Yes/Remove/Confirm.
-                        for confirm_sel in (
-                            'button:has-text("Yes")',
-                            'button:has-text("Remove")',
-                            'button:has-text("Confirm")',
-                        ):
-                            try:
-                                cloc = self.page.locator(confirm_sel)
-                                if (cloc.count() > 0
-                                        and cloc.first.is_visible()):
-                                    mouse_click(self.page, cloc.first,
-                                                state=self._cursor,
-                                                rng=self._typing.rng)
-                                    settle(self.page, "modal_dismiss",
-                                           rng=self._typing.rng)
-                                    break
-                            except Exception:
-                                continue
-                        clicked_clear_all = True
-                        break
-                except Exception:
-                    continue
+            clear_loc = first_visible(
+                self.page,
+                [
+                    'span:has-text("Clear All")',
+                    'button:has-text("Clear All")',
+                    'button:has-text("Remove all")',
+                    'button:has-text("Clear all")',
+                    'button[aria-label*="remove all" i]',
+                    'div[role="button"]:has-text("Clear All")',
+                    '[role="button"]:has-text("Clear All")',
+                ],
+                label="Clearing slip",
+                site=self.site,
+            )
+            if clear_loc is not None:
+                mouse_click(self.page, clear_loc, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "slip_update", rng=self._typing.rng)
+                # Confirm-dialog dismissal — some BetMGM flows
+                # gate Clear All behind a Yes/Remove/Confirm.
+                confirm_loc = first_visible(
+                    self.page,
+                    [
+                        'button:has-text("Yes")',
+                        'button:has-text("Remove")',
+                        'button:has-text("Confirm")',
+                    ],
+                )
+                if confirm_loc is not None:
+                    mouse_click(self.page, confirm_loc, state=self._cursor,
+                                rng=self._typing.rng)
+                    settle(self.page, "modal_dismiss", rng=self._typing.rng)
+                clicked_clear_all = True
 
             # Per-bet remove sweep if Clear All wasn't available.
             if not clicked_clear_all:
@@ -689,17 +682,15 @@ class BetmgmBetPlacer(BetPlacer):
         Idempotent — if a stake input is already visible, return.
         """
         try:
-            for probe in (
-                'app-stake-input input',
-                'bs-stake-input input',
-                'input[inputmode="decimal"]',
-            ):
-                try:
-                    loc = self.page.locator(probe)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        return
-                except Exception:
-                    continue
+            if first_visible(
+                self.page,
+                [
+                    'app-stake-input input',
+                    'bs-stake-input input',
+                    'input[inputmode="decimal"]',
+                ],
+            ) is not None:
+                return
 
             for sel in (
                 'div:has-text("pays out")',
