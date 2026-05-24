@@ -254,8 +254,32 @@ class BetmgmBetPlacer(BetPlacer):
                 settle(self.page, "pre_submit_dwell", rng=self._typing.rng)
                 self.page.keyboard.press("Enter")
                 settle(self.page, "search_results", rng=self._typing.rng)
+        except BetPlacerSkipError:
+            raise
         except Exception as e:
             raise BetPlacerError(f"Search failed: {e}")
+
+        # Detect "No results found" — BetMGM's betfinder doesn't index
+        # every event on every regional site (mo.betmgm.com missed
+        # Carolina Hurricanes NHL game on 2026-05-23, sweep #5). Without
+        # this check the anchor-scan downstream falls back to stale
+        # anchors from the previous page state and raises a misleading
+        # "Could not find event link" error.
+        try:
+            no_results = self.page.get_by_text(
+                "No results found", exact=False
+            )
+            if no_results.count() > 0 and no_results.first.is_visible():
+                self._screenshot("betfinder_no_results")
+                raise BetPlacerSkipError(
+                    f"BetMGM betfinder: 'No results found' for "
+                    f"{home_team!r} — event not indexed on this region. "
+                    f"Skipping."
+                )
+        except BetPlacerSkipError:
+            raise
+        except Exception:
+            pass  # diagnostic best-effort
 
     def _navigate_to_event_page_betmgm(self, home_team: str,
                                        away_team: str) -> None:
@@ -561,6 +585,32 @@ class BetmgmBetPlacer(BetPlacer):
                         rng=self._typing.rng)
             settle(self.page, "ui_expansion", rng=self._typing.rng)
             self._screenshot("alternate_tab_selected")
+
+            # Log which threshold tab is currently active so the audit
+            # captures it. Pre-fix, a 4-player "No bet found" sweep on
+            # the Knicks game (sweep #5) couldn't distinguish "wrong
+            # threshold scanned" from "player not at this threshold".
+            # If we wanted "3+" but the page settled on "2+", the
+            # downstream pick scan silently looks at the wrong picks.
+            try:
+                active = self.page.locator(
+                    '[role="tab"][aria-selected="true"], '
+                    'button[aria-selected="true"], '
+                    'button.active, button.selected'
+                )
+                active_names = []
+                for i in range(min(active.count(), 5)):
+                    txt = (active.nth(i).text_content() or "").strip()
+                    if txt:
+                        active_names.append(txt[:30])
+                print(f"[BETMGM] Active tabs after click: {active_names!r} "
+                      f"(wanted '{tab_text}')")
+                if active_names and not any(tab_text in n for n in active_names):
+                    print(f"[BETMGM] ⚠ '{tab_text}' not in active set — "
+                          f"pick scan may target wrong threshold")
+            except Exception:
+                pass
+
             # Re-expand the player list after tab switch.
             self._click_show_more_repeatedly_betmgm()
             return

@@ -683,11 +683,15 @@ class FanduelBetPlacer(BetPlacer):
             f'[aria-label*="{base_display}"]',
             f'[aria-label*="{player_name}"][aria-label*="{threshold}"]'
             f'[aria-label*="{base_display}"]',
-            # Text-based patterns with market type.
+            # Text-based pattern — the button itself must carry all
+            # three phrases. The prior `div:has-text(...) button`
+            # fallback was over-broad: a page-level ancestor div
+            # could contain all three texts AS DESCENDANTS, and
+            # `button` then matched any descendant button — picked
+            # the notifications-inbox bell on Jarrett Allen
+            # player_rebounds_alternate, sweep #5 2026-05-23.
             f'button:has-text("{player_name}"):has-text("{threshold}+")'
             f':has-text("{base_display}")',
-            f'div:has-text("{player_name}"):has-text("{threshold}+")'
-            f':has-text("{base_display}") button',
         ])
 
         for selector in selector_patterns:
