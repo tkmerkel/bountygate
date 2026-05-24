@@ -21,6 +21,11 @@ from typing import Dict, Optional, Tuple
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from _bet_placer_helpers import (
+    dump_miss_context,
+    first_visible,
+    with_screenshot_on_error,
+)
 from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
@@ -283,29 +288,27 @@ class FanduelBetPlacer(BetPlacer):
             # button:has-text() selectors silently missed it across an
             # entire session — every iteration's "slip cleared" log was
             # a false positive while the slip retained a stale tease.
-            for sel in (
-                '[data-testid="remove-all-selections-button"]',
-                '[data-test-id="remove-all-selections-button"]',
-                'div[role="button"]:has-text("Remove all selections")',
-                'div[role="button"]:has-text("Remove all")',
-                '[role="button"]:has-text("Remove all selections")',
-                'button[aria-label*="remove all" i]',
-                'button[aria-label*="clear all" i]',
-                'button:has-text("Remove all")',
-                'button:has-text("Clear all")',
-            ):
-                try:
-                    loc = self.page.locator(sel)
-                    if loc.count() > 0 and loc.first.is_visible():
-                        print(f"[FANDUEL] Clearing slip via {sel}")
-                        mouse_click(self.page, loc.first, state=self._cursor,
-                                    rng=self._typing.rng)
-                        settle(self.page, "slip_update",
-                               rng=self._typing.rng)
-                        clicked_clear_all = True
-                        break
-                except Exception:
-                    continue
+            clear_loc = first_visible(
+                self.page,
+                [
+                    '[data-testid="remove-all-selections-button"]',
+                    '[data-test-id="remove-all-selections-button"]',
+                    'div[role="button"]:has-text("Remove all selections")',
+                    'div[role="button"]:has-text("Remove all")',
+                    '[role="button"]:has-text("Remove all selections")',
+                    'button[aria-label*="remove all" i]',
+                    'button[aria-label*="clear all" i]',
+                    'button:has-text("Remove all")',
+                    'button:has-text("Clear all")',
+                ],
+                label="Clearing slip",
+                site=self.site,
+            )
+            if clear_loc is not None:
+                mouse_click(self.page, clear_loc, state=self._cursor,
+                            rng=self._typing.rng)
+                settle(self.page, "slip_update", rng=self._typing.rng)
+                clicked_clear_all = True
 
             # 2. Otherwise, click individual remove buttons until empty.
             if not clicked_clear_all:
@@ -562,38 +565,9 @@ class FanduelBetPlacer(BetPlacer):
         )
 
         if not candidates:
-            # Diagnostic dumps on the failure path — preserved verbatim
-            # from legacy so the audit log still surfaces the same
-            # selector-update hints.
-            try:
-                aria_loc = self.page.locator(f'[aria-label*="{player_name}"]')
-                aria_dump = []
-                for i in range(min(aria_loc.count(), 10)):
-                    try:
-                        aria_dump.append(
-                            aria_loc.nth(i).get_attribute("aria-label")
-                        )
-                    except Exception:
-                        continue
-                print(f"[FANDUEL] aria-labels mentioning {player_name!r} "
-                      f"({len(aria_dump)}): {aria_dump!r}")
-            except Exception:
-                pass
-            try:
-                btn_dump = []
-                btn_loc = self.page.locator(
-                    f'button:has-text("{player_name}")'
-                )
-                for i in range(min(btn_loc.count(), 10)):
-                    try:
-                        txt = (btn_loc.nth(i).text_content() or "").strip()[:120]
-                        btn_dump.append(txt)
-                    except Exception:
-                        continue
-                print(f"[FANDUEL] buttons mentioning {player_name!r} "
-                      f"({len(btn_dump)}): {btn_dump!r}")
-            except Exception:
-                pass
+            dump_miss_context(
+                self.page, site=self.site, player_name=player_name
+            )
             self._screenshot("bet_not_found")
             raise BetPlacerError(
                 f"No bet found for {player_name} {direction} {line}"
@@ -613,7 +587,7 @@ class FanduelBetPlacer(BetPlacer):
 
         print(f"[FANDUEL] Clicking bet: {selected.preview_text[:60]}")
 
-        try:
+        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
             # Pick the first VISIBLE match. FanDuel renders hidden DOM
             # duplicates (mobile-layout, promo cards) ahead of the real
             # tile, and ``.first`` will silently grab one of those and
@@ -652,11 +626,6 @@ class FanduelBetPlacer(BetPlacer):
             self._screenshot("bet_clicked")
             print(f"[FANDUEL] ✓ Bet added to slip")
             return True
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("click_failed")
-            raise BetPlacerError(f"Failed to click bet: {e}")
 
     def _find_and_click_alternate_bet_fanduel(self, opportunity: Dict,
                                               direction: str,
@@ -826,7 +795,9 @@ class FanduelBetPlacer(BetPlacer):
 
         if candidates:
             selected = candidates[0]
-            try:
+            with with_screenshot_on_error(
+                self, "alternate_click_failed", "Failed to click alternate bet"
+            ):
                 locator = self.page.locator(selected.selector).first
                 mouse_click(self.page, locator, state=self._cursor,
                             rng=self._typing.rng)
@@ -838,10 +809,10 @@ class FanduelBetPlacer(BetPlacer):
                 self._screenshot("alternate_bet_clicked")
                 print(f"[FANDUEL] ✓ Alternate bet added to slip (via fallback)")
                 return True
-            except Exception as e:
-                self._screenshot("alternate_click_failed")
-                raise BetPlacerError(f"Failed to click alternate bet: {e}")
 
+        dump_miss_context(
+            self.page, site=self.site, player_name=player_name
+        )
         self._screenshot("alternate_bet_not_found")
         raise BetPlacerError(
             f"No alternate bet found for {player_name} {threshold}+ "
@@ -864,241 +835,244 @@ class FanduelBetPlacer(BetPlacer):
         return self._enter_wager_fanduel(amount)
 
     def _enter_wager_fanduel(self, amount: float) -> bool:
-        """Enter wager on FanDuel.
+        """Enter wager on FanDuel. Three-phase orchestrator: open the
+        betslip panel, locate the wager input through a durable-first
+        cascade, then humanized-type the amount.
 
         FanDuel's betslip is a React panel whose CSS class names rotate
-        between deploys (we've seen ``.hk``, ``.jo``, ``.bt``, ``.cg``).
-        Class-based selectors are best-effort fallbacks behind more
-        durable ones (accessible names, ``inputmode="decimal"``, the
-        ``"$X wins $Y"`` text pattern). When everything fails, the
-        diagnostic block at the bottom dumps every visible input to
-        the audit log so a follow-up selector update has data to work
-        from.
+        between deploys (``.hk``, ``.jo``, ``.bt``, ``.cg``). The
+        wager-input cascade puts durable signals (accessible name,
+        ``inputmode="decimal"``) ahead of class-based fallbacks. On
+        full miss the input-finder dumps every visible input to the
+        audit log for the follow-up selector update.
         """
-        try:
-            # Step 1: Make sure the betslip panel is actually open. After
-            # ``find_and_click_bet`` the slip *usually* auto-expands on a
-            # desktop viewport, but a re-rendered DOM can leave it
-            # collapsed, in which case the wager input doesn't exist yet.
-            betslip_open_selectors = [
-                # Durable patterns first.
-                '[data-test-id*="betslip" i] button',
-                '[data-testid*="betslip" i] button',
-                '[data-test-id*="bet-slip" i] button',
-                'button[aria-label*="bet slip" i]',
-                'button:has-text("Bet Slip")',
-                'aside button:has-text("Bet Slip")',
-                # Old class-based fallbacks (rotate frequently).
-                'div.ay > div > div > div > div.hk > div',
-                'div.ay > div > div > div > div.jo > div',
-            ]
+        with with_screenshot_on_error(
+            self, "wager_entry_failed", "Failed to enter wager"
+        ):
+            self._open_betslip_panel_fanduel()
+            wager_input = self._find_wager_input_fanduel()
+            self._type_wager_amount_fanduel(wager_input, amount)
+            return True
 
-            betslip_opened = False
-            for selector in betslip_open_selectors:
+    def _open_betslip_panel_fanduel(self) -> None:
+        """Click the FD betslip panel open. After ``find_and_click_bet``
+        the slip *usually* auto-expands on a desktop viewport, but a
+        re-rendered DOM can leave it collapsed, in which case the wager
+        input doesn't exist yet. Best-effort — a miss here just prints
+        a warning since the input may already be visible."""
+        betslip_open_selectors = [
+            # Durable patterns first.
+            '[data-test-id*="betslip" i] button',
+            '[data-testid*="betslip" i] button',
+            '[data-test-id*="bet-slip" i] button',
+            'button[aria-label*="bet slip" i]',
+            'button:has-text("Bet Slip")',
+            'aside button:has-text("Bet Slip")',
+            # Old class-based fallbacks (rotate frequently).
+            'div.ay > div > div > div > div.hk > div',
+            'div.ay > div > div > div > div.jo > div',
+        ]
+
+        betslip_opened = False
+        for selector in betslip_open_selectors:
+            try:
+                panel = self.page.locator(selector).first
+                if panel.count() > 0 and panel.is_visible():
+                    print(f"[FANDUEL] Clicking betslip to open using: "
+                          f"{selector}")
+                    mouse_click(self.page, panel, state=self._cursor,
+                                rng=self._typing.rng)
+                    settle(self.page, "ui_expansion",
+                           rng=self._typing.rng)
+                    betslip_opened = True
+                    break
+            except Exception:
+                continue
+
+        # Text-based fallback: the collapsed slip header shows
+        # "$X wins $Y" — clicking that opens the panel.
+        if not betslip_opened:
+            try:
+                wins_pattern = self.page.get_by_text(
+                    re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
+                )
+                if wins_pattern.count() > 0:
+                    print(f"[FANDUEL] Clicking betslip using wins "
+                          f"pattern...")
+                    mouse_click(self.page, wins_pattern.first,
+                                state=self._cursor,
+                                rng=self._typing.rng)
+                    settle(self.page, "ui_expansion",
+                           rng=self._typing.rng)
+                    betslip_opened = True
+            except Exception:
+                pass
+
+        if not betslip_opened:
+            print(f"[FANDUEL] ⚠ Could not click betslip panel; the "
+                  f"wager input may already be visible, continuing...")
+
+        self._screenshot("betslip_opened")
+
+    def _find_wager_input_fanduel(self):
+        """Locate the FD wager input through a 5-tier cascade. Returns
+        the matched Locator. Raises BetPlacerError after dumping every
+        visible input on full miss so the next selector update has
+        data to work from."""
+        wager_input = None
+
+        # 2a. Accessible name "WAGER $" (set by FD's design system).
+        try:
+            aria_input = self.page.get_by_label("WAGER $")
+            if aria_input.count() > 0 and aria_input.first.is_visible():
+                wager_input = aria_input.first
+                print(f"[FANDUEL] Found wager input via "
+                      f"get_by_label('WAGER $')")
+        except Exception:
+            pass
+
+        # 2b. Partial accessible name match.
+        if wager_input is None:
+            try:
+                aria_input = self.page.get_by_label(
+                    re.compile(r"WAGER", re.I)
+                )
+                if (aria_input.count() > 0
+                        and aria_input.first.is_visible()):
+                    wager_input = aria_input.first
+                    print(f"[FANDUEL] Found wager input via partial label")
+            except Exception:
+                pass
+
+        # 2c. inputmode is the most durable structural attribute for
+        # monetary inputs — FD's wager input has inputmode="decimal".
+        if wager_input is None:
+            inputmode_selectors = [
+                'input[inputmode="decimal"]',
+                'input[inputmode="numeric"]',
+                'input[type="number"]',
+            ]
+            for sel in inputmode_selectors:
                 try:
-                    panel = self.page.locator(selector).first
-                    if panel.count() > 0 and panel.is_visible():
-                        print(f"[FANDUEL] Clicking betslip to open using: "
-                              f"{selector}")
-                        mouse_click(self.page, panel, state=self._cursor,
-                                    rng=self._typing.rng)
-                        settle(self.page, "ui_expansion",
-                               rng=self._typing.rng)
-                        betslip_opened = True
+                    loc = self.page.locator(sel)
+                    for i in range(loc.count()):
+                        cand = loc.nth(i)
+                        try:
+                            if not cand.is_visible():
+                                continue
+                            placeholder = (
+                                cand.get_attribute("placeholder") or ""
+                            ).lower()
+                            if "search" in placeholder:
+                                continue
+                            wager_input = cand
+                            print(f"[FANDUEL] Found wager input via {sel}")
+                            break
+                        except Exception:
+                            continue
+                    if wager_input is not None:
                         break
                 except Exception:
                     continue
 
-            # Text-based fallback: the collapsed slip header shows
-            # "$X wins $Y" — clicking that opens the panel.
-            if not betslip_opened:
-                try:
-                    wins_pattern = self.page.get_by_text(
-                        re.compile(r"\$[\d.]+ wins \$[\d.]+", re.I)
-                    )
-                    if wins_pattern.count() > 0:
-                        print(f"[FANDUEL] Clicking betslip using wins "
-                              f"pattern...")
-                        mouse_click(self.page, wins_pattern.first,
-                                    state=self._cursor,
-                                    rng=self._typing.rng)
-                        settle(self.page, "ui_expansion",
-                               rng=self._typing.rng)
-                        betslip_opened = True
-                except Exception:
-                    pass
-
-            if not betslip_opened:
-                print(f"[FANDUEL] ⚠ Could not click betslip panel; the "
-                      f"wager input may already be visible, continuing...")
-
-            self._screenshot("betslip_opened")
-
-            # Step 2: Find the wager input. Order matters — most durable
-            # locators first so we don't latch onto the wrong field.
-            wager_input = None
-
-            # 2a. Accessible name "WAGER $" (set by FD's design system).
-            try:
-                aria_input = self.page.get_by_label("WAGER $")
-                if aria_input.count() > 0 and aria_input.first.is_visible():
-                    wager_input = aria_input.first
-                    print(f"[FANDUEL] Found wager input via "
-                          f"get_by_label('WAGER $')")
-            except Exception:
-                pass
-
-            # 2b. Partial accessible name match.
-            if wager_input is None:
-                try:
-                    aria_input = self.page.get_by_label(
-                        re.compile(r"WAGER", re.I)
-                    )
-                    if (aria_input.count() > 0
-                            and aria_input.first.is_visible()):
-                        wager_input = aria_input.first
-                        print(f"[FANDUEL] Found wager input via partial label")
-                except Exception:
-                    pass
-
-            # 2c. inputmode is the most durable structural attribute for
-            # monetary inputs — FD's wager input has inputmode="decimal".
-            if wager_input is None:
-                inputmode_selectors = [
-                    'input[inputmode="decimal"]',
-                    'input[inputmode="numeric"]',
-                    'input[type="number"]',
-                ]
-                for sel in inputmode_selectors:
-                    try:
-                        loc = self.page.locator(sel)
-                        for i in range(loc.count()):
-                            cand = loc.nth(i)
-                            try:
-                                if not cand.is_visible():
-                                    continue
-                                placeholder = (
-                                    cand.get_attribute("placeholder") or ""
-                                ).lower()
-                                if "search" in placeholder:
-                                    continue
-                                wager_input = cand
-                                print(f"[FANDUEL] Found wager input via {sel}")
-                                break
-                            except Exception:
-                                continue
-                        if wager_input is not None:
-                            break
-                    except Exception:
-                        continue
-
-            # 2d. Attribute-based fallbacks scoped to the slip area.
-            if wager_input is None:
-                attr_selectors = [
+        # 2d. Attribute-based fallbacks scoped to the slip area.
+        if wager_input is None:
+            wager_input = first_visible(
+                self.page,
+                [
                     'input[aria-label*="wager" i]',
                     'input[aria-label*="stake" i]',
                     'input[name*="wager" i]',
                     'input[name*="stake" i]',
-                ]
-                for sel in attr_selectors:
-                    try:
-                        loc = self.page.locator(sel)
-                        if loc.count() > 0 and loc.first.is_visible():
-                            wager_input = loc.first
-                            print(f"[FANDUEL] Found wager input via {sel}")
-                            break
-                    except Exception:
-                        continue
+                ],
+                label="Found wager input",
+                site=self.site,
+            )
 
-            # 2e. Old class-chained fallbacks (rotate frequently).
-            if wager_input is None:
-                legacy_selectors = [
-                    '#main div > div > div.bt input',
-                    '#main div > div > div.cg input',
-                    '#main input[type="text"]',
-                ]
-                for sel in legacy_selectors:
-                    try:
-                        loc = self.page.locator(sel)
-                        for i in range(loc.count()):
-                            cand = loc.nth(i)
-                            try:
-                                if not cand.is_visible():
-                                    continue
-                                placeholder = (
-                                    cand.get_attribute("placeholder") or ""
-                                ).lower()
-                                if "search" in placeholder:
-                                    continue
-                                wager_input = cand
-                                print(f"[FANDUEL] Found wager input via "
-                                      f"legacy {sel}")
-                                break
-                            except Exception:
-                                continue
-                        if wager_input is not None:
-                            break
-                    except Exception:
-                        continue
-
-            if wager_input is None:
-                # Diagnostic: dump every visible input so the next
-                # selector update has data to work from. Cheap, and only
-                # runs once per failure.
+        # 2e. Old class-chained fallbacks (rotate frequently).
+        if wager_input is None:
+            legacy_selectors = [
+                '#main div > div > div.bt input',
+                '#main div > div > div.cg input',
+                '#main input[type="text"]',
+            ]
+            for sel in legacy_selectors:
                 try:
-                    all_inputs = self.page.locator("input")
-                    dump = []
-                    for i in range(min(all_inputs.count(), 25)):
-                        elem = all_inputs.nth(i)
+                    loc = self.page.locator(sel)
+                    for i in range(loc.count()):
+                        cand = loc.nth(i)
                         try:
-                            if not elem.is_visible():
+                            if not cand.is_visible():
                                 continue
-                            dump.append({
-                                "type": elem.get_attribute("type"),
-                                "name": elem.get_attribute("name"),
-                                "aria": elem.get_attribute("aria-label"),
-                                "placeholder": elem.get_attribute("placeholder"),
-                                "inputmode": elem.get_attribute("inputmode"),
-                                "id": elem.get_attribute("id"),
-                            })
+                            placeholder = (
+                                cand.get_attribute("placeholder") or ""
+                            ).lower()
+                            if "search" in placeholder:
+                                continue
+                            wager_input = cand
+                            print(f"[FANDUEL] Found wager input via "
+                                  f"legacy {sel}")
+                            break
                         except Exception:
                             continue
-                    print(f"[FANDUEL] visible inputs at failure: {dump}")
+                    if wager_input is not None:
+                        break
                 except Exception:
-                    pass
-                self._screenshot("wager_input_not_found")
-                raise BetPlacerError("Could not find FanDuel wager input")
+                    continue
 
-            # Step 3: enter the amount. Focus + clear via humanized
-            # mouse + select-all-delete, then humanized-type the value.
-            # ``humanized_type`` does NOT focus on its own (see
-            # human/typing.py docstring) — the explicit mouse_click is
-            # load-bearing.
-            mouse_click(self.page, wager_input, state=self._cursor,
-                        rng=self._typing.rng)
-            settle(self.page, "micro_pause", rng=self._typing.rng)
+        if wager_input is None:
+            # Diagnostic: dump every visible input so the next
+            # selector update has data to work from. Cheap, and only
+            # runs once per failure.
             try:
-                self.page.keyboard.press("Control+A")
-                self.page.keyboard.press("Delete")
+                all_inputs = self.page.locator("input")
+                dump = []
+                for i in range(min(all_inputs.count(), 25)):
+                    elem = all_inputs.nth(i)
+                    try:
+                        if not elem.is_visible():
+                            continue
+                        dump.append({
+                            "type": elem.get_attribute("type"),
+                            "name": elem.get_attribute("name"),
+                            "aria": elem.get_attribute("aria-label"),
+                            "placeholder": elem.get_attribute("placeholder"),
+                            "inputmode": elem.get_attribute("inputmode"),
+                            "id": elem.get_attribute("id"),
+                        })
+                    except Exception:
+                        continue
+                print(f"[FANDUEL] visible inputs at failure: {dump}")
             except Exception:
-                try:
-                    wager_input.fill("")
-                except Exception:
-                    pass
-            settle(self.page, "micro_pause", rng=self._typing.rng)
-            humanized_type(self.page, wager_input, f"{amount:.2f}",
-                           profile=self._typing)
-            settle(self.page, "slip_update", rng=self._typing.rng)
+                pass
+            self._screenshot("wager_input_not_found")
+            raise BetPlacerError("Could not find FanDuel wager input")
 
-            self._screenshot("wager_entered")
-            print(f"[FANDUEL] ✓ Wager entered: ${amount:.2f}")
-            return True
+        return wager_input
 
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("wager_entry_failed")
-            raise BetPlacerError(f"Failed to enter wager: {e}")
+    def _type_wager_amount_fanduel(self, wager_input, amount: float) -> None:
+        """Focus + clear via humanized mouse + select-all-delete, then
+        humanized-type the value. ``humanized_type`` does NOT focus on
+        its own (see human/typing.py docstring) — the explicit
+        mouse_click is load-bearing."""
+        mouse_click(self.page, wager_input, state=self._cursor,
+                    rng=self._typing.rng)
+        settle(self.page, "micro_pause", rng=self._typing.rng)
+        try:
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Delete")
+        except Exception:
+            try:
+                wager_input.fill("")
+            except Exception:
+                pass
+        settle(self.page, "micro_pause", rng=self._typing.rng)
+        humanized_type(self.page, wager_input, f"{amount:.2f}",
+                       profile=self._typing)
+        settle(self.page, "slip_update", rng=self._typing.rng)
+
+        self._screenshot("wager_entered")
+        print(f"[FANDUEL] ✓ Wager entered: ${amount:.2f}")
 
     # ------------------------------------------------------------------
     # Place bet — shadow-mode short-circuit before the click
@@ -1124,7 +1098,9 @@ class FanduelBetPlacer(BetPlacer):
         testid was missing and only the text pattern matched. Try
         multiple strategies in order of durability.
         """
-        try:
+        with with_screenshot_on_error(
+            self, "place_bet_failed", "Place bet failed"
+        ):
             # FanDuel runs a location/odds verification step after wager
             # entry; the Place Bet button doesn't render until that
             # completes (~1-3s). On 2026-05-21 this delay produced an
@@ -1294,14 +1270,6 @@ class FanduelBetPlacer(BetPlacer):
             print(f"[FANDUEL] ? Bet status UNKNOWN")
             return "UNKNOWN", "Could not determine bet status"
 
-        except ShadowAbortError:
-            raise
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("place_bet_failed")
-            raise BetPlacerError(f"Place bet failed: {e}")
-
     # ------------------------------------------------------------------
     # Odds probe — pure DOM read, no humanized mouse
     # ------------------------------------------------------------------
@@ -1386,7 +1354,9 @@ class FanduelBetPlacer(BetPlacer):
         """
         print(f"[FANDUEL] Discovering max wager (entering 99999)...")
 
-        try:
+        with with_screenshot_on_error(
+            self, "max_wager_discovery_failed", "Max wager discovery failed"
+        ):
             self._enter_wager_fanduel(99999.00)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
@@ -1428,9 +1398,3 @@ class FanduelBetPlacer(BetPlacer):
             self._screenshot("max_wager_discovered")
             print(f"[FANDUEL] ✓ Max wager: ${best_amount:.2f}")
             return best_amount, best_text
-
-        except BetPlacerError:
-            raise
-        except Exception as e:
-            self._screenshot("max_wager_discovery_failed")
-            raise BetPlacerError(f"Max wager discovery failed: {e}")
