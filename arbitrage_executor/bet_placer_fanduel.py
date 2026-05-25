@@ -1058,19 +1058,34 @@ class FanduelBetPlacer(BetPlacer):
         """Focus + clear via humanized mouse + select-all-delete, then
         humanized-type the value. ``humanized_type`` does NOT focus on
         its own (see human/typing.py docstring) — the explicit
-        mouse_click is load-bearing."""
+        mouse_click is load-bearing.
+
+        Use ``wager_input.press(...)`` rather than ``page.keyboard.press(...)``
+        for the clear step: ``settle()`` runs the modal-watcher sweep
+        BEFORE its sleep, and probing the DOM can drift focus off the
+        input between the click and the press. ``locator.press`` scopes
+        to the element (re-focuses first), so Ctrl+A clears the input
+        rather than select-all'ing the entire bet-slip page (the symptom
+        the user reported 2026-05-25 — wager mis-entered, max-wager
+        banner never appeared). Same reason for the explicit
+        ``focus()`` before ``humanized_type``.
+        """
         mouse_click(self.page, wager_input, state=self._cursor,
                     rng=self._typing.rng)
         settle(self.page, "micro_pause", rng=self._typing.rng)
         try:
-            self.page.keyboard.press("Control+A")
-            self.page.keyboard.press("Delete")
+            wager_input.press("Control+A")
+            wager_input.press("Delete")
         except Exception:
             try:
                 wager_input.fill("")
             except Exception:
                 pass
         settle(self.page, "micro_pause", rng=self._typing.rng)
+        try:
+            wager_input.focus()
+        except Exception:
+            pass
         humanized_type(self.page, wager_input, f"{amount:.2f}",
                        profile=self._typing)
         settle(self.page, "slip_update", rng=self._typing.rng)

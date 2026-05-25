@@ -40,15 +40,18 @@ class _Locator:
 
 
 class FakeModal:
-    """Modal with a list of buttons and optional inputs.
+    """Modal with a list of buttons and optional inputs / iframes.
 
     .locator("input") returns the modal's inputs (empty list = no
-    credential form). .locator("button") returns the modal's buttons.
-    .get_by_role("button", name=...) on .first returns name-matched.
+    credential form). .locator("iframe") returns the modal's iframes
+    (non-empty marks a wrapped login form like FD's). .locator("button")
+    returns the modal's buttons. .get_by_role("button", name=...) on
+    .first returns name-matched.
     """
-    def __init__(self, buttons, inputs=None):
+    def __init__(self, buttons, inputs=None, iframes=None):
         self._buttons = buttons
         self._inputs = inputs or []
+        self._iframes = iframes or []
 
     def count(self):
         return 1 if any(b.visible for b in self._buttons) else 0
@@ -56,6 +59,8 @@ class FakeModal:
     def locator(self, sel):
         if sel == "input":
             return _Locator(self._inputs)
+        if sel == "iframe":
+            return _Locator(self._iframes)
         # Default — return buttons (test fake collapses other sels).
         return _Locator(self._buttons)
 
@@ -75,11 +80,11 @@ class FakeModal:
 
 
 class FakePage:
-    def __init__(self, buttons=None, inputs=None, button=None):
+    def __init__(self, buttons=None, inputs=None, iframes=None, button=None):
         # ``button`` arg kept for back-compat with older callers.
         if button is not None:
             buttons = [button]
-        self.modal = FakeModal(buttons or [], inputs or [])
+        self.modal = FakeModal(buttons or [], inputs or [], iframes or [])
 
     def locator(self, sel):
         # All selector variants point at the same modal in this fake.
@@ -114,6 +119,18 @@ def test_check_once_skips_modal_with_input_field():
     watcher = ModalWatcher(page)
     assert watcher.check_once() is False
     assert not button.clicked
+
+
+def test_check_once_skips_modal_wrapping_an_iframe():
+    # FD login modal — outer wrapper has 0 inputs (they're inside the
+    # iframe, invisible to outer locators) and 1 sole button (the
+    # wrapper's × close). Must not dismiss; clicking × detaches the
+    # login frame. Regression: sweep #9 (2026-05-25).
+    close = FakeButton(name="")
+    page = FakePage(buttons=[close], iframes=[FakeButton()])
+    watcher = ModalWatcher(page)
+    assert watcher.check_once() is False
+    assert not close.clicked
 
 
 def test_check_once_returns_false_when_multiple_buttons_and_no_safe_name():
