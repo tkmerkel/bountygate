@@ -415,6 +415,31 @@ class BetmgmBetPlacer(BetPlacer):
             if accordion.count() > 0:
                 target = accordion.first
             else:
+                # BetMGM ships its accordion list in two render waves:
+                # merged-alt accordions ('Player assists', 'Player
+                # points', etc.) first, then the std O/U variants
+                # ('Player assists O/U', etc.) further down the page a
+                # moment later. The settle('page_load') above is a
+                # plain sleep and can fire BEFORE the std wave lands,
+                # so the count() check above misses it even though the
+                # accordion is about to render. Sweep #10 (2026-05-25)
+                # raised a false BetPlacerSkipError on 'Player assists
+                # O/U' on Cavs@Knicks for exactly this reason — the
+                # accordion was at DOM idx 50 after the page finished
+                # rendering, but the bot scanned before it appeared.
+                #
+                # Wait up to 6s for the exact target to attach. If it
+                # arrives, use it. If it doesn't, fall through to the
+                # iterate-and-skip-or-loud-fail path below — which is
+                # the right path for genuinely missing std accordions.
+                try:
+                    accordion.first.wait_for(state="attached", timeout=6000)
+                    if accordion.count() > 0:
+                        target = accordion.first
+                except Exception:
+                    pass
+
+            if target is None:
                 # No fuzzy fallback — iterate visible accordions with a
                 # normalized exact match, then on miss either skip
                 # (alt sibling present) or raise loud (real drift).
