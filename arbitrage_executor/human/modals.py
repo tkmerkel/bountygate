@@ -1,7 +1,7 @@
 """Opportunistic modal dismisser.
 
 Sportsbook UIs interrupt with modals at unpredictable times:
-  - FanDuel "Reality Check" every ~270 minutes of session activity
+  - FanDuel "Reality Check" every ~30 minutes of session activity
   - BetMGM responsible-gambling popups
   - Promotional overlays at first visit
 
@@ -39,6 +39,29 @@ _MODAL_SELECTORS = (
     'div[role="dialog"][aria-modal="true"]',
     'div[class*="modal"][class*="open"]',
     'div[class*="reality-check"]',
+    # FD ships its Reality Check / responsible-gambling modals via
+    # ReactModal; the open marker is the --after-open suffix on the
+    # overlay div. Caught sweep #6 dying on market 1 (2026-05-25)
+    # because none of the selectors above matched FD's actual class.
+    '.ReactModal__Overlay.ReactModal__Overlay--after-open',
+)
+
+
+# Known safe dismiss-button names. Tried in order on a visible modal
+# BEFORE the sole-button fallback. Avoids clicking arbitrary first
+# buttons in modals that might be credential / promo / cookie-consent
+# forms with destructive primary actions.
+_DISMISS_BUTTON_NAMES = (
+    "Continue Playing",   # FD Reality Check primary action
+    "I Understand",       # FD Reality Check alternate
+    "Acknowledge",        # FD responsible-gambling variants
+    "Got it",             # generic promo overlays
+    "Done",
+    "OK",
+    "Continue",
+    "Accept",
+    "Dismiss",
+    "Close",
 )
 
 
@@ -93,10 +116,15 @@ class ModalWatcher:
         return False
 
     def check_once(self) -> bool:
-        """Look for any known modal on this page; if visible, click its
-        first button. Returns True if a dismiss click fired, False
-        otherwise. Never raises — modal dismissal must NEVER take down
-        the main flow.
+        """Look for any known modal on this page; if visible, dismiss
+        it via a known-safe button name (preferred) or the sole button
+        if there's exactly one. Returns True if a dismiss click fired,
+        False otherwise. Never raises — modal dismissal must NEVER
+        take down the main flow.
+
+        Skips modals that contain input fields — those are credential
+        / form modals where blindly clicking a button could cancel a
+        user-driven flow (login, deposit, etc.).
         """
         for sel in _MODAL_SELECTORS:
             try:
@@ -105,11 +133,43 @@ class ModalWatcher:
                     continue
                 if not modal.first.is_visible():
                     continue
+
+                # Credential/form-bearing modals — leave them alone.
+                try:
+                    if modal.first.locator("input").count() > 0:
+                        continue
+                except Exception:
+                    pass
+
+                # Prefer a known-safe dismiss-button name. Tries each
+                # via get_by_role so we match accessible name, not
+                # rotating class identifiers.
+                for name in _DISMISS_BUTTON_NAMES:
+                    try:
+                        named = modal.first.get_by_role("button", name=name)
+                        if named.count() > 0 and named.first.is_visible():
+                            print(
+                                f"[human.modals] dismissing modal via "
+                                f"{sel} → {name!r}"
+                            )
+                            named.first.click()
+                            return True
+                    except Exception:
+                        continue
+
+                # Sole-button fallback — safe only when the modal has
+                # exactly one button (e.g. a "Continue" or "X" close).
                 buttons = modal.first.locator("button")
-                if buttons.count() > 0:
-                    print(f"[human.modals] dismissing modal via {sel}")
-                    buttons.first.click()
-                    return True
+                try:
+                    if buttons.count() == 1 and buttons.first.is_visible():
+                        print(
+                            f"[human.modals] dismissing modal via "
+                            f"{sel} (sole button)"
+                        )
+                        buttons.first.click()
+                        return True
+                except Exception:
+                    pass
             except Exception as e:
                 print(f"[human.modals] dismiss attempt error (ignored): {e}")
                 continue
