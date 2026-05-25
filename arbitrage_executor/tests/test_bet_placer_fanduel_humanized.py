@@ -390,6 +390,53 @@ def test_enter_wager_uses_humanized_type_fd():
     )
 
 
+def test_enter_wager_clear_step_scopes_to_input_not_page_keyboard():
+    """The pre-type clear (``Ctrl+A`` then ``Delete``) MUST go through
+    ``wager_input.press`` — the locator-scoped path — and NOT through
+    ``page.keyboard.press``.
+
+    ``settle()`` runs ``check_all_active()`` (modal sweep) BEFORE its
+    sleep, and probing the DOM can drift focus off the input between
+    the ``mouse_click`` and the clear-step. ``page.keyboard.press``
+    fires on whatever currently has focus; if that's the page body
+    instead of the input, Ctrl+A selects ALL of the bet-slip page
+    instead of just the input contents, and the subsequent type lands
+    in the wrong place — the symptom the user reported on 2026-05-25
+    (wager mis-entered, MAX WAGER banner never appeared).
+
+    ``locator.press()`` re-focuses the element first, which neutralises
+    the drift. This test pins the contract.
+    """
+    wager_input = _ClickableElement(visible=True, input_value="")
+    page = _HumanizedFakePage(
+        label_locators={"WAGER $": FakeLocator([wager_input])},
+    )
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    placer.enter_wager(12.34)
+
+    # The clear keys must have been routed to the input, not the page
+    # keyboard. Catching either one in page.keyboard.presses would mean
+    # the regression came back.
+    assert "Control+A" in wager_input.presses, (
+        f"Ctrl+A clear didn't scope to wager_input; presses="
+        f"{wager_input.presses!r}"
+    )
+    assert "Delete" in wager_input.presses, (
+        f"Delete clear didn't scope to wager_input; presses="
+        f"{wager_input.presses!r}"
+    )
+    assert "Control+A" not in page.keyboard.presses, (
+        "Regression: Ctrl+A went through page.keyboard.press; that "
+        "select-alls the entire bet-slip page if focus drifted. Use "
+        "wager_input.press('Control+A') instead."
+    )
+    assert "Delete" not in page.keyboard.presses, (
+        "Regression: Delete went through page.keyboard.press instead "
+        "of wager_input.press."
+    )
+
+
 # ---------------------------------------------------------------------------
 # place_bet — shadow-mode short-circuit (Task 15)
 # ---------------------------------------------------------------------------

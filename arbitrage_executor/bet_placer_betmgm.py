@@ -1382,11 +1382,23 @@ class BetmgmBetPlacer(BetPlacer):
                         rng=self._typing.rng)
             settle(self.page, "micro_pause", rng=self._typing.rng)
             # Clear existing content so the new digits don't append.
-            self.page.keyboard.press("Control+A")
-            self.page.keyboard.press("Delete")
+            # Use locator.press, NOT page.keyboard.press — settle()'s
+            # pre-sleep modal sweep can drift focus off the input, and
+            # page.keyboard.press fires on whatever currently has focus.
+            # locator.press auto-refocuses the element. Same root cause
+            # as the FD fix on 2026-05-25.
+            try:
+                wager_input.press("Control+A")
+                wager_input.press("Delete")
+            except Exception:
+                pass
             settle(self.page, "micro_pause", rng=self._typing.rng)
 
             amount_str = f"{amount:.2f}"
+            try:
+                wager_input.focus()
+            except Exception:
+                pass
             humanized_type(self.page, wager_input, amount_str,
                            profile=self._typing)
 
