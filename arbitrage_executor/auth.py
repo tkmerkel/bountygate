@@ -264,6 +264,55 @@ def _first_visible(page: Page, selectors) -> Optional[Locator]:
     return None
 
 
+def _modal_sweep_then_click(locator, *, page: Page, site: str,
+                            attempts: int = 3) -> None:
+    """Dismiss any blocking modal, then click ``locator``. Used in the
+    auth flow where bare ``locator.click()`` gets intercepted by FD's
+    Reality Check overlay — the ModalWatcher sweep in human.mouse.click
+    doesn't apply here because auth doesn't go through that path.
+
+    Calls ``check_all_active()`` (driving any registered ModalWatcher
+    on this page; no-op if none registered) AND a direct
+    ``_dismiss_blocking_modal`` for belt-and-suspenders coverage,
+    then attempts the click. On a Playwright timeout (likely from a
+    re-opened modal), sweeps again and retries up to ``attempts``.
+    """
+    # Lazy import to avoid a module-level cycle — human.modals doesn't
+    # import auth, but importing eagerly here would shift module init
+    # order on a clean tree.
+    try:
+        from human.modals import check_all_active
+    except Exception:
+        check_all_active = lambda: 0  # noqa: E731
+
+    last_exc: Optional[Exception] = None
+    for attempt in range(attempts):
+        try:
+            check_all_active()
+        except Exception:
+            pass
+        try:
+            _dismiss_blocking_modal(page, site)
+        except Exception:
+            pass
+        try:
+            locator.click(timeout=10_000)
+            return
+        except Exception as e:
+            last_exc = e
+            # On retry, give the page a beat for the new modal state to
+            # settle. Avoid sub-second sleeps that don't actually change
+            # anything; the prior dismiss path waits 1s after named-name
+            # clicks anyway.
+            try:
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+            print(f"[AUTH] {site}: click attempt {attempt + 1} failed: {e}")
+    if last_exc is not None:
+        raise last_exc
+
+
 def _dismiss_blocking_modal(page: Page, site: str) -> None:
     """Dismiss a non-credential modal that blocks login/header clicks.
 
@@ -286,7 +335,10 @@ def _dismiss_blocking_modal(page: Page, site: str) -> None:
         if buttons.count() == 0:
             return
 
-        for label in ("Done", "Got it", "OK", "Close"):
+        for label in (
+            "Continue Playing", "I Understand", "Acknowledge",
+            "Done", "Got it", "OK", "Close",
+        ):
             try:
                 named = modal.first.get_by_role("button", name=label)
                 if named.count() > 0 and named.first.is_visible():
@@ -366,7 +418,7 @@ def _do_login(
         login_link = _first_visible(page, _LOGGED_OUT_INDICATORS)
         if login_link is not None:
             try:
-                login_link.click()
+                _modal_sweep_then_click(login_link, page=page, site=site)
                 page.wait_for_timeout(3000)
             except Exception as e:
                 print(f"[AUTH] {site}: could not click header login link: {e}")
@@ -384,10 +436,10 @@ def _do_login(
         raise LoginError(f"{site}: password input not found on login page")
 
     try:
-        email.click()
+        _modal_sweep_then_click(email, page=page, site=site)
         email.fill("")
         email.type(user, delay=20)
-        pw.click()
+        _modal_sweep_then_click(pw, page=page, site=site)
         pw.fill("")
         pw.type(password, delay=20)
     except Exception as e:
@@ -404,7 +456,7 @@ def _do_login(
             raise LoginError(f"{site}: submit button not found and Enter failed: {e}")
     else:
         try:
-            submit.click()
+            _modal_sweep_then_click(submit, page=page, site=site)
         except Exception as e:
             _safe_screenshot(page, audit_dir, f"{site}_submit_click_failed")
             raise LoginError(f"{site}: submit click failed: {e}")
