@@ -48,9 +48,15 @@ _MODAL_SELECTORS = (
 
 
 # Known safe dismiss-button names. Tried in order on a visible modal
-# BEFORE the sole-button fallback. Avoids clicking arbitrary first
-# buttons in modals that might be credential / promo / cookie-consent
-# forms with destructive primary actions.
+# BEFORE the sole-button fallback. Each entry must be an unambiguous
+# "I've read this, proceed" action — clicking it must not navigate
+# the page or undo prior state.
+#
+# "Close" was here historically but sweep #8 (2026-05-25) caught it
+# detaching the email-input frame on FD's login interstitial: a
+# role=dialog with both "Close" and a proceed-button, where Close
+# kicked the user back to home. Single-button "Close" modals are
+# still handled — the sole-button fallback below catches them.
 _DISMISS_BUTTON_NAMES = (
     "Continue Playing",   # FD Reality Check primary action
     "I Understand",       # FD Reality Check alternate
@@ -61,7 +67,6 @@ _DISMISS_BUTTON_NAMES = (
     "Continue",
     "Accept",
     "Dismiss",
-    "Close",
 )
 
 

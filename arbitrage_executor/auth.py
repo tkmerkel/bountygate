@@ -335,9 +335,13 @@ def _dismiss_blocking_modal(page: Page, site: str) -> None:
         if buttons.count() == 0:
             return
 
+        # No "Close" — it's ambiguous (sometimes dismisses, sometimes
+        # navigates back). Sole-button fallback below still handles
+        # Close-only modals. Sweep #8 (2026-05-25) caught Close
+        # detaching the email-input frame on an FD login interstitial.
         for label in (
             "Continue Playing", "I Understand", "Acknowledge",
-            "Done", "Got it", "OK", "Close",
+            "Done", "Got it", "OK",
         ):
             try:
                 named = modal.first.get_by_role("button", name=label)
