@@ -71,11 +71,11 @@ def _engine() -> Engine:
 
 def _scrape_fanduel(page) -> dict:
     page.goto("https://account.fanduel.com/balance", wait_until="domcontentloaded")
-    page.wait_for_selector('[data-test-id="balance-total"]', timeout=15000)
+    page.wait_for_selector('[data-test-id="balance-total"]', timeout=4000)
     balance = parse_balance_text(page.locator('[data-test-id="balance-total"]').first.inner_text())
     pending = parse_balance_text(page.locator('[data-test-id="pending-wagers"]').first.inner_text())
     page.goto("https://account.fanduel.com/wagers/settled?range=7d", wait_until="domcontentloaded")
-    page.wait_for_selector('[data-test-id="settled-pnl-total"]', timeout=15000)
+    page.wait_for_selector('[data-test-id="settled-pnl-total"]', timeout=4000)
     pnl = parse_balance_text(page.locator('[data-test-id="settled-pnl-total"]').first.inner_text())
     avail = (balance - pending) if (balance is not None and pending is not None) else None
     return {"balance": balance, "pending_wagers": pending, "available_liquidity": avail, "pnl_7d": pnl}
@@ -83,11 +83,11 @@ def _scrape_fanduel(page) -> dict:
 
 def _scrape_betmgm(page) -> dict:
     page.goto("https://account.betmgm.com/balance", wait_until="domcontentloaded")
-    page.wait_for_selector(".balance-amount", timeout=15000)
+    page.wait_for_selector(".balance-amount", timeout=4000)
     balance = parse_balance_text(page.locator(".balance-amount").first.inner_text())
     pending = parse_balance_text(page.locator(".pending-wagers-amount").first.inner_text())
     page.goto("https://account.betmgm.com/wager-history?range=7d", wait_until="domcontentloaded")
-    page.wait_for_selector(".pnl-7d", timeout=15000)
+    page.wait_for_selector(".pnl-7d", timeout=4000)
     pnl = parse_balance_text(page.locator(".pnl-7d").first.inner_text())
     avail = (balance - pending) if (balance is not None and pending is not None) else None
     return {"balance": balance, "pending_wagers": pending, "available_liquidity": avail, "pnl_7d": pnl}

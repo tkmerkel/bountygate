@@ -29,7 +29,7 @@ from _bet_placer_helpers import (
 from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
-from human.waiting import settle
+from human.waiting import settle, step_timer
 from pick_matcher import select_unique
 from selector_finder import (
     calculate_alternate_tab_value,
@@ -778,9 +778,12 @@ class FanduelBetPlacer(BetPlacer):
         with with_screenshot_on_error(
             self, "wager_entry_failed", "Failed to enter wager"
         ):
-            self._open_betslip_panel_fanduel()
-            wager_input = self._find_wager_input_fanduel()
-            self._type_wager_amount_fanduel(wager_input, amount)
+            with step_timer("    fd_open_betslip_panel"):
+                self._open_betslip_panel_fanduel()
+            with step_timer("    fd_find_wager_input"):
+                wager_input = self._find_wager_input_fanduel()
+            with step_timer("    fd_type_wager_amount"):
+                self._type_wager_amount_fanduel(wager_input, amount)
             return True
 
     def _open_betslip_panel_fanduel(self) -> None:
@@ -998,17 +1001,23 @@ class FanduelBetPlacer(BetPlacer):
         mouse_click(self.page, wager_input, state=self._cursor,
                     rng=self._typing.rng)
         settle(self.page, "micro_pause", rng=self._typing.rng)
+        # Clear the input (Phase 1 left "99999" from max-wager discovery, so
+        # this genuinely runs). SHORT timeouts: FD's slip re-renders, so the
+        # element-stability actionability check otherwise burns the full page
+        # default (8s) per call before these best-effort clears give up.
+        # humanized_type's React .fill() fallback re-sets the exact value
+        # anyway, so a missed clear here can't corrupt the wager.
         try:
-            wager_input.press("Control+A")
-            wager_input.press("Delete")
+            wager_input.press("Control+A", timeout=2000)
+            wager_input.press("Delete", timeout=2000)
         except Exception:
             try:
-                wager_input.fill("")
+                wager_input.fill("", timeout=2000)
             except Exception:
                 pass
         settle(self.page, "micro_pause", rng=self._typing.rng)
         try:
-            wager_input.focus()
+            wager_input.focus(timeout=2000)
         except Exception:
             pass
         humanized_type(self.page, wager_input, f"{amount:.2f}",
@@ -1054,11 +1063,12 @@ class FanduelBetPlacer(BetPlacer):
             # If the wait times out the existing strategies still run,
             # so the loud-fail diagnostic is preserved.
             try:
-                self.page.wait_for_selector(
-                    'button:has-text("Place"):has-text("bet")',
-                    state='visible',
-                    timeout=8000,
-                )
+                with step_timer("    fd_place_wait_button"):
+                    self.page.wait_for_selector(
+                        'button:has-text("Place"):has-text("bet")',
+                        state='visible',
+                        timeout=8000,
+                    )
             except PlaywrightTimeoutError:
                 pass
 
@@ -1137,8 +1147,9 @@ class FanduelBetPlacer(BetPlacer):
                 )
 
             print(f"[FANDUEL] Clicking Place Bet...")
-            mouse_click(self.page, place_btn, state=self._cursor,
-                        rng=self._typing.rng)
+            with step_timer("    fd_place_click"):
+                mouse_click(self.page, place_btn, state=self._cursor,
+                            rng=self._typing.rng)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
             # Success detection — try several signals because the
