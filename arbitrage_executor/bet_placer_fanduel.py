@@ -30,11 +30,13 @@ from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
 from human.waiting import settle
+from pick_matcher import parse_pick, select_unique
 from selector_finder import (
     SelectorFinder,
     calculate_alternate_tab_value,
     is_alternate_market,
 )
+from text_match import fuzzy_contains
 
 
 # FanDuel MLB threshold=1 labels: maps display name -> (verb_phrase, article, singular_noun)
@@ -557,68 +559,50 @@ class FanduelBetPlacer(BetPlacer):
                 opportunity, direction, market_config, player_name, line
             )
 
-        # Standard path: use SelectorFinder to locate the bet by display
-        # name + player + line.
+        # Standard path: enumerate the player's market tiles and select the
+        # single tile matching the exact line + side. Player name is the only
+        # fuzzy match; line/side is exact (no substring, no "first candidate").
         display_names = market_config.get('display_names', [market_key])
-        candidates = SelectorFinder.find_candidates_by_text(
-            self.page, display_names, player_name, line
-        )
-
-        if not candidates:
-            dump_miss_context(
-                self.page, site=self.site, player_name=player_name
-            )
-            self._screenshot("bet_not_found")
-            raise BetPlacerError(
-                f"No bet found for {player_name} {direction} {line}"
-            )
-
-        # Filter by direction marker injected by SelectorFinder.
-        direction_candidates = [
-            c for c in candidates
-            if (direction == 'over' and '[over]' in c.preview_text.lower())
-            or (direction == 'under' and '[under]' in c.preview_text.lower())
-        ]
-        if not direction_candidates:
-            print(f"⚠ Could not filter by direction, using first candidate")
-            selected = candidates[0]
-        else:
-            selected = direction_candidates[0]
-
-        print(f"[FANDUEL] Clicking bet: {selected.preview_text[:60]}")
-
-        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
-            # Pick the first VISIBLE match. FanDuel renders hidden DOM
-            # duplicates (mobile-layout, promo cards) ahead of the real
-            # tile, and ``.first`` will silently grab one of those and
-            # time out on click.
-            loc = self.page.locator(selected.selector)
-            count = loc.count()
-            locator = None
-            for i in range(count):
-                cand = loc.nth(i)
+        tiles = []
+        seen = set()
+        for term in display_names:
+            try:
+                els = self.page.locator(
+                    f'[aria-label*="{player_name}"][aria-label*="{term}"]'
+                ).all()
+            except Exception:
+                continue
+            for el in els:
                 try:
-                    if cand.is_visible():
-                        locator = cand
-                        break
+                    if not el.is_visible():
+                        continue
+                    aria = el.get_attribute("aria-label") or ""
+                    if not fuzzy_contains(aria, player_name, threshold=90):
+                        continue
+                    if aria in seen:
+                        continue
+                    seen.add(aria)
+                    tiles.append((el, aria))
                 except Exception:
                     continue
-            if locator is None:
-                raise BetPlacerError(
-                    f"Selector matched {count} elements but none were "
-                    f"visible: {selected.selector}"
-                )
+
+        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
+            try:
+                locator = select_unique(tiles, line, direction)
+            except BetPlacerError:
+                dump_miss_context(self.page, site=self.site,
+                                  player_name=player_name)
+                self._screenshot("bet_not_found")
+                raise  # NoPickError / AmbiguousPickError are BetPlacerError
+
+            aria = locator.get_attribute("aria-label") or ""
+            print(f"[FANDUEL] Clicking bet: {aria[:60]}")
             mouse_click(self.page, locator, state=self._cursor,
                         rng=self._typing.rng)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
-            # Slip-phase pin: intentionally clobbers the orchestrator's
-            # per-session viewport noise from viewport_from_cdp. FD's
-            # slip controls (Remove all, place-bet button) jitter or
-            # misrender at narrower widths; 1920x945 is the smallest
-            # known-good size that consistently exposes them. The
-            # navigation-phase nudge applied earlier still carries
-            # most of the cross-session fingerprint variability.
+            # Slip-phase viewport pin (unchanged rationale: FD slip controls
+            # misrender at narrower widths).
             print(f"[FANDUEL] Pinning viewport to 1920x945 for slip phase...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
             settle(self.page, "micro_pause", rng=self._typing.rng)
