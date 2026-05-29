@@ -508,11 +508,13 @@ def test_find_and_click_bet_uses_humanized_mouse_fd():
     base_display = "Total Bases"
     threshold = 2
 
-    # The exact selector the FD alt cascade tries FIRST (button-restricted).
-    # Build it the same way ``_find_and_click_alternate_bet_fanduel`` does.
+    # The alt path now enumerates the player's tiles by player + market
+    # display name, then selects the single tile by EXACT threshold via
+    # ``select_unique`` (no per-threshold selector string). The first query
+    # pattern is the button-restricted player+display-name locator; plant the
+    # tile there and let the deterministic threshold match ("2+") pick it.
     primary_selector = (
-        f'button[aria-label*="{player}"][aria-label*="{threshold}+"]'
-        f'[aria-label*="{base_display}"]'
+        f'button[aria-label*="{player}"][aria-label*="{base_display}"]'
     )
 
     bet_button = _ClickableElement(
