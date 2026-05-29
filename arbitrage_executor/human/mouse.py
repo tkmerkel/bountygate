@@ -190,6 +190,7 @@ def move_to(
     overshoot = rng.random() < _OVERSHOOT_PROB
 
     pts = _bezier_path(start, end, steps=steps, rng=rng, overshoot=overshoot)
+    _mv_t = time.monotonic()
     for (x, y) in pts:
         page.mouse.move(x, y)
         # Tiny inter-step pause — Playwright's mouse.move(steps=N) does
@@ -199,6 +200,11 @@ def move_to(
         # delay.
         page.wait_for_timeout(rng.randint(8, 18))
 
+    _mv_ms = (time.monotonic() - _mv_t) * 1000
+    if _mv_ms > 1500:
+        print(f"[timing] slow mouse.move loop={_mv_ms:.0f}ms over {len(pts)} "
+              f"steps ({_mv_ms/max(len(pts),1):.0f}ms/step — renderer/thread "
+              f"contention)")
     state.position = pts[-1]
     return state.position
 
@@ -256,7 +262,11 @@ def click(
     # player_assists, revalidate sweep #2, 2026-05-22).
     try:
         from human.modals import check_all_active
+        _sw_t = time.monotonic()
         check_all_active()
+        _sw_ms = (time.monotonic() - _sw_t) * 1000
+        if _sw_ms > 1500:
+            print(f"[timing] slow mouse.click modal-sweep={_sw_ms:.0f}ms")
     except Exception:
         pass
 

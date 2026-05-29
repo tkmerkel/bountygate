@@ -1062,59 +1062,67 @@ class FanduelBetPlacer(BetPlacer):
             # caught it rendered a moment later. Wait for it explicitly.
             # If the wait times out the existing strategies still run,
             # so the loud-fail diagnostic is preserved.
-            try:
-                with step_timer("    fd_place_wait_button"):
-                    self.page.wait_for_selector(
-                        'button:has-text("Place"):has-text("bet")',
-                        state='visible',
-                        timeout=8000,
+            # Phase 3 is the orphan-risk window. After the BetMGM phase the FD
+            # slip can be slow/janky and the Place Bet button renders late; a
+            # single 8s wait orphaned a bet on 2026-05-29 (Brandon Nimmo). Retry
+            # the wait+detect for up to ~32s — a slow hedge is strictly better
+            # than an unhedged BetMGM bet. The detect strategies are pure
+            # count()/is_visible() probes, so retrying is cheap.
+            def _detect_place_btn():
+                try:
+                    with step_timer("    fd_place_wait_button"):
+                        self.page.wait_for_selector(
+                            'button:has-text("Place"):has-text("bet")',
+                            state='visible',
+                            timeout=8000,
+                        )
+                except PlaywrightTimeoutError:
+                    pass
+                # 1. Text pattern — "Place $X.YZ bet" (most durable).
+                try:
+                    cand = self.page.get_by_role(
+                        "button",
+                        name=re.compile(r"Place\s*\$[\d.]+\s*bet", re.I),
                     )
-            except PlaywrightTimeoutError:
-                pass
-
-            place_btn = None
-
-            # 1. Text pattern — "Place $X.YZ bet" (most durable, matches
-            #    the label users actually see).
-            try:
-                cand = self.page.get_by_role(
-                    "button",
-                    name=re.compile(r"Place\s*\$[\d.]+\s*bet", re.I),
-                )
-                if cand.count() > 0 and cand.first.is_visible():
-                    place_btn = cand.first
-                    print(f"[FANDUEL] Found Place Bet via role+name="
-                          f"Place $X bet")
-            except Exception:
-                pass
-
-            # 2. Generic "Place ... bet" or "Place Bet".
-            if place_btn is None:
+                    if cand.count() > 0 and cand.first.is_visible():
+                        print(f"[FANDUEL] Found Place Bet via role+name="
+                              f"Place $X bet")
+                        return cand.first
+                except Exception:
+                    pass
+                # 2. Generic "Place ... bet" or "Place Bet".
                 try:
                     cand = self.page.get_by_role(
                         "button",
                         name=re.compile(r"^Place.*bet$", re.I),
                     )
                     if cand.count() > 0 and cand.first.is_visible():
-                        place_btn = cand.first
                         print(f"[FANDUEL] Found Place Bet via role+name="
                               f"'Place...bet'")
+                        return cand.first
                 except Exception:
                     pass
-
-            # 3. Legacy data-testid (kept as fallback in case FD restores it).
-            if place_btn is None:
+                # 3. Legacy data-testid (in case FD restores it).
                 cand = self.page.locator('[data-testid="place-bet-button"]')
                 if cand.count() > 0 and cand.first.is_visible():
-                    place_btn = cand.first
                     print(f"[FANDUEL] Found Place Bet via data-testid")
-
-            # 4. data-test-id (different attribute name — FD has mixed both).
-            if place_btn is None:
+                    return cand.first
+                # 4. data-test-id (FD has mixed both attribute names).
                 cand = self.page.locator('[data-test-id="place-bet-button"]')
                 if cand.count() > 0 and cand.first.is_visible():
-                    place_btn = cand.first
                     print(f"[FANDUEL] Found Place Bet via data-test-id")
+                    return cand.first
+                return None
+
+            place_btn = None
+            for _place_attempt in range(4):  # up to ~32s of wait+detect
+                place_btn = _detect_place_btn()
+                if place_btn is not None:
+                    break
+                print(f"[FANDUEL] Place Bet button not ready "
+                      f"(attempt {_place_attempt + 1}/4); slip may still be "
+                      f"rendering — waiting before retry (orphan-avoidance)...")
+                settle(self.page, "slip_update", rng=self._typing.rng)
 
             if place_btn is None:
                 # Diagnostic: list buttons whose text starts with "Place"
