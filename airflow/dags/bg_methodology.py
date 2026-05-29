@@ -88,7 +88,6 @@ def bg_methodology_pipeline() -> None:
             raise AirflowSkipException("No recent snapshots for fair-prob computation")
 
         sharp = set(sharp_books())
-        soft = set(soft_legal_books())
 
         # Pivot to over/under price per (event, market, player, line, book).
         latest["side"] = latest["side"].astype("string").str.lower()
@@ -115,10 +114,13 @@ def bg_methodology_pipeline() -> None:
 
             devig_result = devig.devig_all(pinn_over_price, pinn_under_price)
 
-            # Consensus fallback across soft books (always computed for the column).
-            soft_grp = grp[grp["bookmaker_key"].isin(soft)]
-            over_list = soft_grp[soft_grp["side"] == "over"]["price_decimal"].tolist()
-            under_list = soft_grp[soft_grp["side"] == "under"]["price_decimal"].tolist()
+            # Consensus fallback: a WIDE market consensus across ALL non-sharp books
+            # (not just the 4 legal ones) — a broader, sharper sample. Pinnacle is the
+            # primary anchor above and is excluded here. Edge is still measured vs the
+            # legal soft books downstream; this is just the "fair price" estimate.
+            cons_grp = grp[~grp["bookmaker_key"].isin(sharp)]
+            over_list = cons_grp[cons_grp["side"] == "over"]["price_decimal"].tolist()
+            under_list = cons_grp[cons_grp["side"] == "under"]["price_decimal"].tolist()
             n = min(len(over_list), len(under_list))
             cons = (
                 consensus.no_vig_consensus(over_list[:n], under_list[:n])
