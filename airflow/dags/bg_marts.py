@@ -41,6 +41,13 @@ _EV_EDGE_THRESHOLD = float(os.environ.get("BG_EV_EDGE_THRESHOLD", "0.025"))
 _GOOD_BETS_LOOKBACK_DAYS = int(os.environ.get("BG_GOOD_BETS_LOOKBACK_DAYS", "2"))
 # rank_score penalty subtracted when devig methods disagree.
 _DISAGREEMENT_PENALTY = float(os.environ.get("BG_DISAGREEMENT_PENALTY", "1.0"))
+# Arb quality gate for the good-bets board. The replicated build_unified_arbitrage
+# pairs best-under/best-over WITHOUT grouping by line, so it surfaces middles and
+# line-mismatch artifacts (e.g. over 0.5 vs a differently-lined under) with absurd
+# "ROI". For the board we keep only genuine same-line cross-book arbs and cap ROI
+# (real prop arbs are ~0-2%; anything above is a stale/mismatched-price artifact).
+# mart_arbitrage itself is left untouched (it mirrors bg_unified_arbitrage 1:1).
+_ARB_ROI_SANITY_CAP = float(os.environ.get("BG_ARB_ROI_SANITY_CAP", "0.10"))
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +438,9 @@ def bg_marts_pipeline() -> None:
             "SELECT bg_event_id, player_name, market_key, under_line AS line, "
             "       over_bookmaker_key AS soft_book, over_price AS soft_price_decimal, "
             "       roi "
-            "FROM mart_arbitrage WHERE roi > 0"
+            "FROM mart_arbitrage "
+            "WHERE roi > 0 AND under_line = over_line "
+            f"AND roi <= {_ARB_ROI_SANITY_CAP}"
         )
         if arb is not None and not arb.empty:
             arb = arb.copy()
