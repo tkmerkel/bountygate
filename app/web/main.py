@@ -250,7 +250,8 @@ def api_good_bets(limit: int = 50, sport: Optional[str] = None, type: Optional[s
                 "SELECT good_bet_hash, bg_event_id, sport_key, sport_title, home_team_name, "
                 "away_team_name, commence_at_utc, hours_until_commence, market_key, player_name, "
                 "side, line, opportunity_type, soft_book, soft_price_decimal, fair_prob, fair_method, "
-                "edge_pct, roi, kelly_quarter, stake_capped, disagreement_flag, rank_score, fetched_at_utc "
+                "edge_pct, roi, kelly_quarter, stake_capped, disagreement_flag, n_two_way_books, "
+                "fair_source, rank_score, fetched_at_utc "
                 f"FROM mart_good_bets {where} ORDER BY rank_score DESC NULLS LAST LIMIT :lim"
             ),
             params,

@@ -728,6 +728,12 @@ function renderGoodBets() {
     const warn = b.disagreement_flag
       ? `<span title="Devig methods disagree — lower confidence" style="color:var(--ledger-red);margin-left:5px;">⚠</span>`
       : "";
+    // Confidence: Pinnacle-anchored (sharp) vs wide-consensus book count.
+    const src = b.fair_source || "";
+    let conf;
+    if (src === "pinnacle") conf = `<span title="Pinnacle (sharp) anchored" style="color:var(--augusta-green);font-weight:700;">PINN</span>`;
+    else if (src === "consensus") conf = `<span title="Wide-book consensus">${b.n_two_way_books != null ? b.n_two_way_books : "—"} bk</span>`;
+    else conf = `<span style="color:var(--rule-gray);">${esc((src || "—").toUpperCase())}</span>`;
     return `
       <tr>
         <td>
@@ -739,6 +745,7 @@ function renderGoodBets() {
         <td><div class="bg-runs__market">${esc((b.soft_book || "—").toUpperCase())}</div></td>
         <td class="num mono">${b.soft_price_decimal != null ? Number(b.soft_price_decimal).toFixed(2) : "—"}</td>
         <td class="num mono">${b.fair_prob != null ? fmtFrac(b.fair_prob) : "—"}</td>
+        <td class="num mono">${conf}</td>
         <td class="num mono"><span class="${edge != null && edge >= 0 ? "is-pos" : "is-neg"}">${fmtPctVal(edge, true)}</span><div style="font-size:10px;color:var(--rule-gray);">${edgeLbl}</div></td>
         <td class="num mono">${b.stake_capped != null ? fmtUsd(b.stake_capped) : (b.kelly_quarter != null ? fmtFrac(b.kelly_quarter) : "—")}</td>
         <td class="num mono">${fmtHours(b.hours_until_commence)}</td>
@@ -757,14 +764,14 @@ function renderGoodBets() {
       <thead>
         <tr>
           <th>PLAY</th><th>TYPE</th><th>BOOK</th>
-          <th class="num">PRICE</th><th class="num">FAIR</th><th class="num">EDGE</th>
+          <th class="num">PRICE</th><th class="num">FAIR</th><th class="num">CONF</th><th class="num">EDGE</th>
           <th class="num">¼-KELLY</th><th class="num">START</th>
         </tr>
       </thead>
       <tbody>
         ${rowsHtml}
         ${bets.length === 0
-          ? `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--rule-gray);font-family:var(--font-mono-pixel);">— NO QUALIFYING BETS. The analytics DAGs populate mart_good_bets each cycle. —</td></tr>`
+          ? `<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--rule-gray);font-family:var(--font-mono-pixel);">— NO QUALIFYING BETS. The analytics DAGs populate mart_good_bets each cycle. —</td></tr>`
           : ""}
       </tbody>
     </table>

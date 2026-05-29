@@ -48,6 +48,11 @@ _DISAGREEMENT_PENALTY = float(os.environ.get("BG_DISAGREEMENT_PENALTY", "1.0"))
 # (real prop arbs are ~0-2%; anything above is a stale/mismatched-price artifact).
 # mart_arbitrage itself is left untouched (it mirrors bg_unified_arbitrage 1:1).
 _ARB_ROI_SANITY_CAP = float(os.environ.get("BG_ARB_ROI_SANITY_CAP", "0.10"))
+# Consensus-quality gate for +EV plays. A fair prob from a single (or very few)
+# book(s) at a given line is noise (e.g. a 50% "edge" on a 1-book stolen-base prop).
+# Trust an EV row only when Pinnacle posted both sides (sharp anchor) OR at least
+# this many independent non-sharp books posted a two-way price at that line.
+_MIN_CONSENSUS_BOOKS = int(os.environ.get("BG_MIN_CONSENSUS_BOOKS", "3"))
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +422,35 @@ def bg_marts_pipeline() -> None:
         frames: list[pd.DataFrame] = []
         now_naive = pd.Timestamp.utcnow().tz_localize(None)
 
-        # (a) +EV from fact_ev_opportunity (edge_pct >= threshold).
+        # Consensus-quality stats per (event, market, player, line): how many
+        # independent books posted a two-way (both sides) price, split by sharp vs
+        # not, plus whether Pinnacle posted both sides. A book is "two-way" at a line
+        # when it has >= 2 distinct sides there.
+        bookstats = fetch_data(
+            "SELECT bg_event_id, market_key, player_name, line, "
+            "       COUNT(*) AS n_two_way_books, "
+            "       COUNT(*) FILTER (WHERE is_sharp) AS n_two_way_sharp, "
+            "       COUNT(*) FILTER (WHERE NOT is_sharp) AS n_two_way_soft, "
+            "       bool_or(is_sharp) AS has_sharp_twoway "
+            "FROM ( "
+            "  SELECT bg_event_id, market_key, player_name, line, bookmaker_key, "
+            "         bool_or(is_sharp) AS is_sharp "
+            "  FROM fact_odds_snapshot "
+            f"  WHERE fetched_at_utc >= now() - interval '{int(_GOOD_BETS_LOOKBACK_DAYS)} days' "
+            "  GROUP BY 1, 2, 3, 4, 5 "
+            "  HAVING COUNT(DISTINCT side) >= 2 "
+            ") b GROUP BY 1, 2, 3, 4"
+        )
+        if bookstats is None:
+            bookstats = pd.DataFrame()
+        if not bookstats.empty:
+            bookstats = bookstats.copy()
+            bookstats["line"] = pd.to_numeric(bookstats["line"], errors="coerce")
+            for col in ("n_two_way_books", "n_two_way_soft"):
+                bookstats[col] = pd.to_numeric(bookstats[col], errors="coerce").fillna(0).astype(int)
+            bookstats["has_sharp_twoway"] = bookstats["has_sharp_twoway"].fillna(False).astype(bool)
+
+        # (a) +EV from fact_ev_opportunity (edge_pct >= threshold), gated on consensus quality.
         ev = fetch_data(
             "SELECT bg_event_id, sport_key, market_key, player_name, side, line, "
             "       soft_book, soft_price_decimal, fair_prob, fair_method, edge_pct, "
@@ -428,10 +461,32 @@ def bg_marts_pipeline() -> None:
         )
         if ev is not None and not ev.empty:
             ev = ev.copy()
+            ev["line"] = pd.to_numeric(ev["line"], errors="coerce")
             ev["opportunity_type"] = "ev"
             ev["roi"] = pd.NA
+            # Attach book counts + Pinnacle presence; missing -> 0 / False.
+            if not bookstats.empty:
+                ev = ev.merge(
+                    bookstats[["bg_event_id", "market_key", "player_name", "line",
+                               "n_two_way_books", "n_two_way_soft", "has_sharp_twoway"]],
+                    on=["bg_event_id", "market_key", "player_name", "line"],
+                    how="left",
+                )
+            for col in ("n_two_way_books", "n_two_way_soft"):
+                ev[col] = pd.to_numeric(ev.get(col), errors="coerce").fillna(0).astype(int)
+            ev["has_sharp_twoway"] = ev.get("has_sharp_twoway")
+            ev["has_sharp_twoway"] = (
+                ev["has_sharp_twoway"].fillna(False).astype(bool)
+                if "has_sharp_twoway" in ev.columns else False
+            )
+            ev["fair_source"] = ev["has_sharp_twoway"].map(lambda x: "pinnacle" if x else "consensus")
+            # GATE: trust an EV play only when Pinnacle posted both sides (sharp anchor)
+            # OR enough independent non-sharp books did. Drops single-book noise.
+            keep = ev["has_sharp_twoway"] | (ev["n_two_way_soft"] >= _MIN_CONSENSUS_BOOKS)
+            ev = ev[keep].copy()
             ev["rank_score"] = pd.to_numeric(ev["edge_pct"], errors="coerce")
-            frames.append(ev)
+            if not ev.empty:
+                frames.append(ev)
 
         # (b) Arbitrage from mart_arbitrage (roi > 0).
         arb = fetch_data(
@@ -455,6 +510,9 @@ def bg_marts_pipeline() -> None:
             arb["sport_key"] = pd.NA
             arb["commence_at_utc"] = pd.NaT  # mart_arbitrage has none; filled via dim_event join
             arb["hours_until_commence"] = pd.NA
+            # An arb IS two independent books by construction, and risk-free — trustworthy.
+            arb["n_two_way_books"] = 2
+            arb["fair_source"] = "arb"
             arb["rank_score"] = pd.to_numeric(arb["roi"], errors="coerce") * 100.0
             frames.append(arb)
 
@@ -479,6 +537,8 @@ def bg_marts_pipeline() -> None:
             clv["sport_key"] = pd.NA
             clv["commence_at_utc"] = pd.NaT
             clv["hours_until_commence"] = pd.NA
+            clv["n_two_way_books"] = pd.NA
+            clv["fair_source"] = "clv"
             clv["rank_score"] = pd.to_numeric(clv["clv_pct"], errors="coerce") * 100.0
             frames.append(clv)
 
@@ -580,9 +640,14 @@ def bg_marts_pipeline() -> None:
             "kelly_quarter",
             "stake_capped",
             "disagreement_flag",
+            "n_two_way_books",
+            "fair_source",
             "rank_score",
             "fetched_at_utc",
         ]
+        board["n_two_way_books"] = pd.to_numeric(board.get("n_two_way_books"), errors="coerce")
+        if "fair_source" not in board.columns:
+            board["fair_source"] = pd.NA
         for c in good_bet_cols:
             if c not in board.columns:
                 board[c] = pd.NA
