@@ -114,7 +114,7 @@ class FakeLocator:
     def fill(self, value, **kwargs):
         self.fills.append(value)
 
-    def get_attribute(self, name):
+    def get_attribute(self, name, **kwargs):
         return self._attrs.get(name)
 
 

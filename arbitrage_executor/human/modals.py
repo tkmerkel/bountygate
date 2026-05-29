@@ -29,6 +29,7 @@ and bounded — and we lose zero hedging windows because the main
 thread, not a racing watcher, drives every page interaction.
 """
 
+import time
 import weakref
 
 
@@ -205,8 +206,13 @@ def check_all_active() -> int:
     # would otherwise mutate the WeakSet mid-iteration.
     for watcher in list(_active_watchers):
         try:
+            _t = time.monotonic()
             if watcher.check_once():
                 dismissed += 1
+            _ms = (time.monotonic() - _t) * 1000
+            if _ms > 1500:
+                print(f"[timing] slow modal check_once={_ms:.0f}ms "
+                      f"(watcher sweep — likely cross-page/thread contention)")
         except Exception as e:
             print(f"[human.modals] watcher tick error (ignored): {e}")
     return dismissed

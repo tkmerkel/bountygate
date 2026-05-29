@@ -33,7 +33,7 @@ class FakeElement:
     def text_content(self):
         return self.text
 
-    def get_attribute(self, name):
+    def get_attribute(self, name, **kwargs):
         return self.attributes.get(name)
 
     def input_value(self):
@@ -102,8 +102,8 @@ class FakeLocator:
     def all(self):
         return list(self.elements)
 
-    def get_attribute(self, name):
-        return self.first.get_attribute(name)
+    def get_attribute(self, name, **kwargs):
+        return self.first.get_attribute(name, **kwargs)
 
     def evaluate(self, *args, **kwargs):
         return []

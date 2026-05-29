@@ -17,6 +17,7 @@ and the cross-phase moves would be obviously stitched.
 
 import math
 import random
+import time
 from dataclasses import dataclass
 
 
@@ -165,7 +166,12 @@ def move_to(
         deterministic event counts should be aware of the +5 tail.
     """
     rng = rng or random.Random()
+    _bb_t = time.monotonic()
     box = locator.bounding_box()
+    _bb_ms = (time.monotonic() - _bb_t) * 1000
+    if _bb_ms > 1500:
+        print(f"[timing] slow mouse.bounding_box={_bb_ms:.0f}ms "
+              f"(element not stable — actionability spin)")
     if not box or box["width"] <= 0 or box["height"] <= 0:
         raise ValueError("move_to: locator has no visible bounding box")
 
@@ -259,4 +265,9 @@ def click(
     # natively, so we keep the lognormal variability for the dispatched
     # event sequence rather than dropping it.
     hold_ms = _sample_lognormal_ms(_HOLD_MU, _HOLD_SIGMA, rng)
+    _click_t = time.monotonic()
     locator.click(delay=hold_ms, no_wait_after=True, force=force)
+    _click_ms = (time.monotonic() - _click_t) * 1000
+    if _click_ms > 1500:
+        print(f"[timing] slow locator.click={_click_ms:.0f}ms "
+              f"(actionability retry loop — consider force=True)")

@@ -157,18 +157,26 @@ def _looks_react_controlled(locator) -> bool:
     without instrumentation, so we use signals that are common in the
     FanDuel and BetMGM search-input components.
     """
+    # SHORT per-read timeout. get_attribute auto-waits for the element on a
+    # re-rendering slip; with the default (8s) and ~7 reads this heuristic
+    # alone burned ~56s of the FanDuel hedge (2026-05-29 time study). A
+    # constantly-re-rendering element times out fast here and IS exactly the
+    # React-controlled kind that needs the fill() fallback — so on timeout we
+    # return True (conservative: keeps the value-correcting safety net).
     try:
         for attr in _REACT_HEURISTIC_ATTRS:
-            if locator.get_attribute(attr):
+            if locator.get_attribute(attr, timeout=1000):
                 return True
-        role = locator.get_attribute("role")
+        role = locator.get_attribute("role", timeout=1000)
         if role and role in _REACT_HEURISTIC_ROLES:
             return True
-        testid = locator.get_attribute("data-testid") or ""
+        testid = locator.get_attribute("data-testid", timeout=1000) or ""
         if any(marker in testid.lower() for marker in _REACT_HEURISTIC_TESTIDS):
             return True
     except Exception:
-        return False
+        # A read timed out (element mid-re-render) → treat as React-controlled
+        # so the fill() fallback still runs and corrects the value.
+        return True
     return False
 
 
