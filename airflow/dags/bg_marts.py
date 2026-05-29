@@ -430,7 +430,7 @@ def bg_marts_pipeline() -> None:
         arb = fetch_data(
             "SELECT bg_event_id, player_name, market_key, under_line AS line, "
             "       over_bookmaker_key AS soft_book, over_price AS soft_price_decimal, "
-            "       roi, commence_at_utc "
+            "       roi "
             "FROM mart_arbitrage WHERE roi > 0"
         )
         if arb is not None and not arb.empty:
@@ -444,6 +444,7 @@ def bg_marts_pipeline() -> None:
             arb["stake_capped"] = pd.NA
             arb["disagreement_flag"] = False
             arb["sport_key"] = pd.NA
+            arb["commence_at_utc"] = pd.NaT  # mart_arbitrage has none; filled via dim_event join
             arb["hours_until_commence"] = pd.NA
             arb["rank_score"] = pd.to_numeric(arb["roi"], errors="coerce") * 100.0
             frames.append(arb)
