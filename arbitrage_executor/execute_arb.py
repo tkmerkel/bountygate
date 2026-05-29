@@ -698,17 +698,10 @@ class ArbExecutor:
                     self.audit_dir
                 )
 
-                # === SCRAPE: account balances ===
-                # Best-effort: reuses the warm pages we already have. Failures
-                # are logged and surfaced via the dashboard's Accounts card
-                # but never break the success path of a placed bet.
-                try:
-                    from account_scraper import scrape_all
-                    with step_timer("post_account_scrape", timings):
-                        scrape_all(page_fd=page_fd, page_mgm=page_mgm)
-                    print("  ✓ Account stats scraped")
-                except Exception as scrape_err:
-                    print(f"  ⚠ Account scrape failed (non-fatal): {scrape_err}")
+                # Account-balance scrape removed 2026-05-29: its selectors were
+                # placeholders that never matched, so it produced no data while
+                # costing ~33s of post-placement page navigations every run. A
+                # simpler balance check will be implemented separately.
 
                 # Per-run time study — ranks steps so the biggest waste is obvious.
                 _print_cycle_time_breakdown(timings)
