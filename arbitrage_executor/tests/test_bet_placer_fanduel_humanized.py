@@ -565,3 +565,58 @@ def test_find_and_click_bet_uses_humanized_mouse_fd():
         "Bet button's locator.click() was never invoked — the click "
         "event never reached the React handler and the slip will stay empty."
     )
+
+
+def test_alt_threshold_one_verb_phrase_selected_fd():
+    """Threshold-1 alt markets (line 0.5) render on FanDuel as a verb phrase
+    whose noun is SINGULAR — e.g. ``"To Hit A Double, Jake McCarthy, 4.90"`` —
+    while the market display name is the PLURAL ``"Doubles"``. Querying tiles
+    by the plural display name alone never matches the singular verb phrase
+    (``"Doubles"`` is not a substring of ``"...A Double,..."``), so the bet is
+    missed and select_unique raises NoPickError.
+
+    Regression observed live 2026-05-29 (Jake McCarthy batter_doubles): the
+    real button carried ``aria-label="To Hit A Double, Jake McCarthy, 4.90"``
+    yet the deterministic alt path raised "No pick matched ... threshold=True".
+    The collection query must add the exact verb phrase from
+    FANDUEL_THRESHOLD_ONE_LABELS for threshold==1.
+    """
+    player = "Jake McCarthy"
+    over_line = 0.5            # threshold == 1
+    market_key = "batter_doubles_alternate"
+    base_display = "Doubles"   # PLURAL display name; tile says "Double"
+
+    # The verb-phrase query the fixed alt path must build for threshold==1
+    # (FANDUEL_THRESHOLD_ONE_LABELS["Doubles"] -> ("To Hit", "A", "Double")).
+    verb_phrase = "To Hit A Double"
+    primary_selector = (
+        f'button[aria-label*="{player}"][aria-label*="{verb_phrase}"]'
+    )
+
+    bet_button = _ClickableElement(
+        visible=True,
+        text="4.90",
+        attributes={"aria-label": f"{verb_phrase}, {player}, 4.90"},
+    )
+
+    page = _HumanizedFakePage(locators={
+        primary_selector: FakeLocator([bet_button]),
+    })
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    opp = {
+        "player_name": player,
+        "over_line": over_line,
+        "under_line": over_line,
+        "market_key": market_key,
+    }
+    market_config = {"is_alternate": True, "display_names": [base_display]}
+
+    result = placer.find_and_click_bet(opp, "over", market_config)
+
+    assert result is True
+    assert bet_button.mouse_clicked is True, (
+        "The To-Hit-A-Double tile was never matched — the alt query did not "
+        "build the singular verb phrase for the threshold-1 market."
+    )
+    assert bet_button.clicked is True

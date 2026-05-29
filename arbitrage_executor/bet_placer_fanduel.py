@@ -639,7 +639,22 @@ class FanduelBetPlacer(BetPlacer):
         #   - under leg -> exact line + side on the line-bearing O/U tile
         tiles = []
         seen = set()
-        query_terms = display_names or [base_display]
+        # Scope tiles to THIS market by aria-label term. FanDuel renders the
+        # threshold-1 form as a verb phrase whose noun is SINGULAR ("To Hit A
+        # Double"), so the PLURAL display name ("Doubles") won't substring-match
+        # it — add the exact verb phrase from FANDUEL_THRESHOLD_ONE_LABELS.
+        # Numeric forms ("2+ Doubles") carry the plural display name as-is.
+        # (Singularizing the display name is unsafe: "Hit" is a substring of
+        # "To Hit A Double", which would collide across stats — hence the
+        # explicit phrase map.) select_unique still enforces the exact
+        # threshold afterwards, so this only widens collection, never selection.
+        query_terms = list(display_names or [base_display])
+        if threshold == 1:
+            for dn in (display_names or [base_display]):
+                info = FANDUEL_THRESHOLD_ONE_LABELS.get(dn)
+                if info:
+                    verb, article, noun = info
+                    query_terms.append(f"{verb} {article} {noun}")
         for term in query_terms:
             for pat in (
                 f'button[aria-label*="{player_name}"][aria-label*="{term}"]',
