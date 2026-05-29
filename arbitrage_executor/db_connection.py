@@ -77,6 +77,8 @@ def ensure_executed_opportunities_table(table_name: str = EXECUTED_OPPORTUNITIES
         home_team TEXT,
         away_team TEXT,
         market_key TEXT,
+        over_market_key TEXT,
+        under_market_key TEXT,
         line_value DECIMAL(12,4),
         over_bookmaker_key TEXT,
         under_bookmaker_key TEXT,
@@ -128,6 +130,17 @@ def mark_opportunity_executed(
         "home_team": opportunity_info.get("home_team"),
         "away_team": opportunity_info.get("away_team"),
         "market_key": opportunity_info.get("market_key"),
+        # over/under market keys can differ (e.g. FD batter_doubles_alternate vs
+        # MGM batter_doubles). The table requires both NOT NULL; fall back to
+        # the shared market_key for older opportunity dicts that lack them.
+        "over_market_key": (
+            opportunity_info.get("over_market_key")
+            or opportunity_info.get("market_key")
+        ),
+        "under_market_key": (
+            opportunity_info.get("under_market_key")
+            or opportunity_info.get("market_key")
+        ),
         "line_value": opportunity_info.get("under_line") or opportunity_info.get("over_line"),
         "over_bookmaker_key": opportunity_info.get("over_bookmaker_key"),
         "under_bookmaker_key": opportunity_info.get("under_bookmaker_key"),
@@ -147,6 +160,8 @@ def mark_opportunity_executed(
                         home_team,
                         away_team,
                         market_key,
+                        over_market_key,
+                        under_market_key,
                         line_value,
                         over_bookmaker_key,
                         under_bookmaker_key,
@@ -160,6 +175,8 @@ def mark_opportunity_executed(
                         :home_team,
                         :away_team,
                         :market_key,
+                        :over_market_key,
+                        :under_market_key,
                         :line_value,
                         :over_bookmaker_key,
                         :under_bookmaker_key,
