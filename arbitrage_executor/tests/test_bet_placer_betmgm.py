@@ -321,3 +321,13 @@ def test_get_actual_odds_returns_none_when_not_found():
     page = FakePage()
     placer = BetmgmBetPlacer(page, "betmgm", AUDIT_DIR)
     assert placer.get_actual_odds() is None
+
+
+def test_betmgm_does_not_match_substring_line():
+    from pick_matcher import select_unique, NoPickError
+    # picks rendered on the player's row
+    items = [("pickA", "O 11.5 2.00"), ("pickB", "U 11.5 1.85")]
+    import pytest
+    with pytest.raises(NoPickError):
+        select_unique(items, 1.5, "over")          # 1.5 must NOT match 11.5
+    assert select_unique(items, 11.5, "over") == "pickA"
