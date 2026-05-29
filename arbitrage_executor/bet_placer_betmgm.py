@@ -1357,6 +1357,7 @@ class BetmgmBetPlacer(BetPlacer):
             # input (= the just-added bet); only fall back to the last
             # filled one if every visible input is non-empty.
             wager_input = None
+            wager_input_empty = False
             for selector in wager_selectors:
                 try:
                     locator = self.page.locator(selector)
@@ -1381,6 +1382,7 @@ class BetmgmBetPlacer(BetPlacer):
                                     if not v.strip()]
                     if empty_inputs:
                         wager_input = empty_inputs[-1]
+                        wager_input_empty = True
                         print(f"[BETMGM] Found wager input via {selector} "
                               f"(picked last empty of {len(visible_inputs)})")
                     else:
@@ -1430,16 +1432,24 @@ class BetmgmBetPlacer(BetPlacer):
             # page.keyboard.press fires on whatever currently has focus.
             # locator.press auto-refocuses the element. Same root cause
             # as the FD fix on 2026-05-25.
-            try:
-                wager_input.press("Control+A")
-                wager_input.press("Delete")
-            except Exception:
-                pass
+            # Skip the clear entirely when we picked an already-empty input
+            # (the common case — the just-added bet). When non-empty, clear
+            # with a SHORT timeout: BetMGM's slip re-renders constantly so the
+            # element-stability actionability check otherwise burns the full
+            # 30s default before this best-effort press gives up.
+            if not wager_input_empty:
+                try:
+                    wager_input.press("Control+A", timeout=2000)
+                    wager_input.press("Delete", timeout=2000)
+                except Exception:
+                    pass
             settle(self.page, "micro_pause", rng=self._typing.rng)
 
             amount_str = f"{amount:.2f}"
+            # mouse_click above already focused the input; this is a belt-and-
+            # suspenders refocus. Short timeout for the same stability reason.
             try:
-                wager_input.focus()
+                wager_input.focus(timeout=2000)
             except Exception:
                 pass
             humanized_type(self.page, wager_input, amount_str,

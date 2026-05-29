@@ -39,7 +39,7 @@ class FakeElement:
     def input_value(self):
         return self._input_value
 
-    def fill(self, value):
+    def fill(self, value, **kwargs):
         self.fills.append(value)
         self._input_value = value
         if self.on_fill:

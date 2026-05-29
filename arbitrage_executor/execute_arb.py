@@ -307,6 +307,12 @@ class ArbExecutor:
                 # Open FanDuel page
                 print("Opening FanDuel tab...")
                 page_fd = context.new_page()
+                # Cap element-action auto-waits (click/press/fill/focus). The
+                # sportsbook slips re-render constantly, so Playwright's default
+                # 30s stability timeout turns each best-effort action into a
+                # 30s hang. Navigation keeps the generous 30s timeout.
+                page_fd.set_default_timeout(8000)
+                page_fd.set_default_navigation_timeout(30000)
                 viewport_from_cdp(page_fd)
                 fd_modal_watcher = ModalWatcher(page_fd)
                 fd_modal_watcher.start()
@@ -403,6 +409,9 @@ class ArbExecutor:
                 # that's actually clickable.
                 print("Opening BetMGM tab...")
                 page_mgm = context.new_page()
+                # See page_fd note: cap action auto-waits, keep nav generous.
+                page_mgm.set_default_timeout(8000)
+                page_mgm.set_default_navigation_timeout(30000)
                 viewport_from_cdp(page_mgm)
                 mgm_modal_watcher = ModalWatcher(page_mgm)
                 mgm_modal_watcher.start()

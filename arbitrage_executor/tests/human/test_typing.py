@@ -111,7 +111,7 @@ class FakeLocator:
         self.fills: list[str] = []
         self._attrs = attrs or {}
 
-    def fill(self, value):
+    def fill(self, value, **kwargs):
         self.fills.append(value)
 
     def get_attribute(self, name):
@@ -203,7 +203,7 @@ def test_humanized_type_swallows_fill_fallback_errors(capsys):
     behavior in case someone later "cleans up" the bare except.
     """
     class FailingLocator(FakeLocator):
-        def fill(self, value):
+        def fill(self, value, **kwargs):
             raise RuntimeError("simulated React detachment")
 
     page = FakePage()

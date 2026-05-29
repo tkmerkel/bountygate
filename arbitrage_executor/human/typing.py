@@ -225,7 +225,12 @@ def humanized_type(
     # keypress events, but some only commit state on input events.
     if _looks_react_controlled(locator):
         try:
-            locator.fill(text)
+            # Short timeout: the per-keystroke typing above already set the
+            # value. This .fill() only commits framework state for inputs that
+            # ignore keypress events. On a constantly-re-rendering slip the
+            # element-stability check would otherwise burn the full 30s default
+            # before this belt-and-suspenders call gives up.
+            locator.fill(text, timeout=2000)
         except Exception as e:
             print(
                 f"[human.typing] React fill fallback failed (keystroke typing "
