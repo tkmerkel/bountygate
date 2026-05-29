@@ -8,9 +8,11 @@ from human.mouse import click
 
 
 def test_step_count_scales_with_distance():
-    assert _step_count(distance_px=20) == 12  # clamped at min
-    assert _step_count(distance_px=800) == 40  # clamped at max
-    assert 12 < _step_count(distance_px=200) < 40
+    # Bounds lowered to [8, 16] on 2026-05-29 to cut CDP round-trips on
+    # renderer-saturated slips (see human.mouse._MIN_STEPS/_MAX_STEPS).
+    assert _step_count(distance_px=20) == 8    # clamped at min
+    assert _step_count(distance_px=800) == 16  # clamped at max
+    assert 8 < _step_count(distance_px=120) < 16
 
 
 def test_bezier_path_starts_and_ends_on_endpoints():

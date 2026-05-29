@@ -22,8 +22,15 @@ from dataclasses import dataclass
 
 
 # Min / max number of intermediate mouse-move events along a path.
-_MIN_STEPS = 12
-_MAX_STEPS = 40
+# Lowered from 12/40 on 2026-05-29: each page.mouse.move is a CDP round-trip,
+# and on a renderer-saturated slip (FanDuel Phase-3 hedge) each cost ~440ms,
+# so 40 steps = ~18s per cursor move. Fewer points keep the bezier path's
+# curved/eased SHAPE (what mouse-trackers fingerprint) while cutting the
+# round-trip count. The per-step inter-move sleep was also dropped (see
+# move_to) — the code's own note is that the human macro-shape comes from the
+# ease-out point spacing, not the per-step delay.
+_MIN_STEPS = 8
+_MAX_STEPS = 16
 # Pixels per step — driving target density. 1 step per ~10px so that
 # a 200px move lands well above the floor (~20 steps) and an 800px
 # move saturates at the ceiling (40).
@@ -193,12 +200,13 @@ def move_to(
     _mv_t = time.monotonic()
     for (x, y) in pts:
         page.mouse.move(x, y)
-        # Tiny inter-step pause — Playwright's mouse.move(steps=N) does
-        # this internally for browser-native moves but we want explicit
-        # control over the cadence. Uniform (not lognormal) — sub-frame
-        # jitter; the macro shape comes from ease-out, not the per-step
-        # delay.
-        page.wait_for_timeout(rng.randint(8, 18))
+        # NOTE: the former per-step ``page.wait_for_timeout(8-18ms)`` was
+        # removed 2026-05-29. It added a second CDP round-trip per step — on a
+        # renderer-saturated slip that ~doubled the move cost (each round-trip
+        # ~440ms). It was only sub-frame jitter; the human macro-shape comes
+        # from the bezier ease-out point spacing, which is unchanged. The
+        # pre-click ``dwell`` and the mousedown→up ``hold`` delays still pace
+        # the click itself.
 
     _mv_ms = (time.monotonic() - _mv_t) * 1000
     if _mv_ms > 1500:
