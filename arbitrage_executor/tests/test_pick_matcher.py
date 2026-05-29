@@ -46,6 +46,23 @@ def test_parse_threshold_does_not_confuse_5_with_15():
 def test_parse_threshold_one_verb_labels():
     assert parse_threshold("To Hit A Single") == 1
     assert parse_threshold("To Record An RBI") == 1
+    assert parse_threshold("To Record A Run") == 1
+    assert parse_threshold("To Record A Total Base") == 1
+
+
+def test_every_fanduel_verb_phrase_is_recognized():
+    """Cross-consistency guard: every FanDuel threshold-1 verb phrase that the
+    alt-path query builds (FANDUEL_THRESHOLD_ONE_LABELS) must be recognized by
+    parse_threshold as threshold 1. Otherwise the FD alt path would COLLECT the
+    tile but select_unique would fail to match it (the gap that left
+    batter_runs / batter_total_bases broken before the lists were aligned)."""
+    from bet_placer_fanduel import FANDUEL_THRESHOLD_ONE_LABELS
+    for display, (verb, article, noun) in FANDUEL_THRESHOLD_ONE_LABELS.items():
+        phrase = f"{verb} {article} {noun}"
+        assert parse_threshold(f"{phrase}, Some Player, 4.90") == 1, (
+            f"parse_threshold does not recognize {phrase!r} (display={display!r}) "
+            f"— add it to pick_matcher._THRESHOLD_ONE_PHRASES"
+        )
 
 def test_parse_threshold_none():
     assert parse_threshold("Over 4.5 Points") is None

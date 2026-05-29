@@ -43,6 +43,7 @@ _THRESHOLD_ONE_PHRASES = (
     "to hit a single", "to hit a double", "to hit a triple",
     "to record an rbi", "to record a walk", "to record a strikeout",
     "to hit a home run", "to record a stolen base", "to record a hit",
+    "to record a run", "to record a total base",
 )
 
 
