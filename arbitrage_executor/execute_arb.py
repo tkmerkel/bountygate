@@ -35,6 +35,42 @@ from human.modals import ModalWatcher
 from human import SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def step_timer(label: str, sink: Optional[list] = None):
+    """Time a named execution step and print ``[timing] <label>=<ms>``.
+
+    Permanent cycle-time instrumentation (the operator reads these like a
+    time study to spot waste). When ``sink`` is provided, the (label, ms)
+    pair is appended so the end-of-run breakdown can rank steps longest-first.
+    """
+    _t = time.monotonic()
+    try:
+        yield
+    finally:
+        ms = (time.monotonic() - _t) * 1000
+        print(f"[timing] {label}={ms:.0f}ms")
+        if sink is not None:
+            sink.append((label, ms))
+
+
+def _print_cycle_time_breakdown(timings: list) -> None:
+    """Print a longest-first cycle-time breakdown — the per-run time study."""
+    if not timings:
+        return
+    total = sum(ms for _, ms in timings)
+    print(f"\n{'─'*60}")
+    print("CYCLE TIME BREAKDOWN (longest first)")
+    print(f"{'─'*60}")
+    for label, ms in sorted(timings, key=lambda x: -x[1]):
+        pct = (ms / total * 100) if total else 0
+        print(f"  {ms/1000:6.1f}s  {pct:4.0f}%  {label}")
+    print(f"  {total/1000:6.1f}s  100%  TOTAL (instrumented steps)")
+    print(f"{'─'*60}\n")
+
+
 class OrphanedBetError(Exception):
     """Raised when BetMGM was placed but the FanDuel hedge failed.
 
@@ -300,6 +336,7 @@ class ArbExecutor:
                 # Phase 2 placement and Phase 3 hedge gets uncomfortably
                 # wide. Watched in `logs/execution_success.log`.
                 phase_1_start_monotonic = time.monotonic()
+                timings: list = []  # cycle-time sink for the end-of-run breakdown
                 print(f"\n{'─'*60}")
                 print(f"PHASE 1: DISCOVER FANDUEL MAX WAGER")
                 print(f"{'─'*60}\n")
@@ -342,13 +379,16 @@ class ArbExecutor:
                 placer_fd = BetPlacer(page_fd, "fanduel", self.audit_dir)
 
                 try:
-                    placer_fd.navigate_and_expand_market(self.opportunity, fd_config, fd_direction)
-                    placer_fd.find_and_click_bet(self.opportunity, fd_direction, fd_config)
+                    with step_timer("p1_fd_navigate_and_expand", timings):
+                        placer_fd.navigate_and_expand_market(self.opportunity, fd_config, fd_direction)
+                    with step_timer("p1_fd_find_and_click_bet", timings):
+                        placer_fd.find_and_click_bet(self.opportunity, fd_direction, fd_config)
 
                     # Extract actual FanDuel odds
                     fd_actual_odds = placer_fd.get_actual_odds()
 
-                    fd_max_wager, fd_max_text = placer_fd.discover_max_wager()
+                    with step_timer("p1_fd_discover_max_wager", timings):
+                        fd_max_wager, fd_max_text = placer_fd.discover_max_wager()
 
                     print(f"\n✓ FanDuel max wager: ${fd_max_wager:.2f}")
 
@@ -357,13 +397,14 @@ class ArbExecutor:
                     # the cross-book temporal correlation that risk teams cluster on.
                     # By design, NO idle between Phase 2 and Phase 3 (orphan window).
                     try:
-                        intra_book_idle(
-                            page_fd,
-                            site="fanduel",
-                            check_slip_has_bet=placer_fd.slip_has_visible_selection,
-                            current_fd_odds=fd_actual_odds or fd_price_original,
-                            read_fd_odds=placer_fd.get_actual_odds,
-                        )
+                        with step_timer("p1_intra_book_idle", timings):
+                            intra_book_idle(
+                                page_fd,
+                                site="fanduel",
+                                check_slip_has_bet=placer_fd.slip_has_visible_selection,
+                                current_fd_odds=fd_actual_odds or fd_price_original,
+                                read_fd_odds=placer_fd.get_actual_odds,
+                            )
                     except (SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError) as idle_err:
                         print(f"⏭ Idle-window skip: {idle_err}")
                         ExecutionLogger.log_execution_failure(
@@ -443,8 +484,10 @@ class ArbExecutor:
                 placer_mgm = BetPlacer(page_mgm, "betmgm", self.audit_dir)
 
                 try:
-                    placer_mgm.navigate_and_expand_market(self.opportunity, mgm_config, mgm_direction)
-                    placer_mgm.find_and_click_bet(self.opportunity, mgm_direction, mgm_config)
+                    with step_timer("p2_mgm_navigate_and_expand", timings):
+                        placer_mgm.navigate_and_expand_market(self.opportunity, mgm_config, mgm_direction)
+                    with step_timer("p2_mgm_find_and_click_bet", timings):
+                        placer_mgm.find_and_click_bet(self.opportunity, mgm_direction, mgm_config)
 
                     # Extract actual BetMGM odds
                     mgm_actual_odds = placer_mgm.get_actual_odds()
@@ -516,7 +559,8 @@ class ArbExecutor:
                 print(f"Actual BetMGM wager: ${actual_mgm_stake:.2f}\n")
 
                 try:
-                    placer_mgm.enter_wager(actual_mgm_stake)
+                    with step_timer("p2_mgm_enter_wager", timings):
+                        placer_mgm.enter_wager(actual_mgm_stake)
 
                     # Check for BetMGM max limit alert
                     limit_hit, adjusted_stake = placer_mgm.check_limit_alert()
@@ -549,7 +593,8 @@ class ArbExecutor:
                         print(f"✓ Can still hedge with adjusted stakes")
                         actual_mgm_stake = adjusted_stake
 
-                    mgm_status, mgm_msg = placer_mgm.place_bet()
+                    with step_timer("p2_mgm_place_bet", timings):
+                        mgm_status, mgm_msg = placer_mgm.place_bet()
 
                     if mgm_status != "ACCEPTED":
                         print(f"❌ BetMGM bet {mgm_status}: {mgm_msg}")
@@ -618,9 +663,11 @@ class ArbExecutor:
 
                 try:
                     # FanDuel already has bet in slip, just update wager
-                    placer_fd.enter_wager(fd_hedge_stake)
+                    with step_timer("p3_fd_hedge_enter_wager", timings):
+                        placer_fd.enter_wager(fd_hedge_stake)
 
-                    fd_status, fd_msg = placer_fd.place_bet()
+                    with step_timer("p3_fd_hedge_place_bet", timings):
+                        fd_status, fd_msg = placer_fd.place_bet()
 
                     if fd_status != "ACCEPTED":
                         self._raise_orphaned(
@@ -675,10 +722,14 @@ class ArbExecutor:
                 # but never break the success path of a placed bet.
                 try:
                     from account_scraper import scrape_all
-                    scrape_all(page_fd=page_fd, page_mgm=page_mgm)
+                    with step_timer("post_account_scrape", timings):
+                        scrape_all(page_fd=page_fd, page_mgm=page_mgm)
                     print("  ✓ Account stats scraped")
                 except Exception as scrape_err:
                     print(f"  ⚠ Account scrape failed (non-fatal): {scrape_err}")
+
+                # Per-run time study — ranks steps so the biggest waste is obvious.
+                _print_cycle_time_breakdown(timings)
 
                 # === CLEANUP: Close browser tabs ===
                 print("Closing browser tabs...")
