@@ -29,7 +29,7 @@ from bet_placer import (
 )
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
-from human.waiting import settle
+from human.waiting import settle, step_timer
 from text_match import fuzzy_contains
 from pick_matcher import parse_pick, select_unique, NoPickError
 
@@ -190,12 +190,17 @@ class BetmgmBetPlacer(BetPlacer):
             or market_config.get('has_threshold_tabs', False)
         )
 
-        self._load_betmgm_homepage(sport)
-        self._search_betmgm_for_event(home_team, sport)
-        self._navigate_to_event_page_betmgm(home_team, away_team)
-        self._select_market_sub_tab_betmgm(market_config)
-        self._expand_accordion_betmgm(accordion_name, is_alternate,
-                                      opportunity, market_config, direction)
+        with step_timer("  p2_mgm_load_homepage"):
+            self._load_betmgm_homepage(sport)
+        with step_timer("  p2_mgm_search_event"):
+            self._search_betmgm_for_event(home_team, sport)
+        with step_timer("  p2_mgm_goto_event_page"):
+            self._navigate_to_event_page_betmgm(home_team, away_team)
+        with step_timer("  p2_mgm_select_sub_tab"):
+            self._select_market_sub_tab_betmgm(market_config)
+        with step_timer("  p2_mgm_expand_accordion"):
+            self._expand_accordion_betmgm(accordion_name, is_alternate,
+                                          opportunity, market_config, direction)
 
     def _load_betmgm_homepage(self, sport: str) -> None:
         """Goto the plain homepage, auth-probe, clear any leftover slip,

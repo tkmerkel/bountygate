@@ -35,25 +35,7 @@ from human.modals import ModalWatcher
 from human import SlipDrainedDuringIdleError, FdOddsDriftedDuringIdleError
 
 
-from contextlib import contextmanager
-
-
-@contextmanager
-def step_timer(label: str, sink: Optional[list] = None):
-    """Time a named execution step and print ``[timing] <label>=<ms>``.
-
-    Permanent cycle-time instrumentation (the operator reads these like a
-    time study to spot waste). When ``sink`` is provided, the (label, ms)
-    pair is appended so the end-of-run breakdown can rank steps longest-first.
-    """
-    _t = time.monotonic()
-    try:
-        yield
-    finally:
-        ms = (time.monotonic() - _t) * 1000
-        print(f"[timing] {label}={ms:.0f}ms")
-        if sink is not None:
-            sink.append((label, ms))
+from human.waiting import step_timer
 
 
 def _print_cycle_time_breakdown(timings: list) -> None:

@@ -11,11 +11,31 @@ constant.
 """
 
 import random
-from typing import Protocol
+import time
+from contextlib import contextmanager
+from typing import Optional, Protocol
 
 
 class _Page(Protocol):
     def wait_for_timeout(self, ms: int) -> None: ...
+
+
+@contextmanager
+def step_timer(label: str, sink: Optional[list] = None):
+    """Time a named step and print ``[timing] <label>=<ms>``.
+
+    Permanent cycle-time instrumentation — the operator reads these like a
+    time study to spot waste. When ``sink`` is provided, the ``(label, ms)``
+    pair is appended so a caller can rank steps longest-first afterwards.
+    """
+    _t = time.monotonic()
+    try:
+        yield
+    finally:
+        ms = (time.monotonic() - _t) * 1000
+        print(f"[timing] {label}={ms:.0f}ms")
+        if sink is not None:
+            sink.append((label, ms))
 
 
 # Categories — bounds are inclusive. Tune these as we learn what feels
