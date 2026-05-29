@@ -208,6 +208,177 @@ def api_watchers():
     }
 
 
+# --- Analytics: good bets, +EV, CLV --------------------------------------
+# Read-only views over the analytics marts/facts produced by the
+# bg_dimensional_model -> bg_methodology -> bg_marts DAG chain (and the
+# bg_closing_line cron). All time columns in those tables are naive UTC.
+
+from decimal import Decimal as _Decimal
+
+
+def _jsonify(value):
+    """Coerce a DB value into a JSON-safe scalar (Decimal->float, datetime->iso)."""
+    if isinstance(value, _Decimal):
+        return float(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _rows_to_dicts(rows) -> list[dict]:
+    return [{k: _jsonify(v) for k, v in dict(r).items()} for r in rows]
+
+
+@app.get("/api/good-bets")
+def api_good_bets(limit: int = 50, sport: Optional[str] = None, type: Optional[str] = None):
+    """Ranked actionable opportunities (mart_good_bets), best first."""
+    limit = max(1, min(limit, 500))
+    if engine is None:
+        return {"version": 1, "updated_at": None, "stale_after_minutes": 10, "bets": []}
+    clauses = []
+    params: dict = {"lim": limit}
+    if sport:
+        clauses.append("sport_key = :sport")
+        params["sport"] = sport
+    if type:
+        clauses.append("opportunity_type = :otype")
+        params["otype"] = type
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with engine.connect() as c:
+        rows = c.execute(
+            text(
+                "SELECT good_bet_hash, bg_event_id, sport_key, sport_title, home_team_name, "
+                "away_team_name, commence_at_utc, hours_until_commence, market_key, player_name, "
+                "side, line, opportunity_type, soft_book, soft_price_decimal, fair_prob, fair_method, "
+                "edge_pct, roi, kelly_quarter, stake_capped, disagreement_flag, rank_score, fetched_at_utc "
+                f"FROM mart_good_bets {where} ORDER BY rank_score DESC NULLS LAST LIMIT :lim"
+            ),
+            params,
+        ).mappings().all()
+        latest = c.execute(text("SELECT MAX(fetched_at_utc) FROM mart_good_bets")).scalar()
+    return {
+        "version": 1,
+        "updated_at": _jsonify(latest),
+        "stale_after_minutes": 10,
+        "bets": _rows_to_dicts(rows),
+    }
+
+
+@app.get("/api/ev-opportunities")
+def api_ev_opportunities(limit: int = 100, min_edge: float = 0.0, sport: Optional[str] = None):
+    """+EV plays vs the legal soft books (fact_ev_opportunity). min_edge is a fraction (0.025 = 2.5%)."""
+    limit = max(1, min(limit, 500))
+    if engine is None:
+        return {"version": 1, "updated_at": None, "stale_after_minutes": 10, "opportunities": []}
+    clauses = ["edge >= :min_edge"]
+    params: dict = {"lim": limit, "min_edge": min_edge}
+    if sport:
+        clauses.append("sport_key = :sport")
+        params["sport"] = sport
+    where = "WHERE " + " AND ".join(clauses)
+    with engine.connect() as c:
+        rows = c.execute(
+            text(
+                "SELECT ev_hash, bg_event_id, sport_key, market_key, player_name, side, line, soft_book, "
+                "soft_price_decimal, fair_prob, fair_method, edge, edge_pct, kelly_quarter, stake_capped, "
+                "pinnacle_no_vig_price, disagreement_flag, commence_at_utc, hours_until_commence, fetched_at_utc "
+                f"FROM fact_ev_opportunity {where} ORDER BY edge_pct DESC NULLS LAST LIMIT :lim"
+            ),
+            params,
+        ).mappings().all()
+        latest = c.execute(text("SELECT MAX(fetched_at_utc) FROM fact_ev_opportunity")).scalar()
+    return {
+        "version": 1,
+        "updated_at": _jsonify(latest),
+        "stale_after_minutes": 10,
+        "opportunities": _rows_to_dicts(rows),
+    }
+
+
+@app.get("/api/clv-summary")
+def api_clv_summary(days: int = 30):
+    """Closing-line-value scorecard over the last N days (fact_clv)."""
+    days = max(1, min(days, 365))
+    empty = {
+        "version": 1, "updated_at": None, "stale_after_minutes": 60,
+        "days": days, "n_bets": 0, "avg_clv_pct": None, "beat_close_rate": None,
+    }
+    if engine is None:
+        return empty
+    with engine.connect() as c:
+        row = c.execute(
+            text(
+                "SELECT COUNT(*) AS n, AVG(clv_pct) AS avg_clv, "
+                "AVG(CASE WHEN beat_close THEN 1.0 ELSE 0.0 END) AS beat_rate, "
+                "MAX(recorded_at_utc) AS m FROM fact_clv "
+                "WHERE recorded_at_utc >= (now() AT TIME ZONE 'utc') - make_interval(days => :days)"
+            ),
+            {"days": days},
+        ).mappings().first()
+    if not row:
+        return empty
+    return {
+        "version": 1,
+        "updated_at": _jsonify(row["m"]),
+        "stale_after_minutes": 60,
+        "days": days,
+        "n_bets": int(row["n"]) if row["n"] else 0,
+        "avg_clv_pct": float(row["avg_clv"]) if row["avg_clv"] is not None else None,
+        "beat_close_rate": float(row["beat_rate"]) if row["beat_rate"] is not None else None,
+    }
+
+
+@app.get("/api/market-consensus")
+def api_market_consensus(event_id: Optional[str] = None, market: Optional[str] = None, limit: int = 200):
+    """Per-market consensus stats (mart_market_consensus)."""
+    limit = max(1, min(limit, 1000))
+    if engine is None:
+        return {"version": 1, "updated_at": None, "stale_after_minutes": 10, "rows": []}
+    clauses = []
+    params: dict = {"lim": limit}
+    if event_id:
+        clauses.append("bg_event_id = :eid")
+        params["eid"] = event_id
+    if market:
+        clauses.append("market_key = :mkt")
+        params["mkt"] = market
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with engine.connect() as c:
+        rows = c.execute(
+            text(f"SELECT * FROM mart_market_consensus {where} ORDER BY price_count DESC NULLS LAST LIMIT :lim"),
+            params,
+        ).mappings().all()
+        latest = c.execute(text("SELECT MAX(fetched_at_utc) FROM mart_market_consensus")).scalar()
+    return {
+        "version": 1,
+        "updated_at": _jsonify(latest),
+        "stale_after_minutes": 10,
+        "rows": _rows_to_dicts(rows),
+    }
+
+
+@app.get("/api/line-movement")
+def api_line_movement(event_id: str, limit: int = 200):
+    """Per-(event,market,player,side) soft-vs-sharp movement windows (fact_line_movement)."""
+    limit = max(1, min(limit, 1000))
+    if engine is None:
+        return {"version": 1, "updated_at": None, "stale_after_minutes": 10, "rows": []}
+    with engine.connect() as c:
+        rows = c.execute(
+            text(
+                "SELECT * FROM fact_line_movement WHERE bg_event_id = :eid "
+                "ORDER BY computed_at_utc DESC LIMIT :lim"
+            ),
+            {"eid": event_id, "lim": limit},
+        ).mappings().all()
+    return {
+        "version": 1,
+        "updated_at": _jsonify(rows[0]["computed_at_utc"]) if rows else None,
+        "stale_after_minutes": 10,
+        "rows": _rows_to_dicts(rows),
+    }
+
+
 # --- Wiki ----------------------------------------------------------------
 
 _FRONT_MATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
