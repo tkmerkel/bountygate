@@ -331,6 +331,13 @@ def _dismiss_blocking_modal(page: Page, site: str) -> None:
         if modal.first.locator("input").count() > 0:
             return
 
+        # Iframe-bearing modals — leave them alone. FD's login modal
+        # is a wrapper around an iframe; outer-page locators can't see
+        # the inputs inside it, so the input check above passes through
+        # and we'd happily click the wrapper's × close button.
+        if modal.first.locator("iframe").count() > 0:
+            return
+
         buttons = modal.first.locator("button")
         if buttons.count() == 0:
             return

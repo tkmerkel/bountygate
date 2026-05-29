@@ -56,6 +56,11 @@ class FakeElement:
         if self.on_press:
             self.on_press(key)
 
+    def focus(self):
+        # No-op; tests that care about focus drift track it through
+        # the .press / .type sites instead.
+        return None
+
     def evaluate(self, *args, **kwargs):
         return ""
 

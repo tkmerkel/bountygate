@@ -116,22 +116,18 @@ def test_slip_is_empty_recognizes_no_bet_selections_marker():
 # ---- B5: find_and_click_bet tests ----
 
 def test_find_and_click_raises_when_no_candidates(monkeypatch):
+    # No tiles render for the player -> select_unique finds nothing and the
+    # standard path must raise a BetPlacerError (NoPickError) fail-loud, never
+    # a benign skip.
     page = FakePage()
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-
-    # Stub SelectorFinder to return no candidates
-    import bet_placer_fanduel
-    monkeypatch.setattr(
-        bet_placer_fanduel.SelectorFinder, "find_candidates_by_text",
-        staticmethod(lambda *a, **k: [])
-    )
 
     opp = {
         "player_name": "Jake Fraley",
         "over_line": 0.5, "under_line": 0.5,
         "market_key": "player_points",
     }
-    with pytest.raises(BetPlacerError, match="No bet found for Jake Fraley over 0.5"):
+    with pytest.raises(BetPlacerError):
         placer.find_and_click_bet(opp, "over", {"display_names": ["Points"]})
 
 
@@ -232,3 +228,21 @@ def test_get_actual_odds_returns_none_when_not_found():
     page = FakePage()
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
     assert placer.get_actual_odds() is None
+
+
+def test_fanduel_no_wrong_side_fallback():
+    # Only an Under tile exists for the player; an over request must RAISE,
+    # never fall back to the under tile.
+    from pick_matcher import select_unique, NoPickError
+    import pytest
+    tiles = [("under_el", "Anthony Davis, Under, 9.5, Rebounds")]
+    with pytest.raises(NoPickError):
+        select_unique(tiles, 9.5, "over")
+    assert select_unique(tiles, 9.5, "under") == "under_el"
+
+def test_fanduel_line_substring_not_matched():
+    from pick_matcher import select_unique, NoPickError
+    import pytest
+    tiles = [("el", "Stephen Curry, Over, 11.5, Points")]
+    with pytest.raises(NoPickError):
+        select_unique(tiles, 1.5, "over")   # 1.5 must NOT match 11.5

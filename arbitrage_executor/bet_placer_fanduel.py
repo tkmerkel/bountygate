@@ -30,11 +30,12 @@ from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
 from human.waiting import settle
+from pick_matcher import select_unique
 from selector_finder import (
-    SelectorFinder,
     calculate_alternate_tab_value,
     is_alternate_market,
 )
+from text_match import fuzzy_contains
 
 
 # FanDuel MLB threshold=1 labels: maps display name -> (verb_phrase, article, singular_noun)
@@ -557,68 +558,50 @@ class FanduelBetPlacer(BetPlacer):
                 opportunity, direction, market_config, player_name, line
             )
 
-        # Standard path: use SelectorFinder to locate the bet by display
-        # name + player + line.
+        # Standard path: enumerate the player's market tiles and select the
+        # single tile matching the exact line + side. Player name is the only
+        # fuzzy match; line/side is exact (no substring, no "first candidate").
         display_names = market_config.get('display_names', [market_key])
-        candidates = SelectorFinder.find_candidates_by_text(
-            self.page, display_names, player_name, line
-        )
-
-        if not candidates:
-            dump_miss_context(
-                self.page, site=self.site, player_name=player_name
-            )
-            self._screenshot("bet_not_found")
-            raise BetPlacerError(
-                f"No bet found for {player_name} {direction} {line}"
-            )
-
-        # Filter by direction marker injected by SelectorFinder.
-        direction_candidates = [
-            c for c in candidates
-            if (direction == 'over' and '[over]' in c.preview_text.lower())
-            or (direction == 'under' and '[under]' in c.preview_text.lower())
-        ]
-        if not direction_candidates:
-            print(f"⚠ Could not filter by direction, using first candidate")
-            selected = candidates[0]
-        else:
-            selected = direction_candidates[0]
-
-        print(f"[FANDUEL] Clicking bet: {selected.preview_text[:60]}")
-
-        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
-            # Pick the first VISIBLE match. FanDuel renders hidden DOM
-            # duplicates (mobile-layout, promo cards) ahead of the real
-            # tile, and ``.first`` will silently grab one of those and
-            # time out on click.
-            loc = self.page.locator(selected.selector)
-            count = loc.count()
-            locator = None
-            for i in range(count):
-                cand = loc.nth(i)
+        tiles = []
+        seen = set()
+        for term in display_names:
+            try:
+                els = self.page.locator(
+                    f'[aria-label*="{player_name}"][aria-label*="{term}"]'
+                ).all()
+            except Exception:
+                continue
+            for el in els:
                 try:
-                    if cand.is_visible():
-                        locator = cand
-                        break
+                    if not el.is_visible():
+                        continue
+                    aria = el.get_attribute("aria-label") or ""
+                    if not fuzzy_contains(aria, player_name, threshold=90):
+                        continue
+                    if aria in seen:
+                        continue
+                    seen.add(aria)
+                    tiles.append((el, aria))
                 except Exception:
                     continue
-            if locator is None:
-                raise BetPlacerError(
-                    f"Selector matched {count} elements but none were "
-                    f"visible: {selected.selector}"
-                )
+
+        with with_screenshot_on_error(self, "click_failed", "Failed to click bet"):
+            try:
+                locator = select_unique(tiles, line, direction)
+            except BetPlacerError:
+                dump_miss_context(self.page, site=self.site,
+                                  player_name=player_name)
+                self._screenshot("bet_not_found")
+                raise  # NoPickError / AmbiguousPickError are BetPlacerError
+
+            aria = locator.get_attribute("aria-label") or ""
+            print(f"[FANDUEL] Clicking bet: {aria[:60]}")
             mouse_click(self.page, locator, state=self._cursor,
                         rng=self._typing.rng)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
-            # Slip-phase pin: intentionally clobbers the orchestrator's
-            # per-session viewport noise from viewport_from_cdp. FD's
-            # slip controls (Remove all, place-bet button) jitter or
-            # misrender at narrower widths; 1920x945 is the smallest
-            # known-good size that consistently exposes them. The
-            # navigation-phase nudge applied earlier still carries
-            # most of the cross-session fingerprint variability.
+            # Slip-phase viewport pin (unchanged rationale: FD slip controls
+            # misrender at narrower widths).
             print(f"[FANDUEL] Pinning viewport to 1920x945 for slip phase...")
             self.page.set_viewport_size({"width": 1920, "height": 945})
             settle(self.page, "micro_pause", rng=self._typing.rng)
@@ -636,9 +619,11 @@ class FanduelBetPlacer(BetPlacer):
 
         For alternate markets, FanDuel shows bets like ``4+ Points`` or
         ``To Hit A Single`` (the threshold==1 MLB form) instead of
-        ``Over 4.5 Points``. Each candidate selector is tried in order;
-        the first that matches a visible element wins and is
-        humanized-mouse-clicked.
+        ``Over 4.5 Points``. We enumerate the player's tiles for the
+        market and select the single tile matching the exact threshold
+        (over leg) or exact line+side (under leg) via ``select_unique`` —
+        no first-match-wins guessing, no text-rank fallback. Exactly one
+        match is humanized-mouse-clicked, or it raises.
         """
         threshold = calculate_alternate_tab_value(line)
         display_names = market_config.get('display_names', ['Points'])
@@ -647,181 +632,106 @@ class FanduelBetPlacer(BetPlacer):
         print(f"[FANDUEL] Alternate market: searching for "
               f"{player_name} {threshold}+ {base_display}")
 
-        # Build selector patterns for threshold-based bets.
-        selector_patterns: list = []
-
-        # For threshold==1 (line==0.5), FanDuel MLB uses
-        # "To Hit A Single" / "To Record An RBI" style labels.
-        if threshold == 1:
-            label_info = FANDUEL_THRESHOLD_ONE_LABELS.get(base_display)
-            if label_info:
-                verb, article, noun = label_info
-                selector_patterns.extend([
-                    f'[aria-label*="{verb}"][aria-label*="{article} {noun}"]'
-                    f'[aria-label*="{player_name}"]',
-                    f'[aria-label*="{verb} {article} {noun}"]'
-                    f'[aria-label*="{player_name}"]',
-                ])
-
-        # Standard N+ patterns. Button-restricted variants come FIRST
-        # because an unscoped ``[aria-label*=...]`` matches any element
-        # with the label (player avatars, section headers, profile
-        # links) — clicking those navigates away from the bet without
-        # adding to slip.
-        selector_patterns.extend([
-            # Button-restricted, most specific.
-            f'button[aria-label*="{player_name}"][aria-label*="{threshold}+"]'
-            f'[aria-label*="{base_display}"]',
-            f'[role="button"][aria-label*="{player_name}"]'
-            f'[aria-label*="{threshold}+"][aria-label*="{base_display}"]',
-            f'button[aria-label*="{player_name}"]'
-            f'[aria-label*="{threshold} or more"][aria-label*="{base_display}"]',
-            # Unrestricted aria-label fallbacks.
-            f'[aria-label*="{player_name}"][aria-label*="{threshold}+"]'
-            f'[aria-label*="{base_display}"]',
-            f'[aria-label*="{player_name}"][aria-label*="{threshold} or more"]'
-            f'[aria-label*="{base_display}"]',
-            f'[aria-label*="{player_name}"][aria-label*="{threshold}"]'
-            f'[aria-label*="{base_display}"]',
-            # Text-based pattern — the button itself must carry all
-            # three phrases. The prior `div:has-text(...) button`
-            # fallback was over-broad: a page-level ancestor div
-            # could contain all three texts AS DESCENDANTS, and
-            # `button` then matched any descendant button — picked
-            # the notifications-inbox bell on Jarrett Allen
-            # player_rebounds_alternate, sweep #5 2026-05-23.
-            f'button:has-text("{player_name}"):has-text("{threshold}+")'
-            f':has-text("{base_display}")',
-        ])
-
-        for selector in selector_patterns:
-            try:
-                locator = self.page.locator(selector)
-                if locator.count() > 0:
-                    print(f"[FANDUEL] Found alternate bet using: {selector}")
-
-                    # Pick the first visible match.
-                    for i in range(locator.count()):
-                        elem = locator.nth(i)
-                        if elem.is_visible():
-                            # Capture pre-click state so we can tell
-                            # whether the click was a TOGGLE (FanDuel
-                            # bet buttons toggle between selected /
-                            # unselected — clicking an already-Selected
-                            # one removes it from slip).
-                            try:
-                                tag = elem.evaluate("e => e.tagName") or "?"
-                                aria_before = elem.get_attribute("aria-label") or ""
-                                role = elem.get_attribute("role") or ""
-                                was_selected = " Selected" in aria_before
-                                clicked_desc = (
-                                    f"tag={tag} role={role!r} "
-                                    f"aria={aria_before[:80]!r} "
-                                    f"was_selected={was_selected}"
-                                )
-                            except Exception:
-                                was_selected = False
-                                clicked_desc = "<unknown>"
-
-                            mouse_click(self.page, elem, state=self._cursor,
-                                        rng=self._typing.rng)
-                            settle(self.page, "slip_update",
-                                   rng=self._typing.rng)
-
-                            # If the bet started Selected, the click
-                            # likely toggled it OFF — click again to
-                            # re-add. Re-locate first; the DOM may have
-                            # re-rendered.
-                            if was_selected:
-                                try:
-                                    elem2 = self.page.locator(selector).first
-                                    aria_after = (
-                                        elem2.get_attribute("aria-label") or ""
-                                    )
-                                    if " Selected" not in aria_after:
-                                        print(
-                                            f"[FANDUEL] Click deselected an "
-                                            f"already-Selected bet; "
-                                            f"re-clicking to add."
-                                        )
-                                        mouse_click(
-                                            self.page, elem2,
-                                            state=self._cursor,
-                                            rng=self._typing.rng,
-                                        )
-                                        settle(self.page, "slip_update",
-                                               rng=self._typing.rng)
-                                except Exception as e:
-                                    print(f"[FANDUEL] Re-locate after "
-                                          f"toggle failed: {e}")
-
-                            # Expand viewport for betslip interaction.
-                            print(f"[FANDUEL] Expanding viewport to 1920x945...")
-                            self.page.set_viewport_size(
-                                {"width": 1920, "height": 945}
-                            )
-                            settle(self.page, "micro_pause",
-                                   rng=self._typing.rng)
-
-                            self._screenshot("alternate_bet_clicked")
-
-                            # Verify the click actually added a bet.
-                            if not self._fanduel_slip_has_bet():
-                                print(
-                                    f"[FANDUEL] ⚠ Slip still empty after "
-                                    f"click using {selector} — clicked "
-                                    f"element was {clicked_desc}. "
-                                    f"Aborting (next opportunity will retry)."
-                                )
-                                self._screenshot(
-                                    "alternate_bet_did_not_add_to_slip"
-                                )
-                                raise BetPlacerError(
-                                    f"FanDuel bet click did not add to slip "
-                                    f"(selector={selector!r}, "
-                                    f"clicked={clicked_desc})"
-                                )
-
-                            print(f"[FANDUEL] ✓ Alternate bet added to slip")
-                            return True
-            except BetPlacerError:
-                raise
-            except Exception as e:
-                print(f"[FANDUEL] Selector pattern failed: {selector} - {e}")
-                continue
-
-        # Fallback: try the standard search with threshold as line.
-        print(f"[FANDUEL] ⚠ Direct selectors failed, trying standard "
-              f"search with threshold...")
-        candidates = SelectorFinder.find_candidates_by_text(
-            self.page, display_names, player_name, threshold
-        )
-
-        if candidates:
-            selected = candidates[0]
-            with with_screenshot_on_error(
-                self, "alternate_click_failed", "Failed to click alternate bet"
+        # Collect the player's candidate tiles for this market. We query by
+        # player + market display name (button/role/aria variants), then decide
+        # deterministically:
+        #   - over leg  -> exact threshold ("5+" != "15+", or a verb label)
+        #   - under leg -> exact line + side on the line-bearing O/U tile
+        tiles = []
+        seen = set()
+        query_terms = display_names or [base_display]
+        for term in query_terms:
+            for pat in (
+                f'button[aria-label*="{player_name}"][aria-label*="{term}"]',
+                f'[role="button"][aria-label*="{player_name}"][aria-label*="{term}"]',
+                f'[aria-label*="{player_name}"][aria-label*="{term}"]',
             ):
-                locator = self.page.locator(selected.selector).first
-                mouse_click(self.page, locator, state=self._cursor,
-                            rng=self._typing.rng)
-                settle(self.page, "slip_update", rng=self._typing.rng)
+                try:
+                    els = self.page.locator(pat).all()
+                except Exception:
+                    continue
+                for el in els:
+                    try:
+                        if not el.is_visible():
+                            continue
+                        aria = el.get_attribute("aria-label") or ""
+                        if not fuzzy_contains(aria, player_name, threshold=90):
+                            continue
+                        if aria in seen:
+                            continue
+                        seen.add(aria)
+                        tiles.append((el, aria))
+                    except Exception:
+                        continue
 
-                self.page.set_viewport_size({"width": 1920, "height": 945})
-                settle(self.page, "micro_pause", rng=self._typing.rng)
+        with with_screenshot_on_error(
+            self, "alternate_click_failed", "Failed to click alternate bet"
+        ):
+            try:
+                if direction == 'over':
+                    # Threshold tile: select by exact threshold derived from line.
+                    elem = select_unique(tiles, line, 'over', threshold=True)
+                else:
+                    # Under alternate: line-bearing O/U tile, exact line + side.
+                    elem = select_unique(tiles, line, 'under')
+            except BetPlacerError:
+                dump_miss_context(self.page, site=self.site,
+                                  player_name=player_name)
+                self._screenshot("alternate_bet_not_found")
+                raise
 
-                self._screenshot("alternate_bet_clicked")
-                print(f"[FANDUEL] ✓ Alternate bet added to slip (via fallback)")
-                return True
+            # Capture pre-click state to detect a TOGGLE (FanDuel bet buttons
+            # toggle selected/unselected; clicking a Selected one removes it).
+            try:
+                tag = elem.evaluate("e => e.tagName") or "?"
+                aria_before = elem.get_attribute("aria-label") or ""
+                role = elem.get_attribute("role") or ""
+                was_selected = " Selected" in aria_before
+                clicked_desc = (f"tag={tag} role={role!r} "
+                                f"aria={aria_before[:80]!r} "
+                                f"was_selected={was_selected}")
+            except Exception:
+                was_selected = False
+                aria_before = ""
+                clicked_desc = "<unknown>"
 
-        dump_miss_context(
-            self.page, site=self.site, player_name=player_name
-        )
-        self._screenshot("alternate_bet_not_found")
-        raise BetPlacerError(
-            f"No alternate bet found for {player_name} {threshold}+ "
-            f"{base_display}"
-        )
+            mouse_click(self.page, elem, state=self._cursor,
+                        rng=self._typing.rng)
+            settle(self.page, "slip_update", rng=self._typing.rng)
+
+            # If it started Selected, the click likely toggled it OFF —
+            # re-locate by the exact aria-label and re-click to re-add.
+            if was_selected and aria_before:
+                try:
+                    elem2 = self.page.locator(
+                        f'[aria-label="{aria_before}"]'
+                    ).first
+                    if " Selected" not in (elem2.get_attribute("aria-label") or ""):
+                        print(f"[FANDUEL] Click deselected an already-Selected "
+                              f"bet; re-clicking to add.")
+                        mouse_click(self.page, elem2, state=self._cursor,
+                                    rng=self._typing.rng)
+                        settle(self.page, "slip_update", rng=self._typing.rng)
+                except Exception as e:
+                    print(f"[FANDUEL] Re-locate after toggle failed: {e}")
+
+            print(f"[FANDUEL] Expanding viewport to 1920x945...")
+            self.page.set_viewport_size({"width": 1920, "height": 945})
+            settle(self.page, "micro_pause", rng=self._typing.rng)
+            self._screenshot("alternate_bet_clicked")
+
+            # Verify the click actually added a bet.
+            if not self._fanduel_slip_has_bet():
+                print(f"[FANDUEL] ⚠ Slip still empty after click — clicked "
+                      f"element was {clicked_desc}. Aborting.")
+                self._screenshot("alternate_bet_did_not_add_to_slip")
+                raise BetPlacerError(
+                    f"FanDuel bet click did not add to slip "
+                    f"(clicked={clicked_desc})"
+                )
+
+            print(f"[FANDUEL] ✓ Alternate bet added to slip")
+            return True
 
     # ------------------------------------------------------------------
     # Wager entry — humanized typing
@@ -1058,19 +968,34 @@ class FanduelBetPlacer(BetPlacer):
         """Focus + clear via humanized mouse + select-all-delete, then
         humanized-type the value. ``humanized_type`` does NOT focus on
         its own (see human/typing.py docstring) — the explicit
-        mouse_click is load-bearing."""
+        mouse_click is load-bearing.
+
+        Use ``wager_input.press(...)`` rather than ``page.keyboard.press(...)``
+        for the clear step: ``settle()`` runs the modal-watcher sweep
+        BEFORE its sleep, and probing the DOM can drift focus off the
+        input between the click and the press. ``locator.press`` scopes
+        to the element (re-focuses first), so Ctrl+A clears the input
+        rather than select-all'ing the entire bet-slip page (the symptom
+        the user reported 2026-05-25 — wager mis-entered, max-wager
+        banner never appeared). Same reason for the explicit
+        ``focus()`` before ``humanized_type``.
+        """
         mouse_click(self.page, wager_input, state=self._cursor,
                     rng=self._typing.rng)
         settle(self.page, "micro_pause", rng=self._typing.rng)
         try:
-            self.page.keyboard.press("Control+A")
-            self.page.keyboard.press("Delete")
+            wager_input.press("Control+A")
+            wager_input.press("Delete")
         except Exception:
             try:
                 wager_input.fill("")
             except Exception:
                 pass
         settle(self.page, "micro_pause", rng=self._typing.rng)
+        try:
+            wager_input.focus()
+        except Exception:
+            pass
         humanized_type(self.page, wager_input, f"{amount:.2f}",
                        profile=self._typing)
         settle(self.page, "slip_update", rng=self._typing.rng)

@@ -146,6 +146,19 @@ class ModalWatcher:
                 except Exception:
                     pass
 
+                # Iframe-bearing modals — leave them alone too. FD's
+                # login modal is an outer wrapper around an iframe whose
+                # contents (email/password inputs) are invisible to
+                # outer-page locators, so the input check above misses
+                # it. Sweep #9 (2026-05-25) caught this: wrapper has 0
+                # inputs, 1 button (the × close), so the sole-button
+                # fallback fired and detached the login frame.
+                try:
+                    if modal.first.locator("iframe").count() > 0:
+                        continue
+                except Exception:
+                    pass
+
                 # Prefer a known-safe dismiss-button name. Tries each
                 # via get_by_role so we match accessible name, not
                 # rotating class identifiers.
