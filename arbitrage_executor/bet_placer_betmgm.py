@@ -52,26 +52,60 @@ def _pill_count(text: str) -> Optional[int]:
     return int(m.group(1) or m.group(2))
 
 
-# Returns just the player name text from the row containing the given pick.
-# Scoped to a single .option-group-row, so it cannot include adjacent rows'
-# names — the bug fixed in PR for player-row mismatching, where the loose
-# walkup was matching wrapping containers that held the full 10-player list.
-# .player-props-player-name has the player name as its leading text node and
-# <ms-player-stats> as a child; we read only the direct text children, so
-# "Karl-Anthony Towns" comes back clean without the "Avg: 0.6" suffix.
+# Returns just the player name text for the row/group containing the given
+# pick. Two BetMGM DOM shapes are handled, both scoped so they cannot leak an
+# adjacent player's name (the bug fixed earlier where a loose walkup matched a
+# wrapping container holding the full player list):
+#
+#   Shape A — legacy NBA player-prop rows: pick lives inside an
+#   `.option-group-row` that also holds `.player-props-player-name`.
+#
+#   Shape B — MLB milestone O/U (e.g. "Batter doubles O/U"): there is NO row
+#   wrapper. Inside `.option-group-container` the player name
+#   (`.attribute-key.player-statistics` > `.group-title` > `.title`) and the
+#   player's two `<ms-option>` picks are FLAT SIBLINGS. The owning name is the
+#   nearest PRECEDING `.attribute-key.player-statistics` sibling of the pick's
+#   `<ms-option>`. We stop at the first one, so it can't reach into the prior
+#   player's group. (Confirmed against live DOM 2026-05-29 — Giants@Rockies
+#   batter doubles; the Shape-A-only lookup returned null for all 103 picks and
+#   no player ever matched.)
+#
+# In both shapes we read the name element's leading text only, so the
+# "Avg: 0.2" stat suffix (a sibling/child node) is excluded.
 _PLAYER_NAME_FROM_PICK_JS = """
 (el) => {
-    const row = el.closest('.option-group-row');
-    if (!row) return null;
-    const nameEl = row.querySelector('.player-props-player-name');
-    if (!nameEl) return null;
-    let name = '';
-    for (const node of nameEl.childNodes) {
-        if (node.nodeType === Node.TEXT_NODE) {
-            name += node.textContent;
+    const leadingText = (node) => {
+        if (!node) return '';
+        let name = '';
+        for (const child of node.childNodes) {
+            if (child.nodeType === Node.TEXT_NODE) name += child.textContent;
         }
+        name = name.trim();
+        return name || (node.textContent || '').trim();
+    };
+
+    // Shape A: legacy NBA .option-group-row wrapper.
+    const row = el.closest('.option-group-row');
+    if (row) {
+        const nameEl = row.querySelector('.player-props-player-name');
+        const n = leadingText(nameEl);
+        if (n) return n;
     }
-    return name.trim();
+
+    // Shape B: flat siblings inside .option-group-container — walk back from
+    // this pick's <ms-option> to the nearest preceding player-name sibling.
+    const opt = el.closest('ms-option') || el;
+    let sib = opt.previousElementSibling;
+    while (sib) {
+        if (sib.matches && sib.matches('.attribute-key.player-statistics')) {
+            const titleEl = sib.querySelector('.group-title .title')
+                         || sib.querySelector('.title');
+            const n = leadingText(titleEl);
+            return n || null;
+        }
+        sib = sib.previousElementSibling;
+    }
+    return null;
 }
 """
 
