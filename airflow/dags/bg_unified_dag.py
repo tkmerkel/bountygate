@@ -77,6 +77,21 @@ def _fetch_event_odds(
     now_utc: datetime,
 ) -> List[Dict[str, Any]]:
     regions = sport_region_map.get(sport, "us")
+    # CREDIT SAFETY: The Odds API bills per market x per region. Adding the 'eu'
+    # region (so sharp / data-only books like Pinnacle are returned) therefore
+    # INCREASES credit usage on every event-odds call below. This is gated on
+    # BG_INCLUDE_SHARP_BOOKS (default "true") so it can be disabled to save
+    # credits without a code change. Pinnacle is an Odds API 'eu' book and is
+    # NOT returned under the default 'us' region. These sharp books are a
+    # methodology benchmark only -- they are NOT bet on (the executor still
+    # targets only the 4 legal US books).
+    if os.environ.get("BG_INCLUDE_SHARP_BOOKS", "true").strip().lower() == "true":
+        # Combine existing region(s) with 'eu' into a comma-joined unique set,
+        # preserving order (e.g. 'us' -> 'us,eu'). US books are never removed.
+        region_set = [r.strip() for r in regions.split(",") if r.strip()]
+        if "eu" not in region_set:
+            region_set.append("eu")
+        regions = ",".join(region_set)
     params: Dict[str, Any] = {
         "apiKey": odds_apiKey,
         "regions": regions,
@@ -86,9 +101,17 @@ def _fetch_event_odds(
     props_endpoint = f"{odds_url}/v4/sports/{sport}/events/{event_id}/odds"
 
     try:
-        LOGGER.info("Fetching odds for sport=%s event=%s", sport, event_id)
+        LOGGER.info("Fetching odds for sport=%s event=%s regions=%s", sport, event_id, regions)
         response = SESSION.get(props_endpoint, params=params, timeout=REQUEST_TIMEOUT)
         print(response.url)
+        # CREDIT SAFETY: surface remaining/used Odds API quota after every call.
+        LOGGER.info(
+            "Odds API quota for sport=%s event=%s: x-requests-remaining=%s x-requests-used=%s",
+            sport,
+            event_id,
+            response.headers.get("x-requests-remaining"),
+            response.headers.get("x-requests-used"),
+        )
         if response.status_code != 200:
             LOGGER.warning(
                 "Odds API returned %s for sport=%s event=%s (markets=%s)",

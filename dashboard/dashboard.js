@@ -38,8 +38,11 @@ const state = {
   watchers: { watchers: [], checked_at: null },
   pnl: { days: [], par_per_day: 12.50, updated_at: null },
   health: { app: "—", db: "—" },
+  goodBets: { bets: [], updated_at: null },
+  clv: { n_bets: 0, avg_clv_pct: null, beat_close_rate: null, updated_at: null },
   openRunId: null,
   filter: "all",
+  betType: "all",
 };
 
 // ────────────────────────────────────────────────────────────
@@ -62,6 +65,26 @@ function fmtUsd(n, signed) {
 function fmtSecs(s) {
   if (s == null) return "—";
   return s < 60 ? Math.round(s) + "s" : Math.round(s / 60) + "m";
+}
+
+// fraction -> "x.x%" (input already a percent, e.g. edge_pct=2.5 -> "2.5%")
+function fmtPctVal(n, signed) {
+  if (n == null || isNaN(n)) return "—";
+  const sign = n < 0 ? "−" : (signed ? "+" : "");
+  return sign + Math.abs(n).toFixed(1) + "%";
+}
+
+// fraction in [0,1] -> "x.x%"
+function fmtFrac(n) {
+  if (n == null || isNaN(n)) return "—";
+  return (n * 100).toFixed(1) + "%";
+}
+
+function fmtHours(h) {
+  if (h == null || isNaN(h)) return "—";
+  if (h < 0) return "live";
+  if (h < 1) return Math.round(h * 60) + "m";
+  return h.toFixed(1) + "h";
 }
 
 function ageLabel(iso) {
@@ -637,6 +660,127 @@ function renderRuns() {
 }
 
 // ────────────────────────────────────────────────────────────
+// Good Bets board + CLV scorecard
+// ────────────────────────────────────────────────────────────
+const BET_TYPE_META = {
+  ev:  { label: "+EV",  color: "var(--augusta-green)" },
+  arb: { label: "ARB",  color: "var(--ink-black)" },
+  clv: { label: "CLV",  color: "#7a5cff" },
+};
+
+function renderGoodBets() {
+  const root = document.getElementById("sec-good-bets");
+  if (!root) return;
+
+  const allBets = state.goodBets.bets || [];
+  const bets = state.betType === "all"
+    ? allBets
+    : allBets.filter(b => b.opportunity_type === state.betType);
+
+  // CLV scorecard KPI strip (driven by /api/clv-summary).
+  const clv = state.clv || {};
+  const beatRate = clv.beat_close_rate;
+  const beatCls = beatRate == null ? "" : (beatRate >= 0.5 ? "is-pos" : "is-neg");
+  const avgClvCls = clv.avg_clv_pct == null ? "" : (clv.avg_clv_pct >= 0 ? "is-pos" : "is-neg");
+  const kpiStrip = `
+    <div class="bg-hero__meta" style="margin:0 0 14px;">
+      <div class="bg-hero__stat">
+        <div class="bg-hero__stat-label">LIVE PLAYS</div>
+        <div class="bg-hero__stat-val">${allBets.length}</div>
+      </div>
+      <div class="bg-hero__stat">
+        <div class="bg-hero__stat-label">CLV · BEAT-CLOSE</div>
+        <div class="bg-hero__stat-val ${beatCls}">${beatRate == null ? "—" : fmtFrac(beatRate)}</div>
+      </div>
+      <div class="bg-hero__stat">
+        <div class="bg-hero__stat-label">AVG CLV</div>
+        <div class="bg-hero__stat-val ${avgClvCls}">${clv.avg_clv_pct == null ? "—" : fmtPctVal(clv.avg_clv_pct, true)}</div>
+      </div>
+      <div class="bg-hero__stat">
+        <div class="bg-hero__stat-label">CLV SAMPLE</div>
+        <div class="bg-hero__stat-val">${clv.n_bets || 0}<span style="color:var(--rule-gray);font-size:18px;"> bets</span></div>
+      </div>
+    </div>
+  `;
+
+  const counts = {
+    all: allBets.length,
+    ev:  allBets.filter(b => b.opportunity_type === "ev").length,
+    arb: allBets.filter(b => b.opportunity_type === "arb").length,
+    clv: allBets.filter(b => b.opportunity_type === "clv").length,
+  };
+  const filterChips = [
+    ["all", "ALL"], ["ev", "+EV"], ["arb", "ARB"], ["clv", "CLV"],
+  ].map(([key, label]) =>
+    `<button class="bg-chip${state.betType === key ? " is-active" : ""}" data-bettype="${esc(key)}">
+      ${esc(label)} · ${counts[key]}
+    </button>`
+  ).join("");
+
+  const rowsHtml = bets.map(b => {
+    const tm = BET_TYPE_META[b.opportunity_type] || { label: (b.opportunity_type || "—").toUpperCase(), color: "var(--rule-gray)" };
+    const game = (b.home_team_name && b.away_team_name)
+      ? `${esc(b.away_team_name)} @ ${esc(b.home_team_name)}`
+      : esc(b.sport_title || b.sport_key || "—");
+    const sideLine = `${esc((b.side || "").toUpperCase())}${b.line != null ? " " + esc(b.line) : ""}`;
+    const edge = b.edge_pct != null ? b.edge_pct : (b.roi != null ? b.roi * 100 : null);
+    const edgeLbl = b.opportunity_type === "arb" ? "ROI" : "EDGE";
+    const warn = b.disagreement_flag
+      ? `<span title="Devig methods disagree — lower confidence" style="color:var(--ledger-red);margin-left:5px;">⚠</span>`
+      : "";
+    return `
+      <tr>
+        <td>
+          <div class="bg-runs__player">${esc(b.player_name || b.market_key || "—")}${warn}</div>
+          <div style="font-size:12px;color:var(--rule-gray);font-family:var(--font-mono-pixel);">${esc(b.market_key || "")} · ${sideLine}</div>
+          <div style="font-size:12px;color:var(--rule-gray);">${game}</div>
+        </td>
+        <td><span style="font-weight:700;color:${tm.color};font-family:var(--font-mono-pixel);">${esc(tm.label)}</span></td>
+        <td><div class="bg-runs__market">${esc((b.soft_book || "—").toUpperCase())}</div></td>
+        <td class="num mono">${b.soft_price_decimal != null ? Number(b.soft_price_decimal).toFixed(2) : "—"}</td>
+        <td class="num mono">${b.fair_prob != null ? fmtFrac(b.fair_prob) : "—"}</td>
+        <td class="num mono"><span class="${edge != null && edge >= 0 ? "is-pos" : "is-neg"}">${fmtPctVal(edge, true)}</span><div style="font-size:10px;color:var(--rule-gray);">${edgeLbl}</div></td>
+        <td class="num mono">${b.stake_capped != null ? fmtUsd(b.stake_capped) : (b.kelly_quarter != null ? fmtFrac(b.kelly_quarter) : "—")}</td>
+        <td class="num mono">${fmtHours(b.hours_until_commence)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  const tableInner = `
+    ${kpiStrip}
+    <div class="bg-filterbar">
+      ${filterChips}
+      <span class="bg-filterbar__spacer"></span>
+      <span class="bg-filterbar__count">${bets.length} OF ${allBets.length} · UPDATED ${ageLabel(state.goodBets.updated_at)}</span>
+    </div>
+    <table class="bg-table">
+      <thead>
+        <tr>
+          <th>PLAY</th><th>TYPE</th><th>BOOK</th>
+          <th class="num">PRICE</th><th class="num">FAIR</th><th class="num">EDGE</th>
+          <th class="num">¼-KELLY</th><th class="num">START</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        ${bets.length === 0
+          ? `<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--rule-gray);font-family:var(--font-mono-pixel);">— NO QUALIFYING BETS. The analytics DAGs populate mart_good_bets each cycle. —</td></tr>`
+          : ""}
+      </tbody>
+    </table>
+  `;
+
+  root.innerHTML = windowCard("GOOD_BETS.EXE", "DEVIG · +EV · CLV · RANKED", "[$]", tableInner);
+
+  root.querySelectorAll(".bg-chip[data-bettype]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.betType = btn.dataset.bettype;
+      renderGoodBets();
+    });
+  });
+}
+
+// ────────────────────────────────────────────────────────────
 // Ticker
 // ────────────────────────────────────────────────────────────
 function renderTicker() {
@@ -707,6 +851,22 @@ async function refreshChart() {
   } catch (e) { console.error("pnl-history fetch failed", e); }
 }
 
+async function refreshGoodBets() {
+  try {
+    const r = await fetch("/api/good-bets?limit=100&cb=" + Date.now());
+    state.goodBets = await r.json();
+    renderGoodBets();
+  } catch (e) { console.error("good-bets fetch failed", e); }
+}
+
+async function refreshClv() {
+  try {
+    const r = await fetch("/api/clv-summary?days=30&cb=" + Date.now());
+    state.clv = await r.json();
+    renderGoodBets();   // CLV scorecard lives in the good-bets card header
+  } catch (e) { console.error("clv-summary fetch failed", e); }
+}
+
 async function refreshHealth() {
   try {
     const r = await fetch("/health?cb=" + Date.now());
@@ -726,6 +886,8 @@ function refreshAll() {
   refreshWatchers();
   refreshRuns();
   refreshChart();
+  refreshGoodBets();
+  refreshClv();
 }
 
 // ────────────────────────────────────────────────────────────
