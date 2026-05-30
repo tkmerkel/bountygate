@@ -493,36 +493,33 @@ def test_find_and_click_bet_uses_humanized_mouse_fd():
     box and emit down/up events on ``page.mouse``, NOT call
     ``locator.click()`` directly.
 
-    Exercises the alt branch (FD's MLB markets always render as
-    ``N+ <stat>`` threshold tiles, so the alt path is the common case).
-    The first selector in the FD alt cascade is the button-restricted
-    ``button[aria-label*=<player>][aria-label*=<N>+][aria-label*=<stat>]``;
-    plant a visible bet under that key and assert it gets
-    humanized-mouse-clicked.
+    Exercises the alt branch. FD renders alt threshold markets as flat
+    sibling pairs: the tile's own aria-label is often bare and the
+    threshold ("2+ Total Bases") lives in the section HEADING. The alt
+    path collects the player's tiles via ``[role=button][aria-label*=
+    <player>]`` and pairs each with its heading text (modeled here by
+    ``evaluate_result``), then select_unique matches the exact threshold.
     """
     player = "Jake Fraley"
     over_line = 1.5     # threshold == 2 (calculate_alternate_tab_value)
     market_key = "batter_total_bases"  # forces alt path
 
-    # Player_name has 11 chars; total bases threshold uses base_display="Total Bases".
     base_display = "Total Bases"
     threshold = 2
 
-    # The alt path now enumerates the player's tiles by player + market
-    # display name, then selects the single tile by EXACT threshold via
-    # ``select_unique`` (no per-threshold selector string). The first query
-    # pattern is the button-restricted player+display-name locator; plant the
-    # tile there and let the deterministic threshold match ("2+") pick it.
-    primary_selector = (
-        f'button[aria-label*="{player}"][aria-label*="{base_display}"]'
-    )
+    # New collection query: player-name-only; the threshold is read from
+    # the section heading via ``el.evaluate(_FD_SECTION_HEADING_JS)``,
+    # modeled by ``evaluate_result``.
+    primary_selector = f'[role="button"][aria-label*="{player}"]'
 
     bet_button = _ClickableElement(
         visible=True,
         text=f"{threshold}+ {base_display}",
-        attributes={
-            "aria-label": f"{player}, {threshold}+ {base_display}, +180",
-        },
+        # Bare-ish tile aria (carries the player name for the fuzzy match)
+        # — the threshold is NOT here; it's in the heading below.
+        attributes={"aria-label": f"{player}, +180"},
+        # Section heading sibling — where parse_threshold/scoping read from.
+        evaluate_result=f"{threshold}+ {base_display}",
     )
 
     page = _HumanizedFakePage(locators={
@@ -584,19 +581,20 @@ def test_alt_threshold_one_verb_phrase_selected_fd():
     player = "Jake McCarthy"
     over_line = 0.5            # threshold == 1
     market_key = "batter_doubles_alternate"
-    base_display = "Doubles"   # PLURAL display name; tile says "Double"
+    base_display = "Doubles"   # PLURAL display name; heading says "Double"
 
-    # The verb-phrase query the fixed alt path must build for threshold==1
-    # (FANDUEL_THRESHOLD_ONE_LABELS["Doubles"] -> ("To Hit", "A", "Double")).
+    # threshold==1 markets render as a verb phrase in the SECTION HEADING
+    # ("To Hit A Double"); the plural display name "Doubles" is not a
+    # substring of it, so the alt path adds the exact verb phrase
+    # (FANDUEL_THRESHOLD_ONE_LABELS["Doubles"]) as a heading-scope term.
     verb_phrase = "To Hit A Double"
-    primary_selector = (
-        f'button[aria-label*="{player}"][aria-label*="{verb_phrase}"]'
-    )
+    primary_selector = f'[role="button"][aria-label*="{player}"]'
 
     bet_button = _ClickableElement(
         visible=True,
         text="4.90",
-        attributes={"aria-label": f"{verb_phrase}, {player}, 4.90"},
+        attributes={"aria-label": f"{player}, 4.90"},
+        evaluate_result=verb_phrase,   # the section heading
     )
 
     page = _HumanizedFakePage(locators={
@@ -620,3 +618,101 @@ def test_alt_threshold_one_verb_phrase_selected_fd():
         "build the singular verb phrase for the threshold-1 market."
     )
     assert bet_button.clicked is True
+
+
+# ---------------------------------------------------------------------------
+# Combo alternates render as "Player - Alt <stat>" line+side rows (2026-05-30)
+# ---------------------------------------------------------------------------
+
+
+def test_alt_combo_matched_by_line_side_fd():
+    """Combo alternates (Pts + Reb, PRA) render on FanDuel as a
+    ``<Player> - Alt Pts + Reb`` section listing explicit Over/Under at
+    multiple lines (5.5, 6.5, 7.5, ...) — NOT as ``N+`` threshold tiles.
+    The over-leg must match by EXACT line+side, scoped to the "Alt <stat>"
+    heading. (Luguentz Dort over 7.5 missed live 2026-05-30 because the code
+    forced threshold matching.)"""
+    player = "Luguentz Dort"
+    sel = f'[role="button"][aria-label*="{player}"]'
+    want = _ClickableElement(
+        visible=True, text="2.24",
+        attributes={"aria-label": f"{player} - Alt Pts + Reb, {player} Over, 7.5, 2.24"},
+        evaluate_result=f"{player} - Alt Pts + Reb",
+    )
+    decoy = _ClickableElement(
+        visible=True, text="1.85",
+        attributes={"aria-label": f"{player} - Alt Pts + Reb, {player} Over, 6.5, 1.85"},
+        evaluate_result=f"{player} - Alt Pts + Reb",
+    )
+    page = _HumanizedFakePage(locators={sel: FakeLocator([decoy, want])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    opp = {"player_name": player, "over_line": 7.5, "under_line": 7.5,
+           "market_key": "player_points_rebounds_alternate"}
+    mc = {"is_alternate": True, "display_names": ["Pts + Reb"]}
+
+    assert placer.find_and_click_bet(opp, "over", mc) is True
+    assert want.mouse_clicked and want.clicked, "exact 7.5 alt row not clicked"
+    assert decoy.clicked is False, "wrong-line (6.5) alt row was clicked"
+
+
+def test_alt_combo_scope_does_not_cross_into_longer_stat_fd():
+    """Scoping must use heading ENDS-WITH, not loose substring: a 'Pts + Reb'
+    opp must NOT match a 'Pts + Reb + Ast' section (that would place the wrong
+    combo market). With only the +Ast section present, raise rather than
+    misclick."""
+    player = "Luguentz Dort"
+    sel = f'[role="button"][aria-label*="{player}"]'
+    pra = _ClickableElement(
+        visible=True, text="2.24",
+        attributes={"aria-label": f"{player} - Alt Pts + Reb + Ast, {player} Over, 7.5, 2.24"},
+        evaluate_result=f"{player} - Alt Pts + Reb + Ast",
+    )
+    page = _HumanizedFakePage(locators={sel: FakeLocator([pra])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    opp = {"player_name": player, "over_line": 7.5, "under_line": 7.5,
+           "market_key": "player_points_rebounds_alternate"}
+    mc = {"is_alternate": True, "display_names": ["Pts + Reb"]}
+
+    with pytest.raises(BetPlacerError):
+        placer.find_and_click_bet(opp, "over", mc)
+    assert pra.clicked is False, "clicked the wrong (+Ast) combo market"
+
+
+# ---------------------------------------------------------------------------
+# Orphan prevention — FD wager entry must VERIFY the value landed (2026-05-30)
+# ---------------------------------------------------------------------------
+
+
+def test_enter_wager_raises_when_value_never_registers_fd():
+    """If the FanDuel WAGER field stays empty even after the fill() fallback,
+    enter_wager must RAISE — never report a false success. In Phase 1 this
+    aborts before the BetMGM leg is placed, turning the orphan that occurred
+    live (Kevin McGonigle, 2026-05-30) into a benign skip."""
+    class _NeverRegisters(_ClickableElement):
+        def fill(self, value, **kwargs):
+            super().fill(value, **kwargs)   # record the attempt...
+            self._input_value = ""          # ...but FD drops it
+        def input_value(self, **kwargs):
+            return ""
+
+    wager = _NeverRegisters(visible=True, input_value="")
+    page = _HumanizedFakePage(label_locators={"WAGER $": FakeLocator([wager])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    with pytest.raises(BetPlacerError, match="did not register"):
+        placer.enter_wager(0.18)
+
+
+def test_enter_wager_succeeds_without_fill_when_value_reads_back_fd():
+    """Happy path: when the field reads back the typed amount, enter_wager
+    succeeds and does NOT invoke the fill() fallback."""
+    class _RegistersOnType(_ClickableElement):
+        def input_value(self, **kwargs):
+            return "0.18"
+
+    wager = _RegistersOnType(visible=True, input_value="0.18")
+    page = _HumanizedFakePage(label_locators={"WAGER $": FakeLocator([wager])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    assert placer.enter_wager(0.18) is True
+    assert wager.fills == [], "fill() fallback fired even though typing landed"

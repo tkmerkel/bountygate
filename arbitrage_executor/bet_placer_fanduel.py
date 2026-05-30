@@ -30,7 +30,7 @@ from bet_placer import BetPlacer, BetPlacerError, ShadowAbortError
 from human.mouse import CursorState, click as mouse_click
 from human.typing import TypingProfile, humanized_type
 from human.waiting import settle, step_timer
-from pick_matcher import select_unique
+from pick_matcher import select_unique, parse_pick, NoPickError
 from selector_finder import (
     calculate_alternate_tab_value,
     is_alternate_market,
@@ -66,6 +66,37 @@ FANDUEL_THRESHOLD_ONE_LABELS = {
     "Walk": ("To Record", "A", "Walk"),
     "Walks": ("To Record", "A", "Walk"),
 }
+
+
+# FanDuel renders alternate THRESHOLD markets (e.g. "1+ Made Threes",
+# "12+ Pts + Reb + Ast") as FLAT SIBLING PAIRS in the player's search
+# results: a section-heading wrapper immediately followed by a picks
+# wrapper. The heading carries the threshold + market name
+# (<div role="heading" aria-label="1+ Made Threes">); the tile inside
+# the picks wrapper often carries only a BARE aria-label
+# ("Kenrich Williams, 2.14") — the threshold is NOT on the tile
+# (DOM verified 2026-05-30). So, given a pick button, we walk UP and
+# return the nearest PRECEDING section heading's text. This mirrors the
+# BetMGM flat-sibling player-name walk in bet_placer_betmgm.py. The
+# first ancestor whose previousElementSibling contains a
+# role=heading[aria-label] is the picks wrapper, and that heading is
+# this tile's section.
+_FD_SECTION_HEADING_JS = """
+(el) => {
+  let node = el;
+  while (node && node.parentElement) {
+    const prev = node.previousElementSibling;
+    if (prev) {
+      const h = prev.querySelector('[role="heading"][aria-label]');
+      if (h) {
+        return h.getAttribute('aria-label') || (h.textContent || '').trim();
+      }
+    }
+    node = node.parentElement;
+  }
+  return '';
+}
+"""
 
 
 class FanduelBetPlacer(BetPlacer):
@@ -632,14 +663,7 @@ class FanduelBetPlacer(BetPlacer):
         print(f"[FANDUEL] Alternate market: searching for "
               f"{player_name} {threshold}+ {base_display}")
 
-        # Collect the player's candidate tiles for this market. We query by
-        # player + market display name (button/role/aria variants), then decide
-        # deterministically:
-        #   - over leg  -> exact threshold ("5+" != "15+", or a verb label)
-        #   - under leg -> exact line + side on the line-bearing O/U tile
-        tiles = []
-        seen = set()
-        # Scope tiles to THIS market by aria-label term. FanDuel renders the
+        # Scope tiles to THIS market by display term. FanDuel renders the
         # threshold-1 form as a verb phrase whose noun is SINGULAR ("To Hit A
         # Double"), so the PLURAL display name ("Doubles") won't substring-match
         # it — add the exact verb phrase from FANDUEL_THRESHOLD_ONE_LABELS.
@@ -655,40 +679,78 @@ class FanduelBetPlacer(BetPlacer):
                 if info:
                     verb, article, noun = info
                     query_terms.append(f"{verb} {article} {noun}")
-        for term in query_terms:
-            for pat in (
-                f'button[aria-label*="{player_name}"][aria-label*="{term}"]',
-                f'[role="button"][aria-label*="{player_name}"][aria-label*="{term}"]',
-                f'[aria-label*="{player_name}"][aria-label*="{term}"]',
-            ):
-                try:
-                    els = self.page.locator(pat).all()
-                except Exception:
+
+        # Collect the player's candidate pick buttons into TWO sets — FanDuel
+        # renders alternates two different ways and we must match each
+        # correctly (verified via DOM 2026-05-30):
+        #
+        #   threshold_tiles  — milestone markets ("1+ Made Threes",
+        #       "To Record 7+ Pts + Reb"): Yes-only, the tile's own
+        #       aria-label is BARE ("Name, odds"), and the threshold lives in
+        #       the flat-sibling section HEADING. Matched by exact threshold
+        #       parsed from the heading text.
+        #   line_tiles       — combo "Alt <stat>" sections ("<Player> - Alt
+        #       Pts + Reb") that list explicit Over/Under at multiple lines
+        #       (5.5, 6.5, 7.5, ...). The tile aria carries side+line. Matched
+        #       by EXACT line+side. These are the only surface for combo legs
+        #       like player_points_rebounds_alternate over 7.5 (FanDuel offers
+        #       no "8+ Pts + Reb" tile for them).
+        #
+        # Scoping uses heading.endswith(term) — NOT a loose substring — so
+        # "Pts + Reb" can't match a "... + Ast" section (which would click the
+        # wrong combo market). The line+side set additionally requires the
+        # "Alt <stat>" heading so the single-line standard O/U section (a
+        # different market/price) is excluded.
+        threshold_tiles, line_tiles = [], []
+        seen_th, seen_ln = set(), set()
+        try:
+            els = self.page.locator(
+                f'[role="button"][aria-label*="{player_name}"]'
+            ).all()
+        except Exception:
+            els = []
+        terms = [t.lower() for t in query_terms]
+        for el in els:
+            try:
+                if not el.is_visible():
                     continue
-                for el in els:
-                    try:
-                        if not el.is_visible():
-                            continue
-                        aria = el.get_attribute("aria-label") or ""
-                        if not fuzzy_contains(aria, player_name, threshold=90):
-                            continue
-                        if aria in seen:
-                            continue
-                        seen.add(aria)
-                        tiles.append((el, aria))
-                    except Exception:
-                        continue
+                aria = el.get_attribute("aria-label") or ""
+                if not fuzzy_contains(aria, player_name, threshold=90):
+                    continue
+                heading = (el.evaluate(_FD_SECTION_HEADING_JS) or "").strip()
+                hlow = heading.lower()
+                p = parse_pick(aria)
+                if p is not None:
+                    # Line+side tile — keep only ALT line sections.
+                    if any(hlow.endswith("alt " + t) for t in terms):
+                        if aria not in seen_ln:
+                            seen_ln.add(aria)
+                            line_tiles.append((el, aria))
+                else:
+                    # Bare milestone tile — threshold is in the heading.
+                    if any(hlow.endswith(t) for t in terms):
+                        key = (aria, heading)
+                        if key not in seen_th:
+                            seen_th.add(key)
+                            threshold_tiles.append((el, heading))
+            except Exception:
+                continue
 
         with with_screenshot_on_error(
             self, "alternate_click_failed", "Failed to click alternate bet"
         ):
             try:
-                if direction == 'over':
-                    # Threshold tile: select by exact threshold derived from line.
-                    elem = select_unique(tiles, line, 'over', threshold=True)
-                else:
-                    # Under alternate: line-bearing O/U tile, exact line + side.
-                    elem = select_unique(tiles, line, 'under')
+                # Prefer the exact-line "Alt <stat>" pick (the recorded line);
+                # fall back to the threshold tile (milestone markets) when no
+                # line-based alt row exists.
+                try:
+                    elem = select_unique(line_tiles, line, direction)
+                except NoPickError:
+                    if direction == 'over':
+                        elem = select_unique(
+                            threshold_tiles, line, 'over', threshold=True)
+                    else:
+                        raise
             except BetPlacerError:
                 dump_miss_context(self.page, site=self.site,
                                   player_name=player_name)
@@ -763,7 +825,8 @@ class FanduelBetPlacer(BetPlacer):
         print(f"[FANDUEL] Entering wager: ${amount:.2f}")
         return self._enter_wager_fanduel(amount)
 
-    def _enter_wager_fanduel(self, amount: float) -> bool:
+    def _enter_wager_fanduel(self, amount: float, *,
+                             verify_exact: bool = True) -> bool:
         """Enter wager on FanDuel. Three-phase orchestrator: open the
         betslip panel, locate the wager input through a durable-first
         cascade, then humanized-type the amount.
@@ -774,6 +837,13 @@ class FanduelBetPlacer(BetPlacer):
         ``inputmode="decimal"``) ahead of class-based fallbacks. On
         full miss the input-finder dumps every visible input to the
         audit log for the follow-up selector update.
+
+        ``verify_exact``: when True (the hedge), the typed value must read
+        back equal to ``amount`` or we raise. When False (Phase-1 max-wager
+        discovery, which types 99999 and lets FanDuel cap it), we only
+        require the field to be NON-EMPTY — a capped value is success.
+        Either way a field that stays EMPTY raises, which in Phase 1 aborts
+        the opportunity BEFORE the BetMGM leg is placed (orphan → skip).
         """
         with with_screenshot_on_error(
             self, "wager_entry_failed", "Failed to enter wager"
@@ -783,7 +853,8 @@ class FanduelBetPlacer(BetPlacer):
             with step_timer("    fd_find_wager_input"):
                 wager_input = self._find_wager_input_fanduel()
             with step_timer("    fd_type_wager_amount"):
-                self._type_wager_amount_fanduel(wager_input, amount)
+                self._type_wager_amount_fanduel(
+                    wager_input, amount, verify_exact=verify_exact)
             return True
 
     def _open_betslip_panel_fanduel(self) -> None:
@@ -813,7 +884,7 @@ class FanduelBetPlacer(BetPlacer):
                     print(f"[FANDUEL] Clicking betslip to open using: "
                           f"{selector}")
                     mouse_click(self.page, panel, state=self._cursor,
-                                rng=self._typing.rng)
+                                rng=self._typing.rng, fast=True)
                     settle(self.page, "ui_expansion",
                            rng=self._typing.rng)
                     betslip_opened = True
@@ -833,7 +904,7 @@ class FanduelBetPlacer(BetPlacer):
                           f"pattern...")
                     mouse_click(self.page, wins_pattern.first,
                                 state=self._cursor,
-                                rng=self._typing.rng)
+                                rng=self._typing.rng, fast=True)
                     settle(self.page, "ui_expansion",
                            rng=self._typing.rng)
                     betslip_opened = True
@@ -982,11 +1053,37 @@ class FanduelBetPlacer(BetPlacer):
 
         return wager_input
 
-    def _type_wager_amount_fanduel(self, wager_input, amount: float) -> None:
+    def _read_wager_value(self, wager_input) -> Optional[float]:
+        """Read the wager input's current value as a float, or None if it's
+        empty/unreadable. Used to VERIFY the typed amount actually landed —
+        FanDuel's controlled input silently drops keystrokes on a
+        re-rendering slip, and an empty wager leaves the slip at "Enter
+        wager amount" with no Place button (the orphan mechanism,
+        2026-05-30)."""
+        try:
+            raw = wager_input.input_value(timeout=2000)
+        except Exception:
+            return None
+        cleaned = re.sub(r"[^0-9.]", "", raw or "")
+        if not cleaned:
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+    def _type_wager_amount_fanduel(self, wager_input, amount: float, *,
+                                   verify_exact: bool = True) -> None:
         """Focus + clear via humanized mouse + select-all-delete, then
-        humanized-type the value. ``humanized_type`` does NOT focus on
-        its own (see human/typing.py docstring) — the explicit
-        mouse_click is load-bearing.
+        humanized-type the value, then VERIFY it landed. ``humanized_type``
+        does NOT focus on its own (see human/typing.py docstring) — the
+        explicit mouse_click is load-bearing.
+
+        ``verify_exact``: require the readback to equal ``amount`` (the
+        hedge). When False (Phase-1 discovery types 99999 and FanDuel caps
+        it), only require a NON-EMPTY field. A field that stays empty after
+        a ``.fill()`` retry raises ``BetPlacerError`` — refusing to report
+        a false success that would later strand an unhedged BetMGM bet.
 
         Use ``wager_input.press(...)`` rather than ``page.keyboard.press(...)``
         for the clear step: ``settle()`` runs the modal-watcher sweep
@@ -999,7 +1096,7 @@ class FanduelBetPlacer(BetPlacer):
         ``focus()`` before ``humanized_type``.
         """
         mouse_click(self.page, wager_input, state=self._cursor,
-                    rng=self._typing.rng)
+                    rng=self._typing.rng, fast=True)
         settle(self.page, "micro_pause", rng=self._typing.rng)
         # Clear the input (Phase 1 left "99999" from max-wager discovery, so
         # this genuinely runs). SHORT timeouts: FD's slip re-renders, so the
@@ -1024,8 +1121,38 @@ class FanduelBetPlacer(BetPlacer):
                        profile=self._typing)
         settle(self.page, "slip_update", rng=self._typing.rng)
 
+        # VERIFY the value landed. FanDuel's controlled wager input drops
+        # keystrokes on a re-rendering slip; an empty field leaves the slip
+        # at "Enter wager amount" with NO Place button — which stranded a
+        # BetMGM bet as an orphan on 2026-05-30. Read back; if it didn't
+        # register, force it via .fill() (sets value + dispatches the input
+        # event React listens for), then re-check and raise on failure.
+        def _ok(v):
+            if v is None or v <= 0:
+                return False
+            return (not verify_exact) or abs(v - amount) < 0.01
+
+        val = self._read_wager_value(wager_input)
+        if not _ok(val):
+            print(f"[FANDUEL] ⚠ Wager readback={val!r} after typing "
+                  f"{amount:.2f}; forcing via fill()...")
+            try:
+                wager_input.fill(f"{amount:.2f}", timeout=2000)
+                settle(self.page, "micro_pause", rng=self._typing.rng)
+            except Exception:
+                pass
+            val = self._read_wager_value(wager_input)
+
+        if not _ok(val):
+            self._screenshot("wager_not_registered")
+            raise BetPlacerError(
+                f"FanDuel wager did not register (read back {val!r} after "
+                f"typing {amount:.2f}, verify_exact={verify_exact}); refusing "
+                f"to continue so a BetMGM leg is never left unhedged."
+            )
+
         self._screenshot("wager_entered")
-        print(f"[FANDUEL] ✓ Wager entered: ${amount:.2f}")
+        print(f"[FANDUEL] ✓ Wager entered: ${amount:.2f} (field={val})")
 
     # ------------------------------------------------------------------
     # Place bet — shadow-mode short-circuit before the click
@@ -1157,7 +1284,7 @@ class FanduelBetPlacer(BetPlacer):
             print(f"[FANDUEL] Clicking Place Bet...")
             with step_timer("    fd_place_click"):
                 mouse_click(self.page, place_btn, state=self._cursor,
-                            rng=self._typing.rng)
+                            rng=self._typing.rng, fast=True)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
             # Success detection — try several signals because the
@@ -1320,7 +1447,13 @@ class FanduelBetPlacer(BetPlacer):
         with with_screenshot_on_error(
             self, "max_wager_discovery_failed", "Max wager discovery failed"
         ):
-            self._enter_wager_fanduel(99999.00)
+            # verify_exact=False: FanDuel caps 99999 to the live max, so the
+            # field won't read back 99999 — we only require it to be
+            # NON-EMPTY. If the wager input silently drops the keystrokes
+            # (the orphan root cause), this RAISES here in Phase 1, before
+            # the BetMGM leg is ever placed — turning a real-money orphan
+            # into a benign skip.
+            self._enter_wager_fanduel(99999.00, verify_exact=False)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
             # Look for MAX WAGER text.

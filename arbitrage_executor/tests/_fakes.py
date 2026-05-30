@@ -8,7 +8,8 @@ do NOT mock methods speculatively.
 
 class FakeElement:
     def __init__(self, *, visible=True, text="", on_click=None, attributes=None,
-                 input_value="", on_fill=None, on_type=None, on_press=None):
+                 input_value="", on_fill=None, on_type=None, on_press=None,
+                 evaluate_result=""):
         self.visible = visible
         self.text = text
         self.on_click = on_click
@@ -21,6 +22,11 @@ class FakeElement:
         self.on_fill = on_fill
         self.on_type = on_type
         self.on_press = on_press
+        # What ``evaluate(...)`` returns. The FanDuel alt over-leg walks
+        # up from a pick tile to its section heading via
+        # ``el.evaluate(_FD_SECTION_HEADING_JS)``; set this to the
+        # heading text (e.g. "1+ Made Threes") to model that DOM.
+        self.evaluate_result = evaluate_result
 
     def is_visible(self):
         return self.visible
@@ -36,7 +42,7 @@ class FakeElement:
     def get_attribute(self, name, **kwargs):
         return self.attributes.get(name)
 
-    def input_value(self):
+    def input_value(self, **kwargs):
         return self._input_value
 
     def fill(self, value, **kwargs):
@@ -62,7 +68,7 @@ class FakeElement:
         return None
 
     def evaluate(self, *args, **kwargs):
-        return ""
+        return self.evaluate_result
 
     def wait_for(self, **kwargs):
         return None

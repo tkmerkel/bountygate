@@ -112,3 +112,48 @@ def test_select_unique_threshold_mode():
 def test_errors_are_betplacererror_subclasses():
     assert issubclass(NoPickError, BetPlacerError)
     assert issubclass(AmbiguousPickError, BetPlacerError)
+
+
+# ---- FanDuel alt over-leg: threshold comes from the SECTION HEADING ----
+# FD renders alt threshold markets as flat sibling pairs; the tile's own
+# aria-label is often bare ("Kenrich Williams, 2.14") and the threshold
+# lives in the heading sibling ("1+ Made Threes"). The collector pairs
+# each tile with its heading text via _FD_SECTION_HEADING_JS, so the text
+# select_unique sees for the over leg is the HEADING. These tests lock
+# that contract (the bug that NoPickError'd Kenrich Williams threes 0.5
+# and Jaylin Williams PRA 11.5 on 2026-05-30).
+
+def test_select_unique_threshold_from_heading_bare_tile():
+    # Kenrich Williams "1+ Made Threes" — tile aria is bare, so the
+    # element is paired with its section-heading text. line 0.5 -> 1+.
+    # The standard O/U section heading ("... - Made Threes", no "N+")
+    # is collected too but must NOT match (parse_threshold -> None).
+    items = [
+        ("tile_1plus", "1+ Made Threes"),
+        ("tile_2plus", "2+ Made Threes"),
+        ("tile_3plus", "3+ Made Threes"),
+        ("tile_std_ou", "Kenrich Williams - Made Threes"),
+    ]
+    assert select_unique(items, 0.5, "over", threshold=True) == "tile_1plus"
+
+def test_select_unique_threshold_from_verbose_heading():
+    # PRA over 11.5 -> 12+. FD phrases some headings with a verb prefix
+    # ("To Record 12+ Pts + Reb + Ast"); parse_threshold finds the "12+"
+    # anywhere in the string.
+    items = [
+        ("tile_10", "To Record 10+ Pts + Reb + Ast"),
+        ("tile_12", "To Record 12+ Pts + Reb + Ast"),
+        ("tile_15", "To Record 15+ Pts + Reb + Ast"),
+    ]
+    assert select_unique(items, 11.5, "over", threshold=True) == "tile_12"
+
+def test_select_unique_threshold_no_heading_raises():
+    # If the heading walk returns empty / non-threshold text for every
+    # candidate (e.g. only the standard O/U section was collected), the
+    # over-threshold leg must RAISE — never silently grab a tile.
+    items = [
+        ("tile_std_ou", "Kenrich Williams - Made Threes"),
+        ("tile_blank", ""),
+    ]
+    with pytest.raises(NoPickError):
+        select_unique(items, 0.5, "over", threshold=True)

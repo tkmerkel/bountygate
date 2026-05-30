@@ -158,7 +158,8 @@ def test_find_and_click_routes_batter_market_to_alternate_path(monkeypatch):
 def test_discover_max_wager_returns_99999_when_no_alert(monkeypatch):
     page = FakePage()
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-    monkeypatch.setattr(placer, "_enter_wager_fanduel", lambda amount: True)
+    monkeypatch.setattr(placer, "_enter_wager_fanduel",
+                        lambda amount, **kw: True)
 
     amount, text = placer.discover_max_wager()
 
@@ -174,7 +175,8 @@ def test_discover_max_wager_parses_dollar_amount(monkeypatch):
         r"MAX\s*WAGER": FakeLocator([max_wager_elem]),
     })
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
-    monkeypatch.setattr(placer, "_enter_wager_fanduel", lambda amount: True)
+    monkeypatch.setattr(placer, "_enter_wager_fanduel",
+                        lambda amount, **kw: True)
 
     amount, text = placer.discover_max_wager()
 
