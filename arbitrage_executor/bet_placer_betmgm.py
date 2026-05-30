@@ -1429,7 +1429,7 @@ class BetmgmBetPlacer(BetPlacer):
             # fire keydown), or the Place Bet button will stay
             # aria-disabled='true'.
             mouse_click(self.page, wager_input, state=self._cursor,
-                        rng=self._typing.rng)
+                        rng=self._typing.rng, fast=True)
             settle(self.page, "micro_pause", rng=self._typing.rng)
             # Clear existing content so the new digits don't append.
             # Use locator.press, NOT page.keyboard.press — settle()'s
@@ -1500,7 +1500,7 @@ class BetmgmBetPlacer(BetPlacer):
 
             print(f"[BETMGM] Clicking Place Bet...")
             mouse_click(self.page, place_btn.first, state=self._cursor,
-                        rng=self._typing.rng)
+                        rng=self._typing.rng, fast=True)
             settle(self.page, "slip_update", rng=self._typing.rng)
 
             # Poll for confirmation — accepted / alt-success / rejected.

@@ -81,28 +81,30 @@ def _ease_out_t(i: int, steps: int) -> float:
     return 1.0 - (1.0 - raw) ** 3
 
 
-def _bezier_path(
+def _path_geometry(
     start: tuple[float, float],
     end: tuple[float, float],
     *,
-    steps: int,
     rng: random.Random,
     overshoot: bool,
-) -> list[tuple[float, float]]:
-    """Sample a quadratic Bezier from ``start`` to ``end`` with one
-    random-offset midpoint, plus optional overshoot.
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Compute the off-axis midpoint (control point) and the move target
+    for a path from ``start`` to ``end``.
 
-    The "two control points" in the design spec collapse to one
-    midpoint here — a quadratic Bezier has degree 2 (one control
-    point); adding a second would make it cubic, which doesn't buy
-    us additional realism for the distances involved.
+    Returns ``(midpoint, target)`` where ``target`` is the past-the-end
+    overshoot point when ``overshoot`` is True, else ``end``. Returns
+    ``None`` for a degenerate (sub-pixel) segment so callers can short-
+    circuit. Shared by ``_bezier_path`` (dense full-fidelity loop) and
+    ``move_to``'s low-event fast path so both bend through the SAME
+    geometry — and consume the rng in the SAME order (offset frac →
+    side choice → overshoot distance), keeping seeded tests stable.
     """
     sx, sy = start
     ex, ey = end
     dx, dy = ex - sx, ey - sy
     length = math.hypot(dx, dy)
     if length < 1.0:
-        return [end] * steps
+        return None
 
     # Perpendicular offset for the midpoint — gives the path its arc.
     offset_frac = rng.uniform(_MID_OFFSET_MIN, _MID_OFFSET_MAX)
@@ -121,6 +123,32 @@ def _bezier_path(
         target = (ex + ux * over_dist, ey + uy * over_dist)
     else:
         target = end
+
+    return midpoint, target
+
+
+def _bezier_path(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    *,
+    steps: int,
+    rng: random.Random,
+    overshoot: bool,
+) -> list[tuple[float, float]]:
+    """Sample a quadratic Bezier from ``start`` to ``end`` with one
+    random-offset midpoint, plus optional overshoot.
+
+    The "two control points" in the design spec collapse to one
+    midpoint here — a quadratic Bezier has degree 2 (one control
+    point); adding a second would make it cubic, which doesn't buy
+    us additional realism for the distances involved.
+    """
+    sx, sy = start
+    ex, ey = end
+    geom = _path_geometry(start, end, rng=rng, overshoot=overshoot)
+    if geom is None:
+        return [end] * steps
+    midpoint, target = geom
 
     pts: list[tuple[float, float]] = []
     for i in range(steps):
@@ -156,6 +184,7 @@ def move_to(
     *,
     state: CursorState,
     rng: random.Random | None = None,
+    fast: bool = False,
 ) -> tuple[float, float]:
     """Move the cursor along a humanized path to a random point inside
     the ``locator``'s bounding box. Updates ``state.position`` to the
@@ -166,11 +195,28 @@ def move_to(
     If the locator has no visible bounding box (off-screen, not yet
     rendered, or zero-area), raises ``ValueError``.
 
+    Args:
+        fast: When True, use the low-event path for renderer-saturated
+            slips. Instead of one ``page.mouse.move`` per dense Bezier
+            point (8-16 single-point CDP calls), issue 2-3 *native*
+            interpolated ``page.mouse.move(x, y, steps=k)`` calls
+            through the start → off-axis midpoint → end anchors (plus an
+            overshoot hop when it fires) for a TOTAL of ≤4 dispatched
+            mousemove events. This wins whether the per-move cost is
+            Python→driver round-trip bound (≤3 calls vs ~16) or browser/
+            CDP-channel bound (≤4 events vs ~16) — see the time study in
+            the module header. The trace is a coarser polyline (kept
+            off-axis so it's not a straight teleport); reserve it for the
+            time-critical Phase-2/3 placement clicks. Leave it False for
+            the long Phase-1 browse-idle / search / nav where the dense
+            trace is the anti-detection fingerprint.
+
     Note:
-        Emits ``_step_count(distance)`` mouse-move events on a clean
-        path, plus 5 corrective steps when the path overshoots
-        (probability ``_OVERSHOOT_PROB``). Callers that need
-        deterministic event counts should be aware of the +5 tail.
+        Full mode (``fast=False``) emits ``_step_count(distance)``
+        mouse-move events on a clean path, plus 5 corrective steps when
+        the path overshoots (probability ``_OVERSHOOT_PROB``). Callers
+        that need deterministic event counts should be aware of the +5
+        tail. Fast mode emits ≤3 native calls / ≤4 total events.
     """
     rng = rng or random.Random()
     _bb_t = time.monotonic()
@@ -193,9 +239,41 @@ def move_to(
 
     start = state.position
     distance = math.hypot(end[0] - start[0], end[1] - start[1])
-    steps = _step_count(distance_px=distance)
     overshoot = rng.random() < _OVERSHOOT_PROB
 
+    if fast:
+        # Low-event path: 2-3 native interpolated moves through the same
+        # anchor geometry, ≤4 total dispatched mousemove events. ``steps=k``
+        # has the driver interpolate server-side, so we keep intermediate
+        # move events (not a teleport) while collapsing ~16 CDP round-trips.
+        geom = _path_geometry(start, end, rng=rng, overshoot=overshoot)
+        _mv_t = time.monotonic()
+        if geom is None:
+            # Sub-pixel hop — one move suffices.
+            page.mouse.move(end[0], end[1], steps=1)
+            n_calls, n_events = 1, 1
+        else:
+            midpoint, target = geom
+            if overshoot:
+                page.mouse.move(midpoint[0], midpoint[1], steps=2)
+                page.mouse.move(target[0], target[1], steps=1)
+                page.mouse.move(end[0], end[1], steps=1)
+                n_calls, n_events = 3, 4
+            else:
+                page.mouse.move(midpoint[0], midpoint[1], steps=2)
+                page.mouse.move(end[0], end[1], steps=2)
+                n_calls, n_events = 2, 4
+        _mv_ms = (time.monotonic() - _mv_t) * 1000
+        if _mv_ms > 1500:
+            print(f"[timing] slow mouse.move fast={_mv_ms:.0f}ms over "
+                  f"{n_calls} calls / {n_events} events "
+                  f"({_mv_ms/n_events:.0f}ms/event — renderer/thread "
+                  f"contention; already low-event)")
+        # True endpoint, never the overshoot point.
+        state.position = end
+        return state.position
+
+    steps = _step_count(distance_px=distance)
     pts = _bezier_path(start, end, steps=steps, rng=rng, overshoot=overshoot)
     _mv_t = time.monotonic()
     for (x, y) in pts:
@@ -212,7 +290,7 @@ def move_to(
     if _mv_ms > 1500:
         print(f"[timing] slow mouse.move loop={_mv_ms:.0f}ms over {len(pts)} "
               f"steps ({_mv_ms/max(len(pts),1):.0f}ms/step — renderer/thread "
-              f"contention)")
+              f"contention; consider fast=True)")
     state.position = pts[-1]
     return state.position
 
@@ -224,6 +302,7 @@ def click(
     state: CursorState,
     rng: random.Random | None = None,
     force: bool = False,
+    fast: bool = False,
 ) -> None:
     """Move to ``locator`` along a humanized path, dwell, then click via
     Playwright's ``locator.click()`` so the FULL click sequence
@@ -250,13 +329,18 @@ def click(
             topmost — the BetMGM search dropdown wraps anchors in a
             scrim that fails the receives-pointer-events check even
             though the click works fine.
+        fast: Forwarded to ``move_to`` — use the low-event cursor path
+            for renderer-saturated slips (≤4 mousemove events instead of
+            8-16). The pre-click dwell, modal sweep, and lognormal
+            mousedown→up ``delay`` hold are IDENTICAL in both modes; only
+            the approach-path density changes. See ``move_to``.
 
     Raises:
         ValueError: propagated from ``move_to`` when the locator has
             no visible bounding box.
     """
     rng = rng or random.Random()
-    move_to(page, locator, state=state, rng=rng)
+    move_to(page, locator, state=state, rng=rng, fast=fast)
 
     dwell_ms = _sample_lognormal_ms(_DWELL_MU, _DWELL_SIGMA, rng)
     page.wait_for_timeout(dwell_ms)

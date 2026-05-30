@@ -52,9 +52,15 @@ def test_cursor_state_tracks_position_across_moves():
 class FakeMouse:
     def __init__(self):
         self.moves: list[tuple[float, float]] = []
+        # Records the ``steps`` kwarg per call so fast-mode tests can sum
+        # the TOTAL dispatched mousemove events (the H2 event budget),
+        # which differs from len(moves) (the call count) once we use
+        # native interpolated moves.
+        self.steps: list[int] = []
 
     def move(self, x, y, *, steps=None):
         self.moves.append((x, y))
+        self.steps.append(steps or 1)
 
 
 class FakePage:
@@ -181,5 +187,96 @@ def test_click_includes_a_dwell_before_dispatch():
     # — that's the pre-click dwell.
     big_waits = [w for w in page.waited_ms if w > 25]
     assert len(big_waits) >= 1, "no dwell-shaped wait recorded"
+
+
+# ── Fast (low-event) move mode ────────────────────────────────────────
+# fast=True replaces the dense 8-16 single-point mouse.move loop with
+# ≤3 native interpolated page.mouse.move(steps=k) calls totalling ≤4
+# dispatched events, for renderer-saturated betslips. These tests lock
+# both budgets (call count AND event count) and confirm the trace stays
+# off-axis and ends on the TRUE endpoint (never the overshoot point).
+
+
+def test_fast_move_emits_few_native_calls_and_events(monkeypatch):
+    # Pin no-overshoot so the budget is the deterministic 2-call / 4-event
+    # case; the overshoot variant is asserted separately below.
+    monkeypatch.setattr("human.mouse._OVERSHOOT_PROB", 0.0)
+    page = FakePage()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    move_to(page, locator, state=state, rng=random.Random(0), fast=True)
+
+    # Call budget: at most 3 native moves (here 2, no overshoot).
+    assert len(page.mouse.moves) <= 3
+    # Event budget: total dispatched mousemove events ≤ 4 (the H2 lever).
+    assert sum(page.mouse.steps) <= 4
+    # Final landing point is inside the target bbox.
+    final_x, final_y = page.mouse.moves[-1]
+    assert 200 <= final_x <= 280
+    assert 100 <= final_y <= 130
+    # Cursor state mirrors the final mouse position.
+    assert state.position == (final_x, final_y)
+
+
+def test_fast_move_is_off_axis(monkeypatch):
+    """The intermediate (midpoint) move must deviate from the straight
+    start→end line — a coarse polyline, not a teleporting straight shot."""
+    monkeypatch.setattr("human.mouse._OVERSHOOT_PROB", 0.0)
+    page = FakePage()
+    state = CursorState()  # starts at (0, 0)
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    move_to(page, locator, state=state, rng=random.Random(0), fast=True)
+
+    # No-overshoot fast path: moves[0] = midpoint, moves[-1] = end.
+    midpoint = page.mouse.moves[0]
+    start = (0.0, 0.0)
+    end = page.mouse.moves[-1]
+    # Perpendicular distance of the midpoint from the start→end line.
+    ax, ay = end[0] - start[0], end[1] - start[1]
+    seg_len = math.hypot(ax, ay)
+    perp = abs(ax * (start[1] - midpoint[1]) - (start[0] - midpoint[0]) * ay) / seg_len
+    assert perp > 2.0, f"midpoint {midpoint} too close to straight line (perp={perp:.2f})"
+
+
+def test_fast_move_overshoot_budget(monkeypatch):
+    """With overshoot forced, fast mode uses ≤3 calls / ≤4 events and the
+    cursor still settles on the TRUE endpoint, not the overshoot point."""
+    monkeypatch.setattr("human.mouse._OVERSHOOT_PROB", 1.0)
+    page = FakePage()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    move_to(page, locator, state=state, rng=random.Random(0), fast=True)
+
+    assert len(page.mouse.moves) <= 3
+    assert sum(page.mouse.steps) <= 4
+    # Last move is the true endpoint; the overshoot hop (moves[1]) is
+    # a distinct, farther point we must NOT end on.
+    assert state.position == page.mouse.moves[-1]
+    assert state.position != page.mouse.moves[1]
+
+
+def test_click_fast_threads_through():
+    """click(fast=True) still dispatches exactly one locator.click with a
+    lognormal hold delay and a pre-click dwell — the click micro-timing is
+    identical across modes; only the approach-path density changes."""
+    page = FakePage()
+    state = CursorState()
+    locator = FakeLocator({"x": 200, "y": 100, "width": 80, "height": 30})
+
+    click(page, locator, state=state, rng=random.Random(0), fast=True)
+
+    # Low-event approach (≤3 native moves) still happened before the click.
+    assert 0 < len(page.mouse.moves) <= 3
+    assert sum(page.mouse.steps) <= 4
+    # Exactly one click dispatch, with a lognormal hold delay preserved.
+    assert len(locator.click_calls) == 1
+    kwargs = locator.click_calls[0]
+    assert kwargs.get("delay", 0) >= 15
+    # A dwell-shaped wait was still recorded.
+    big_waits = [w for w in page.waited_ms if w > 25]
+    assert len(big_waits) >= 1, "no dwell-shaped wait recorded in fast mode"
 
 
