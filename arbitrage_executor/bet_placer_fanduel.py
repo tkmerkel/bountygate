@@ -100,44 +100,53 @@ _FD_PERIOD_QUALIFIERS = ("quarter", "half", "period")
 # setting the value through the native HTMLInputElement setter + a bubbling
 # 'input' event (what React's onChange consumes). _FIND returns the input's
 # current value; _SET returns the value after writing.
-_FD_FIND_WAGER_INPUT_JS = """
-() => {
-  const vis = (el) => el && el.getClientRects().length > 0;
-  const label = Array.from(document.querySelectorAll('span'))
-    .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
-  if (!label) return null;
-  let node = label, input = null;
-  for (let i = 0; i < 6 && node && !input; i++) {
-    node = node.parentElement;
-    if (!node) break;
-    const inps = Array.from(node.querySelectorAll('input')).filter(vis);
-    if (inps.length) input = inps[0];
-  }
-  return input ? input.value : null;
-}
-"""
-_FD_SET_WAGER_JS = """
-(v) => {
-  const vis = (el) => el && el.getClientRects().length > 0;
-  const label = Array.from(document.querySelectorAll('span'))
-    .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
-  if (!label) return null;
-  let node = label, input = null;
-  for (let i = 0; i < 6 && node && !input; i++) {
-    node = node.parentElement;
-    if (!node) break;
-    const inps = Array.from(node.querySelectorAll('input')).filter(vis);
-    if (inps.length) input = inps[0];
-  }
-  if (!input) return null;
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype, 'value').set;
-  setter.call(input, String(v));
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-  return input.value;
-}
-"""
+# The FanDuel wager <input> is immediately preceded by a <span>$</span>
+# (DOM verified 2026-05-31) — a far more durable anchor than the "wager"
+# label, which doesn't render as a clean text leaf in every slip state
+# (wagerExact=0 live). The search box has no "$" sibling, so this uniquely
+# selects the wager field.
+def _fd_wager_input_finder_js(set_value: bool) -> str:
+    action = (
+        """
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype, 'value').set;
+        setter.call(input, String(v));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return {ok: true, value: input.value};
+        """
+        if set_value else
+        "return {ok: true, value: input.value};"
+    )
+    arg = "(v) =>" if set_value else "() =>"
+    return f"""
+    {arg} {{
+      const vis = (el) => el && el.getClientRects().length > 0;
+      const inputs = Array.from(document.querySelectorAll('input')).filter(vis);
+      const dollar = (i) => {{
+        const p = i.previousElementSibling;
+        return p && (p.textContent || '').trim() === '$';
+      }};
+      let input = inputs.find(dollar);
+      if (!input) {{
+        const describe = (i) => ({{
+          type: i.type, ac: i.getAttribute('autocorrect'),
+          ph: i.getAttribute('placeholder'), al: i.getAttribute('aria-label'),
+          prev: i.previousElementSibling
+            ? (i.previousElementSibling.textContent || '').trim().slice(0, 14)
+            : null,
+          val: i.value
+        }});
+        return {{ok: false, reason: 'no-dollar-sibling-input',
+                 inputs: inputs.map(describe)}};
+      }}
+      {action}
+    }}
+    """
+
+
+_FD_SET_WAGER_JS = _fd_wager_input_finder_js(set_value=True)
+_FD_FIND_WAGER_INPUT_JS = _fd_wager_input_finder_js(set_value=False)
 
 def _clean_money(raw) -> Optional[float]:
     """Parse a money-ish string ("$0.18", "0.18", "712.50") to a float, or
@@ -1253,20 +1262,27 @@ class FanduelBetPlacer(BetPlacer):
             # after humanized typing AND fill have both failed.
             print(f"[FANDUEL] ⚠ Still {val!r}; forcing via React "
                   f"value-setter (atomic page.evaluate)...")
-            set_back = None
+            res = None
             try:
-                set_back = self.page.evaluate(_FD_SET_WAGER_JS, f"{amount:.2f}")
+                res = self.page.evaluate(_FD_SET_WAGER_JS, f"{amount:.2f}")
                 settle(self.page, "slip_update", rng=self._typing.rng)
             except Exception as e:
                 print(f"[FANDUEL] React value-setter failed: {e}")
+            # Diagnostic: structured result tells us WHICH stage failed
+            # (label not found / input not found / set-but-not-kept).
+            print(f"[FANDUEL] value-setter result: {res!r}")
+            set_val = res.get("value") if isinstance(res, dict) else res
             # Re-read atomically too (the locator readback also races the
             # re-render); fall back to the setter's own return value.
-            read_back = None
+            read_val = None
             try:
-                read_back = self.page.evaluate(_FD_FIND_WAGER_INPUT_JS)
+                fr = self.page.evaluate(_FD_FIND_WAGER_INPUT_JS)
+                if isinstance(fr, dict) and fr.get("ok"):
+                    read_val = fr.get("value")
             except Exception:
-                read_back = set_back
-            val = _clean_money(read_back if read_back is not None else set_back)
+                read_val = None
+            print(f"[FANDUEL] value-setter read_back={read_val!r}")
+            val = _clean_money(read_val if read_val is not None else set_val)
 
         if not _ok(val):
             self._screenshot("wager_not_registered")

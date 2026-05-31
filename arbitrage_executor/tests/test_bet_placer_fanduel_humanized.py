@@ -733,10 +733,13 @@ def test_enter_wager_falls_back_to_js_value_setter_fd():
             self._js_wager = None
         def evaluate(self, script, arg=None):
             self.evaluations.append(script)
-            if arg is not None:           # _FD_SET_WAGER_JS(value)
+            if arg is not None:           # _FD_SET_WAGER_JS(value) -> dict
                 self._js_wager = str(arg)
-                return self._js_wager
-            return self._js_wager         # _FD_FIND_WAGER_INPUT_JS()
+                return {"ok": True, "value": self._js_wager}
+            # _FD_FIND_WAGER_INPUT_JS() -> dict
+            if self._js_wager is not None:
+                return {"ok": True, "value": self._js_wager}
+            return {"ok": False, "reason": "no-dollar-sibling-input", "inputs": []}
 
     # Locator-based paths all fail: fill raises, input_value stays empty —
     # so the only way the value lands is the atomic page.evaluate setter.
