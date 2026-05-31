@@ -126,7 +126,7 @@ class _HumanizedFakePage:
     def set_viewport_size(self, size):
         self.viewport_sizes.append(size)
 
-    def evaluate(self, script):
+    def evaluate(self, script, arg=None):
         self.evaluations.append(script)
         return None
 
@@ -721,26 +721,37 @@ def test_enter_wager_succeeds_without_fill_when_value_reads_back_fd():
 def test_enter_wager_falls_back_to_js_value_setter_fd():
     """When humanized typing AND .fill() both leave the field empty (FanDuel's
     controlled wager input on a re-rendering slip — .fill() times out, raw
-    keystrokes are dropped), enter_wager must set the value via the React
-    value-setter (evaluate) and succeed. This is the path that finally lets a
-    saturated-slip hedge place instead of orphaning."""
-    class _OnlyEvaluateWorks(_ClickableElement):
+    keystrokes dropped, and even locator ops fail to re-resolve), enter_wager
+    must set the value via the ATOMIC page.evaluate value-setter and succeed.
+    This is the path that finally lets a saturated-slip hedge place instead of
+    orphaning."""
+    class _JsWagerPage(_HumanizedFakePage):
+        """Simulates the atomic find-and-set/read JS: a SET call (with arg)
+        stores the value; a FIND call (no arg) returns it."""
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self._js_wager = None
+        def evaluate(self, script, arg=None):
+            self.evaluations.append(script)
+            if arg is not None:           # _FD_SET_WAGER_JS(value)
+                self._js_wager = str(arg)
+                return self._js_wager
+            return self._js_wager         # _FD_FIND_WAGER_INPUT_JS()
+
+    # Locator-based paths all fail: fill raises, input_value stays empty —
+    # so the only way the value lands is the atomic page.evaluate setter.
+    class _LocatorFails(_ClickableElement):
         def fill(self, value, **kwargs):
             raise RuntimeError("fill actionability timeout on saturated slip")
         def input_value(self, **kwargs):
-            return self._input_value  # empty until the value-setter runs
-        def evaluate(self, expr, arg=None, **kwargs):
-            # Simulate the native HTMLInputElement value-setter populating it.
-            if arg is not None:
-                self._input_value = str(arg)
-            return None
+            return ""
 
-    wager = _OnlyEvaluateWorks(visible=True, input_value="")
-    page = _HumanizedFakePage(label_locators={"WAGER $": FakeLocator([wager])})
+    wager = _LocatorFails(visible=True, input_value="")
+    page = _JsWagerPage(label_locators={"WAGER $": FakeLocator([wager])})
     placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
 
     assert placer.enter_wager(0.18) is True
-    assert wager.input_value() == "0.18", "value-setter fallback did not populate the field"
+    assert page._js_wager == "0.18", "atomic value-setter did not store the value"
 
 
 def test_alt_threshold_excludes_quarter_props_fd():

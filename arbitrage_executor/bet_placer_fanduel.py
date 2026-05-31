@@ -90,6 +90,68 @@ FANDUEL_THRESHOLD_ONE_LABELS = {
 # carrying a period qualifier; no full-game stat name contains these tokens.
 _FD_PERIOD_QUALIFIERS = ("quarter", "half", "period")
 
+# FanDuel's wager <input> lives on a slip that re-renders continuously, so any
+# Playwright LOCATOR operation races the re-render: .fill() times out on the
+# actionability/stable check, and even a chained label->xpath locator fails to
+# re-resolve at action time (Locator.evaluate timeout, 2026-05-31). These do
+# the find-AND-act ATOMICALLY in one browser pass — no find-then-act gap to
+# race — locating the VISIBLE wager input via the "wager" label (the input has
+# no aria/id/name/placeholder/inputmode; only the sibling label marks it), then
+# setting the value through the native HTMLInputElement setter + a bubbling
+# 'input' event (what React's onChange consumes). _FIND returns the input's
+# current value; _SET returns the value after writing.
+_FD_FIND_WAGER_INPUT_JS = """
+() => {
+  const vis = (el) => el && el.offsetParent !== null;
+  const label = Array.from(document.querySelectorAll('span'))
+    .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
+  if (!label) return null;
+  let node = label, input = null;
+  for (let i = 0; i < 6 && node && !input; i++) {
+    node = node.parentElement;
+    if (!node) break;
+    const inps = Array.from(node.querySelectorAll('input')).filter(vis);
+    if (inps.length) input = inps[0];
+  }
+  return input ? input.value : null;
+}
+"""
+_FD_SET_WAGER_JS = """
+(v) => {
+  const vis = (el) => el && el.offsetParent !== null;
+  const label = Array.from(document.querySelectorAll('span'))
+    .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
+  if (!label) return null;
+  let node = label, input = null;
+  for (let i = 0; i < 6 && node && !input; i++) {
+    node = node.parentElement;
+    if (!node) break;
+    const inps = Array.from(node.querySelectorAll('input')).filter(vis);
+    if (inps.length) input = inps[0];
+  }
+  if (!input) return null;
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, String(v));
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  return input.value;
+}
+"""
+
+def _clean_money(raw) -> Optional[float]:
+    """Parse a money-ish string ("$0.18", "0.18", "712.50") to a float, or
+    None if empty/unparseable. Shared by the locator readback and the atomic
+    JS readback of the FanDuel wager value."""
+    cleaned = re.sub(r"[^0-9.]", "", str(raw or ""))
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 _FD_SECTION_HEADING_JS = """
 (el) => {
   let node = el;
@@ -1102,13 +1164,7 @@ class FanduelBetPlacer(BetPlacer):
             raw = wager_input.input_value(timeout=2000)
         except Exception:
             return None
-        cleaned = re.sub(r"[^0-9.]", "", raw or "")
-        if not cleaned:
-            return None
-        try:
-            return float(cleaned)
-        except ValueError:
-            return None
+        return _clean_money(raw)
 
     def _type_wager_amount_fanduel(self, wager_input, amount: float, *,
                                    verify_exact: bool = True) -> None:
@@ -1184,37 +1240,33 @@ class FanduelBetPlacer(BetPlacer):
             val = self._read_wager_value(wager_input)
 
         if not _ok(val):
-            # Last resort: set the value through the React/HTMLInputElement
-            # value descriptor and dispatch a bubbling 'input' event.
-            # FanDuel's wager <input> is a controlled component on a slip that
-            # re-renders continuously: Playwright .fill() times out because
-            # the element never satisfies the actionability (stable) check,
-            # and the component ignores raw keystrokes. ``evaluate`` runs on
-            # the attached element WITHOUT waiting for actionability, and the
-            # native setter + dispatched 'input' event is what React's
-            # onChange listens for. This is less stealthy than typing, so it
-            # only fires after humanized typing AND fill have both failed —
-            # i.e. exactly the saturated-slip cases that otherwise can't bet
-            # at all (the 2026-05-31 fill-timeout). See the value-setter trick
-            # for React-controlled inputs.
+            # Last resort: ATOMIC find-and-set in one browser pass. FanDuel's
+            # wager <input> is a controlled component on a slip that re-renders
+            # continuously, so every Playwright LOCATOR op races the re-render:
+            # .fill() times out on the actionability/stable check, raw
+            # keystrokes are dropped, and even a chained label->xpath locator
+            # fails to re-resolve at action time (Locator.evaluate timeout,
+            # 2026-05-31). page.evaluate runs find+set synchronously in the
+            # browser — no find-then-act gap — setting the value via the native
+            # HTMLInputElement setter + a bubbling 'input' event (what React's
+            # onChange consumes). Less stealthy than typing, so it only fires
+            # after humanized typing AND fill have both failed.
             print(f"[FANDUEL] ⚠ Still {val!r}; forcing via React "
-                  f"value-setter (evaluate)...")
+                  f"value-setter (atomic page.evaluate)...")
+            set_back = None
             try:
-                wager_input.evaluate(
-                    """(el, v) => {
-                        const proto = window.HTMLInputElement.prototype;
-                        const setter = Object.getOwnPropertyDescriptor(
-                            proto, 'value').set;
-                        setter.call(el, v);
-                        el.dispatchEvent(new Event('input', {bubbles: true}));
-                        el.dispatchEvent(new Event('change', {bubbles: true}));
-                    }""",
-                    f"{amount:.2f}",
-                )
+                set_back = self.page.evaluate(_FD_SET_WAGER_JS, f"{amount:.2f}")
                 settle(self.page, "slip_update", rng=self._typing.rng)
             except Exception as e:
                 print(f"[FANDUEL] React value-setter failed: {e}")
-            val = self._read_wager_value(wager_input)
+            # Re-read atomically too (the locator readback also races the
+            # re-render); fall back to the setter's own return value.
+            read_back = None
+            try:
+                read_back = self.page.evaluate(_FD_FIND_WAGER_INPUT_JS)
+            except Exception:
+                read_back = set_back
+            val = _clean_money(read_back if read_back is not None else set_back)
 
         if not _ok(val):
             self._screenshot("wager_not_registered")
