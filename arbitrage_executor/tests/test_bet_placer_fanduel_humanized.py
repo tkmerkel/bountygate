@@ -718,6 +718,31 @@ def test_enter_wager_succeeds_without_fill_when_value_reads_back_fd():
     assert wager.fills == [], "fill() fallback fired even though typing landed"
 
 
+def test_enter_wager_falls_back_to_js_value_setter_fd():
+    """When humanized typing AND .fill() both leave the field empty (FanDuel's
+    controlled wager input on a re-rendering slip — .fill() times out, raw
+    keystrokes are dropped), enter_wager must set the value via the React
+    value-setter (evaluate) and succeed. This is the path that finally lets a
+    saturated-slip hedge place instead of orphaning."""
+    class _OnlyEvaluateWorks(_ClickableElement):
+        def fill(self, value, **kwargs):
+            raise RuntimeError("fill actionability timeout on saturated slip")
+        def input_value(self, **kwargs):
+            return self._input_value  # empty until the value-setter runs
+        def evaluate(self, expr, arg=None, **kwargs):
+            # Simulate the native HTMLInputElement value-setter populating it.
+            if arg is not None:
+                self._input_value = str(arg)
+            return None
+
+    wager = _OnlyEvaluateWorks(visible=True, input_value="")
+    page = _HumanizedFakePage(label_locators={"WAGER $": FakeLocator([wager])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+
+    assert placer.enter_wager(0.18) is True
+    assert wager.input_value() == "0.18", "value-setter fallback did not populate the field"
+
+
 def test_alt_threshold_excludes_quarter_props_fd():
     """Full-game opps must ignore partial-game sections. FanDuel lists both a
     full-game '2+ Made Threes' tile and a '1st Quarter - To Record 2+ Made

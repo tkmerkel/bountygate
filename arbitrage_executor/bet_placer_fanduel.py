@@ -1120,8 +1120,10 @@ class FanduelBetPlacer(BetPlacer):
         ``verify_exact``: require the readback to equal ``amount`` (the
         hedge). When False (Phase-1 discovery types 99999 and FanDuel caps
         it), only require a NON-EMPTY field. A field that stays empty after
-        a ``.fill()`` retry raises ``BetPlacerError`` — refusing to report
-        a false success that would later strand an unhedged BetMGM bet.
+        the full escalation (humanized type → ``.fill()`` → React
+        value-setter via ``evaluate``) raises ``BetPlacerError`` — refusing
+        to report a false success that would later strand an unhedged
+        BetMGM bet.
 
         Use ``wager_input.press(...)`` rather than ``page.keyboard.press(...)``
         for the clear step: ``settle()`` runs the modal-watcher sweep
@@ -1179,6 +1181,39 @@ class FanduelBetPlacer(BetPlacer):
                 settle(self.page, "micro_pause", rng=self._typing.rng)
             except Exception:
                 pass
+            val = self._read_wager_value(wager_input)
+
+        if not _ok(val):
+            # Last resort: set the value through the React/HTMLInputElement
+            # value descriptor and dispatch a bubbling 'input' event.
+            # FanDuel's wager <input> is a controlled component on a slip that
+            # re-renders continuously: Playwright .fill() times out because
+            # the element never satisfies the actionability (stable) check,
+            # and the component ignores raw keystrokes. ``evaluate`` runs on
+            # the attached element WITHOUT waiting for actionability, and the
+            # native setter + dispatched 'input' event is what React's
+            # onChange listens for. This is less stealthy than typing, so it
+            # only fires after humanized typing AND fill have both failed —
+            # i.e. exactly the saturated-slip cases that otherwise can't bet
+            # at all (the 2026-05-31 fill-timeout). See the value-setter trick
+            # for React-controlled inputs.
+            print(f"[FANDUEL] ⚠ Still {val!r}; forcing via React "
+                  f"value-setter (evaluate)...")
+            try:
+                wager_input.evaluate(
+                    """(el, v) => {
+                        const proto = window.HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(
+                            proto, 'value').set;
+                        setter.call(el, v);
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                    }""",
+                    f"{amount:.2f}",
+                )
+                settle(self.page, "slip_update", rng=self._typing.rng)
+            except Exception as e:
+                print(f"[FANDUEL] React value-setter failed: {e}")
             val = self._read_wager_value(wager_input)
 
         if not _ok(val):
