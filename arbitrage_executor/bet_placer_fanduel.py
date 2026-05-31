@@ -81,6 +81,15 @@ FANDUEL_THRESHOLD_ONE_LABELS = {
 # first ancestor whose previousElementSibling contains a
 # role=heading[aria-label] is the picks wrapper, and that heading is
 # this tile's section.
+# Opportunities are FULL-GAME. FanDuel interleaves partial-game milestone
+# sections ("1st Quarter - To Score 2+ Points", "1st Half - ...") whose stat
+# and threshold collide with the full-game tile — e.g. full-game "2+ Made
+# Threes" AND "1st Quarter - To Record 2+ Made Threes" both end with
+# "made threes" at threshold 2, which made select_unique raise
+# AmbiguousPickError (Luguentz Dort threes, 2026-05-30). Skip any heading
+# carrying a period qualifier; no full-game stat name contains these tokens.
+_FD_PERIOD_QUALIFIERS = ("quarter", "half", "period")
+
 _FD_SECTION_HEADING_JS = """
 (el) => {
   let node = el;
@@ -719,6 +728,10 @@ class FanduelBetPlacer(BetPlacer):
                     continue
                 heading = (el.evaluate(_FD_SECTION_HEADING_JS) or "").strip()
                 hlow = heading.lower()
+                # Opps are full-game; never match a quarter/half/period prop
+                # (its stat+threshold collides with the full-game tile).
+                if any(q in hlow for q in _FD_PERIOD_QUALIFIERS):
+                    continue
                 p = parse_pick(aria)
                 if p is not None:
                     # Line+side tile — keep only ALT line sections.
@@ -924,24 +937,49 @@ class FanduelBetPlacer(BetPlacer):
         data to work from."""
         wager_input = None
 
-        # 2a. Accessible name "WAGER $" (set by FD's design system).
+        # 2a-prime. Structural anchor on the "wager" label span. FanDuel's
+        # wager <input> has NO aria-label / id / name / placeholder /
+        # inputmode (DOM verified 2026-05-31) — only a sibling
+        # <span>wager</span> (lowercase) marks it, and "TO WIN" has no input
+        # at all. So accessible-name lookups (get_by_label, below) miss the
+        # real input, and the loose /WAGER/ tier grabbed a NON-editable
+        # element, silently dropping the typed value — the orphan root cause.
+        # Take the first <input> following the "wager" label in document order.
         try:
-            aria_input = self.page.get_by_label("WAGER $")
-            if aria_input.count() > 0 and aria_input.first.is_visible():
-                wager_input = aria_input.first
-                print(f"[FANDUEL] Found wager input via "
-                      f"get_by_label('WAGER $')")
+            label = self.page.get_by_text(re.compile(r"^\s*wager\s*$", re.I))
+            if label.count() > 0:
+                cand = label.first.locator("xpath=following::input[1]")
+                if cand.count() > 0 and cand.first.is_visible():
+                    wager_input = cand.first
+                    print(f"[FANDUEL] Found wager input via 'wager' label "
+                          f"sibling (structural)")
         except Exception:
             pass
 
-        # 2b. Partial accessible name match.
+        # 2a. Accessible name "WAGER $" (set by FD's design system).
+        if wager_input is None:
+            try:
+                aria_input = self.page.get_by_label("WAGER $")
+                if aria_input.count() > 0 and aria_input.first.is_visible():
+                    wager_input = aria_input.first
+                    print(f"[FANDUEL] Found wager input via "
+                          f"get_by_label('WAGER $')")
+            except Exception:
+                pass
+
+        # 2b. Partial accessible name match. GUARD: only accept an actual
+        # <input> — the unguarded version grabbed a non-editable element
+        # labelled "...WAGER..." and the value silently went nowhere
+        # (orphan root cause, 2026-05-30).
         if wager_input is None:
             try:
                 aria_input = self.page.get_by_label(
                     re.compile(r"WAGER", re.I)
                 )
                 if (aria_input.count() > 0
-                        and aria_input.first.is_visible()):
+                        and aria_input.first.is_visible()
+                        and (aria_input.first.evaluate("e => e.tagName")
+                             or "").upper() == "INPUT"):
                     wager_input = aria_input.first
                     print(f"[FANDUEL] Found wager input via partial label")
             except Exception:

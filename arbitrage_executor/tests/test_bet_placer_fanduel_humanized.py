@@ -716,3 +716,32 @@ def test_enter_wager_succeeds_without_fill_when_value_reads_back_fd():
 
     assert placer.enter_wager(0.18) is True
     assert wager.fills == [], "fill() fallback fired even though typing landed"
+
+
+def test_alt_threshold_excludes_quarter_props_fd():
+    """Full-game opps must ignore partial-game sections. FanDuel lists both a
+    full-game '2+ Made Threes' tile and a '1st Quarter - To Record 2+ Made
+    Threes' tile — both end with 'made threes' at threshold 2 — which made
+    select_unique raise AmbiguousPickError (Dort threes, 2026-05-30). The
+    quarter tile must be filtered so the full-game tile matches uniquely."""
+    player = "Luguentz Dort"
+    sel = f'[role="button"][aria-label*="{player}"]'
+    full_game = _ClickableElement(
+        visible=True, text="5.70",
+        attributes={"aria-label": f"{player}, 5.70"},
+        evaluate_result="2+ Made Threes",
+    )
+    quarter = _ClickableElement(
+        visible=True, text="9.50",
+        attributes={"aria-label": f"{player}, 9.50"},
+        evaluate_result="1st Quarter - To Record 2+ Made Threes",
+    )
+    page = _HumanizedFakePage(locators={sel: FakeLocator([full_game, quarter])})
+    placer = FanduelBetPlacer(page, "fanduel", AUDIT_DIR)
+    opp = {"player_name": player, "over_line": 1.5, "under_line": 1.5,
+           "market_key": "player_threes_alternate"}
+    mc = {"is_alternate": True, "display_names": ["Made Threes"]}
+
+    assert placer.find_and_click_bet(opp, "over", mc) is True
+    assert full_game.mouse_clicked and full_game.clicked, "full-game tile not chosen"
+    assert quarter.clicked is False, "1st-quarter prop was clicked"
