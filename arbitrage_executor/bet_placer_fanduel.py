@@ -102,7 +102,7 @@ _FD_PERIOD_QUALIFIERS = ("quarter", "half", "period")
 # current value; _SET returns the value after writing.
 _FD_FIND_WAGER_INPUT_JS = """
 () => {
-  const vis = (el) => el && el.offsetParent !== null;
+  const vis = (el) => el && el.getClientRects().length > 0;
   const label = Array.from(document.querySelectorAll('span'))
     .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
   if (!label) return null;
@@ -118,7 +118,7 @@ _FD_FIND_WAGER_INPUT_JS = """
 """
 _FD_SET_WAGER_JS = """
 (v) => {
-  const vis = (el) => el && el.offsetParent !== null;
+  const vis = (el) => el && el.getClientRects().length > 0;
   const label = Array.from(document.querySelectorAll('span'))
     .find(s => (s.textContent || '').trim().toLowerCase() === 'wager' && vis(s));
   if (!label) return null;
