@@ -1,7 +1,2 @@
-fastapi>=0.115
-uvicorn[standard]>=0.32
-sqlalchemy>=2.0
-psycopg2-binary>=2.9
-python-dotenv>=1.0
-markdown>=3.7
-pymdown-extensions>=10
+# Web-app dependencies removed with app/web during the 2026-06-05 decommission.
+# The rebuilt frontend (later spec) will declare its own deps.
