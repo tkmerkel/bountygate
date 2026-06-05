@@ -1,6 +1,0 @@
-{"format_version":1,"started_at":1737565256.886236,"book":"fanduel","market":"player_assists","session_id":"fixture000001","notes":"hand-authored fixture for round-trip codegen test"}
-{"seq":0,"ts":1737565257.0,"kind":"navigate","book":"fanduel","market":"player_assists","phase":"nav","url":"https://mo.sportsbook.fanduel.com/search","terminal":false}
-{"seq":1,"ts":1737565258.0,"kind":"fill","book":"fanduel","market":"player_assists","phase":"search","selector":"input[placeholder=\"Search\"]","selector_strategy":"placeholder","value":"Rudy Gobert","elapsed_ms":1000,"terminal":false}
-{"seq":2,"ts":1737565259.0,"kind":"press","book":"fanduel","market":"player_assists","phase":"search","key":"Enter","elapsed_ms":1000,"terminal":false}
-{"seq":3,"ts":1737565261.0,"kind":"click","book":"fanduel","market":"player_assists","phase":"select_bet","selector":"[aria-label*=\"Rudy Gobert\"][aria-label*=\"Assists\"][aria-label*=\"1.5\"]","elapsed_ms":2000,"terminal":false}
-{"seq":4,"ts":1737565263.0,"kind":"click","book":"fanduel","market":"player_assists","phase":"place","selector":"[data-testid=\"place-bet-button\"]","elapsed_ms":2000,"terminal":true}
