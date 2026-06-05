@@ -911,7 +911,7 @@ def main(max_attempts: int = 3, max_candidates: Optional[int] = None) -> tuple[b
     """
     print(f"Arbitrage Bot Starting... (max_attempts={max_attempts}, max_candidates={max_candidates})\n")
 
-    opportunities = fetch_all_opportunities(testing_mode=True)
+    opportunities = fetch_all_opportunities()  # honors TESTING_MODE env (default false → production)
 
     if not opportunities:
         print("No opportunities found.")
