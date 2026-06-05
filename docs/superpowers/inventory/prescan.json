@@ -1,0 +1,507 @@
+[
+  {
+    "file": "airflow\\dags\\bg_analysis_sheets_dag.py",
+    "repo": "bountygate",
+    "dag_id": "bg_analysis_sheets",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "gspread",
+      "gspread.exceptions",
+      "gspread_dataframe",
+      "os",
+      "pandas",
+      "pathlib",
+      "time",
+      "typing",
+      "uuid"
+    ],
+    "tables": [
+      "bg_unified_analysis",
+      "bg_unified_arbitrage"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_arb_pipeline.py",
+    "repo": "bountygate",
+    "dag_id": "bg_arb_pipeline",
+    "schedule": "*/5 * * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.sdk",
+      "bg_arb_pipeline_lib.builder",
+      "bg_arb_pipeline_lib.db",
+      "bg_arb_pipeline_lib.ingest",
+      "bountygate.utils.db_connection",
+      "bountygate.utils.etl_assets",
+      "datetime",
+      "os",
+      "pandas",
+      "sqlalchemy",
+      "sys"
+    ],
+    "tables": [
+      "bg_executed_opportunities",
+      "bg_unified_",
+      "bot_execution_queue",
+      "the"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_arbitrage_player_props.py",
+    "repo": "bountygate",
+    "dag_id": "bg_arbitrage_player_props",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bountygate.utils.db_connection",
+      "bountygate.utils.discord_notify",
+      "datetime",
+      "pandas",
+      "typing"
+    ],
+    "tables": [
+      "SKIP",
+      "bot_execution_queue",
+      "staged"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_arbitrage_sheets_dag.py",
+    "repo": "bountygate",
+    "dag_id": "bg_arbitrage_sheets",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "gspread",
+      "gspread.exceptions",
+      "gspread_dataframe",
+      "os",
+      "pandas",
+      "pathlib",
+      "time",
+      "typing"
+    ],
+    "tables": [
+      "Google",
+      "bg_arbitrage_player_props",
+      "bg_arbitrage_player_props_alt"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_closing_line.py",
+    "repo": "bountygate",
+    "dag_id": "bg_closing_line",
+    "schedule": "*/5 * * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.analytics",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "os",
+      "pandas"
+    ],
+    "tables": [
+      "closing_fair_prob",
+      "fact_closing_line",
+      "fact_clv",
+      "fact_ev_opportunity",
+      "fact_odds_snapshot",
+      "prior"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_dimensional_model.py",
+    "repo": "bountygate",
+    "dag_id": "bg_dimensional_model",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bg_analytics_lib.common",
+      "bg_arb_pipeline_lib.db",
+      "datetime",
+      "hashlib",
+      "pandas",
+      "re",
+      "sqlalchemy",
+      "uuid"
+    ],
+    "tables": [
+      "SET",
+      "dim_event",
+      "dim_market",
+      "dim_player",
+      "fact_odds_snapshot",
+      "normalized",
+      "the"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_game_arb_pipeline.py",
+    "repo": "bountygate",
+    "dag_id": "bg_game_arb_pipeline",
+    "schedule": "*/10 * * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.sdk",
+      "bg_game_arb_pipeline_lib.alerts",
+      "bg_game_arb_pipeline_lib.builder",
+      "bg_game_arb_pipeline_lib.db",
+      "bg_game_arb_pipeline_lib.ingest",
+      "bountygate.utils.db_connection",
+      "bountygate.utils.etl_assets",
+      "datetime",
+      "os",
+      "pandas",
+      "sys"
+    ],
+    "tables": [
+      "bg_arb_pipeline"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_injuries.py",
+    "repo": "bountygate",
+    "dag_id": "bg_injuries",
+    "schedule": "@hourly",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.enrichment",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "pandas"
+    ],
+    "tables": [
+      "",
+      "ESPN",
+      "dim_event"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_marts.py",
+    "repo": "bountygate",
+    "dag_id": "bg_marts",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "bg_analytics_lib.common",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "os",
+      "pandas",
+      "typing",
+      "uuid"
+    ],
+    "tables": [
+      "a",
+      "bg_unified_analysis_dag",
+      "dim_event",
+      "dim_sport",
+      "fact_clv",
+      "fact_ev_opportunity",
+      "fact_fair_prob",
+      "fact_odds_snapshot",
+      "into",
+      "mart_arbitrage",
+      "the",
+      "unified"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_methodology.py",
+    "repo": "bountygate",
+    "dag_id": "bg_methodology",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bg_analytics_lib.common",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.analytics",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "os",
+      "pandas"
+    ],
+    "tables": [
+      "analytics",
+      "fact_fair_prob",
+      "fact_odds_snapshot"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_normalization.py",
+    "repo": "bountygate",
+    "dag_id": "bg_normalization",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.sdk",
+      "bountygate.utils",
+      "csv",
+      "datetime",
+      "json",
+      "os",
+      "pathlib",
+      "sqlalchemy",
+      "sys",
+      "uuid"
+    ],
+    "tables": [
+      "SET",
+      "bg_unified_lines",
+      "bg_unified_lines_normalized",
+      "dq_metrics",
+      "market_aliases",
+      "pg_matviews",
+      "team_aliases",
+      "team_reference"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_results.py",
+    "repo": "bountygate",
+    "dag_id": "bg_results",
+    "schedule": "*/30 * * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.enrichment",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "pandas"
+    ],
+    "tables": [
+      "ESPN",
+      "dim_event",
+      "free",
+      "the"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_unified_analysis_dag.py",
+    "repo": "bountygate",
+    "dag_id": "bg_unified_analysis",
+    "schedule": null,
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "os",
+      "pandas",
+      "typing",
+      "uuid"
+    ],
+    "tables": [
+      "bg_unified_lines_normalized_mv",
+      "normalized",
+      "unified"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_unified_dag.py",
+    "repo": "bountygate",
+    "dag_id": "bg_unified",
+    "schedule": "*/5 * * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "airflow.sdk",
+      "bountygate.data_loaders.prizepicks",
+      "bountygate.transformers.underdog",
+      "bountygate.utils",
+      "bountygate.utils.db_connection",
+      "bountygate.utils.etl_assets",
+      "datetime",
+      "logging",
+      "os",
+      "pandas",
+      "requests",
+      "sqlalchemy",
+      "time",
+      "typing"
+    ],
+    "tables": [
+      "any",
+      "market_aliases",
+      "ranked",
+      "tables",
+      "unified"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\bg_weather.py",
+    "repo": "bountygate",
+    "dag_id": "bg_weather",
+    "schedule": "0 */3 * * *",
+    "imports": [
+      "__future__",
+      "airflow.decorators",
+      "airflow.exceptions",
+      "bg_arb_pipeline_lib.db",
+      "bountygate.enrichment",
+      "bountygate.utils.db_connection",
+      "datetime",
+      "hashlib",
+      "pandas"
+    ],
+    "tables": [
+      "",
+      "dim_event"
+    ]
+  },
+  {
+    "file": "airflow\\dags\\cleanup_logs.py",
+    "repo": "bountygate",
+    "dag_id": "cleanup_logs",
+    "schedule": "@daily",
+    "imports": [
+      "__future__",
+      "airflow.models.dag",
+      "airflow.operators.bash",
+      "pendulum"
+    ],
+    "tables": []
+  },
+  {
+    "file": "airflow\\dags\\update_underdog_outlier_analysis.py",
+    "repo": "bountygate",
+    "dag_id": null,
+    "schedule": "*/15 * * * *",
+    "imports": [
+      "airflow.decorators",
+      "bountygate.utils.db_connection",
+      "bountygate.utils.etl_assets",
+      "concurrent.futures",
+      "datetime",
+      "itertools",
+      "json",
+      "numpy",
+      "os",
+      "pandas",
+      "requests",
+      "time"
+    ],
+    "tables": [
+      "first_spread"
+    ]
+  },
+  {
+    "file": "C:\\Users\\tkmer\\kalshi\\dags\\kalshi_arb_explorer_dag.py",
+    "repo": "kalshi",
+    "dag_id": null,
+    "schedule": "*/10 * * * *",
+    "imports": [
+      "airflow.sdk",
+      "os",
+      "pendulum",
+      "utils.arb_logic",
+      "utils.kalshi_client",
+      "utils.odds_client",
+      "utils.run_log"
+    ],
+    "tables": []
+  },
+  {
+    "file": "C:\\Users\\tkmer\\kalshi\\dags\\kalshi_cross_poll_dag.py",
+    "repo": "kalshi",
+    "dag_id": null,
+    "schedule": "*/10 * * * *",
+    "imports": [
+      "airflow.sdk",
+      "airflow.sdk.exceptions",
+      "datetime",
+      "os",
+      "pendulum",
+      "time",
+      "utils.kalshi_client",
+      "utils.odds_client",
+      "utils.risk_gates",
+      "utils.run_log",
+      "utils.trading_logic"
+    ],
+    "tables": [
+      ""
+    ]
+  },
+  {
+    "file": "C:\\Users\\tkmer\\kalshi\\dags\\kalshi_maker_ev_dag.py",
+    "repo": "kalshi",
+    "dag_id": null,
+    "schedule": "*/10 * * * *",
+    "imports": [
+      "airflow.sdk",
+      "airflow.sdk.exceptions",
+      "datetime",
+      "os",
+      "pendulum",
+      "time",
+      "utils.kalshi_client",
+      "utils.odds_client",
+      "utils.risk_gates",
+      "utils.run_log",
+      "utils.trading_logic"
+    ],
+    "tables": []
+  },
+  {
+    "file": "C:\\Users\\tkmer\\kalshi\\dags\\kalshi_snapshot_dag.py",
+    "repo": "kalshi",
+    "dag_id": null,
+    "schedule": "*/30 * * * *",
+    "imports": [
+      "airflow.sdk",
+      "os",
+      "pendulum",
+      "utils.event_match",
+      "utils.kalshi_client",
+      "utils.odds_client",
+      "utils.run_log",
+      "utils.team_names"
+    ],
+    "tables": [
+      "fills"
+    ]
+  }
+]
