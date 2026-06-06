@@ -27,16 +27,18 @@ transforms target so the API and partitioning have concrete tables to build on.
 | Transform location | **Airflow + pandas/polars** (user's comfort zone) — **deferred to a later spec**, not built here. |
 | Modeling language | DDL/migrations here; transform logic later. New transforms prefer **polars** (perf) with pandas acceptable. |
 | Time-series engine | **Native declarative partitioning** (TimescaleDB is unavailable on this Postgres). |
-| Partition automation | **`pg_partman`**, maintenance triggered by **`pg_cron`** (in-DB, set-and-forget). |
+| Partition automation | **`pg_partman`**; maintenance triggered by a small **Airflow DAG** (pg_cron is **not** on Heroku Postgres's extension allowlist). |
 | API surface | **Thin FastAPI read API** on the Heroku web dyno (brought back from 0). |
 
 ### Environment facts
 - PostgreSQL **16.13** on AWS RDS (the bountygate `DATABASE_URL`).
 - Currently only `raw_market_snapshots` + `schema_migrations`; only `plpgsql` extension installed
   (the decommission `DROP SCHEMA` removed the old `uuid-ossp`/`pg_stat_statements`).
-- Available extensions confirmed via `pg_available_extensions`: `pg_partman`, `pg_cron`, `pg_trgm`,
-  `pgcrypto`, `pg_stat_statements`, `postgis`, `citext`, `hstore`, `uuid-ossp`. **`timescaledb` is NOT
-  available.**
+- This is **Heroku Postgres** (RDS-backed). Its `rds.allowed_extensions` allowlist is fixed and not
+  modifiable by us. Allowed (relevant): `pg_partman`, `pg_trgm`, `pg_stat_statements`, `pgcrypto`,
+  `citext`, `hstore`, `uuid-ossp`, `postgis`, `vector`. **NOT allowed: `pg_cron` and `timescaledb`.**
+  (`pg_available_extensions` lists pg_cron because the files ship with PG, but the RDS allowlist blocks
+  `CREATE EXTENSION pg_cron`.) Hence partition maintenance runs from Airflow, not in-DB cron.
 - The three `ingest_*` DAGs are **paused** (no concurrent writers) — safe to recreate
   `raw_market_snapshots` as partitioned.
 
@@ -59,25 +61,27 @@ cross-venue entity-matching logic; the frontend (spec #3); any write/execution p
 ## 3. Extensions
 
 One idempotent migration (`CREATE EXTENSION IF NOT EXISTS`):
-- **`pg_partman`** — partition automation for the time-series tables.
-- **`pg_cron`** — schedules `partman.run_maintenance()` (new partitions + retention drops).
+- **`pg_partman`** — partition automation for the time-series tables (in a dedicated `partman` schema).
 - **`pg_trgm`** — fuzzy text matching for future cross-venue event/team linking (in-DB replacement
   for the old rapidfuzz approach).
 - **`pg_stat_statements`** — query observability.
 
+Maintenance (`partman.run_maintenance()`) is triggered by an Airflow DAG (see §4) — **not** `pg_cron`,
+which Heroku Postgres's allowlist blocks.
+
 UUID primary keys use native **`gen_random_uuid()`** (built into PG16 — no `pgcrypto`/`uuid-ossp`
 needed).
 
-> Note: `pg_cron` and `pg_partman` may require placement in a specific schema and the cron database
-> setting; the implementation plan resolves the exact `CREATE EXTENSION` schema/grants for this RDS
-> instance (e.g. `partman` schema, `cron` in the right database).
+> Note: `pg_partman` installs into a `partman` schema and pg_partman v5 is the PG16 line; the plan
+> verifies the exact `CREATE EXTENSION` placement/grants for this Heroku Postgres instance.
 
 ---
 
 ## 4. Partitioning & retention
 
 Two append-only firehose tables, both **`PARTITIONED BY RANGE(captured_at)`**, daily partitions via
-`pg_partman`, maintenance via `pg_cron`, BRIN index on `captured_at`:
+`pg_partman`, maintenance via a **daily Airflow DAG** (`ingest_partman_maintenance` calling
+`SELECT partman.run_maintenance()`), BRIN index on `captured_at`:
 
 | Table | Retention | Notes |
 |---|---|---|
@@ -201,8 +205,8 @@ A rebuilt `app/web/` FastAPI app, on the existing bountygate Heroku web dyno (sc
 
 | Unit | Responsibility |
 |---|---|
-| (a) extensions migration | enable pg_partman/pg_cron/pg_trgm/pg_stat_statements |
-| (b) partitioning migration | recreate raw partitioned + create history tables + pg_partman/pg_cron config |
+| (a) extensions migration | enable pg_partman/pg_trgm/pg_stat_statements |
+| (b) partitioning migration + maintenance DAG | recreate raw partitioned + create history tables + pg_partman config + `partman_maintenance` Airflow DAG |
 | (c) normalized DDL migration | venues/markets/outcomes/price_history/events/odds/links |
 | (d) marts DDL migration | the three mart tables |
 | (e) FastAPI app | one router per resource (markets, edges, cross-market, history) + db access module |
@@ -214,10 +218,9 @@ Migrations are ordered SQL files (`db/migrations/00N_*.sql`) applied by the exis
 
 ## 9. Success criteria
 
-- The extensions migration enables `pg_partman`, `pg_cron`, `pg_trgm`, `pg_stat_statements` (verified
-  via `\dx`).
+- The extensions migration enables `pg_partman`, `pg_trgm`, `pg_stat_statements` (verified via `\dx`).
 - `raw_market_snapshots` is partitioned by `captured_at` with its prior rows intact; `price_history`
-  and `sportsbook_odds_history` exist partitioned; a `pg_cron` job runs `partman` maintenance.
+  and `sportsbook_odds_history` exist partitioned; a daily Airflow DAG runs `partman.run_maintenance()`.
 - All normalized + marts tables exist (empty) matching §5/§6, applied via `scripts/migrate.py`.
 - The FastAPI app boots and every endpoint returns valid JSON (empty arrays over the empty marts);
   `TestClient` tests pass; the Heroku web dyno serves it (scaled to 1).
@@ -227,8 +230,11 @@ Migrations are ordered SQL files (`db/migrations/00N_*.sql`) applied by the exis
 
 ## 10. Risks / notes
 
-- **pg_cron/pg_partman provisioning on RDS** can need a specific install schema and the `cron.database_name`
-  setting; the plan must verify the exact `CREATE EXTENSION` placement and that maintenance actually fires.
+- **pg_partman provisioning on Heroku Postgres**: `pg_cron` is allowlist-blocked (confirmed), so
+  maintenance is an Airflow DAG. The plan must verify `CREATE EXTENSION pg_partman` succeeds (it is on
+  the allowlist), `create_parent`/config rows apply, and the maintenance DAG actually creates/drops
+  partitions. pg_partman's background worker (`pg_partman_bgw`) is also unavailable (no preload control),
+  which is why maintenance is external.
 - **Marts are a starting contract**, intentionally light; the transform spec will likely add columns —
   acceptable, additive migrations.
 - **Empty-API milestone**: endpoints return empty arrays until the transform spec populates the marts.
