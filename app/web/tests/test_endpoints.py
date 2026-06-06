@@ -65,16 +65,21 @@ def test_history_returns_rows():
 
 
 def test_market_price_history():
+    mid = "11111111-1111-1111-1111-111111111111"
     engine = _engine_with(
         "CREATE TABLE price_history (market_id text, outcome_id text, captured_at text, "
         "price real, bid real, ask real, volume real, liquidity real)",
         "INSERT INTO price_history (market_id, outcome_id, captured_at, price) "
-        "VALUES ('m1','o1','2026-06-06',0.5)",
+        f"VALUES ('{mid}','o1','2026-06-06',0.5)",
     )
     try:
         client = _use(engine)
-        body = client.get("/markets/m1/history").json()
+        body = client.get(f"/markets/{mid}/history").json()
         assert len(body) == 1 and body[0]["price"] == 0.5
-        assert client.get("/markets/other/history").json() == []
+        # valid-but-absent uuid -> []
+        assert client.get("/markets/22222222-2222-2222-2222-222222222222/history").json() == []
+        # non-uuid id -> [] (guarded; market_id is a uuid column in Postgres,
+        # so an unguarded non-uuid would raise a 500 DataError)
+        assert client.get("/markets/foo/history").json() == []
     finally:
         app.dependency_overrides.clear()

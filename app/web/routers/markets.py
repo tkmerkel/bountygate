@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -46,6 +48,12 @@ def market_price_history(
     offset: int = Query(0, ge=0),
     engine: Engine = Depends(get_engine),
 ):
+    # market_id is a uuid column in Postgres; a non-UUID path segment can never
+    # match a row and would otherwise raise a DataError (500). Treat it as empty.
+    try:
+        uuid.UUID(market_id)
+    except ValueError:
+        return []
     sql = (f"SELECT {_PRICE_COLS} FROM price_history WHERE market_id = :mid "
            "ORDER BY captured_at DESC LIMIT :lim OFFSET :off")
     with engine.connect() as conn:
