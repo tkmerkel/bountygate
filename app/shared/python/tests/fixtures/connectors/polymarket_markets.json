@@ -1,0 +1,14 @@
+[
+  {
+    "conditionId": "0xabc123",
+    "question": "Will it rain in NYC on June 6?",
+    "slug": "rain-nyc-june-6",
+    "outcomes": "[\"Yes\", \"No\"]",
+    "outcomePrices": "[\"0.42\", \"0.58\"]",
+    "volume": "12345.67",
+    "liquidity": "8900.12",
+    "endDate": "2026-06-06T23:59:59Z",
+    "active": true,
+    "closed": false
+  }
+]
