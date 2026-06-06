@@ -1,8 +1,12 @@
 # Apache Airflow and core dependencies
-apache-airflow==3.0.6
+apache-airflow==3.2.0
 apache-airflow-providers-microsoft-azure
 apache-airflow-providers-fab
 apache-airflow-providers-standard
+
+# Prediction-market connectors
+kalshi-python-sync
+cryptography
 
 # Database drivers
 psycopg2-binary

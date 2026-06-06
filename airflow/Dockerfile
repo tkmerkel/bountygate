@@ -1,5 +1,5 @@
 # https://airflow.apache.org/docs/docker-stack/build.html
-FROM apache/airflow:3.0.6
+FROM apache/airflow:3.2.0
 USER root
 # Install shared packages (copy from app/shared in repo root context)
 COPY app/shared /opt/bountygate-shared
