@@ -1,0 +1,22 @@
+{
+  "id": "evt_123",
+  "sport_key": "basketball_nba",
+  "commence_time": "2026-06-06T23:40:00Z",
+  "home_team": "Boston Celtics",
+  "away_team": "New York Knicks",
+  "bookmakers": [
+    {
+      "key": "fanduel",
+      "last_update": "2026-06-05T12:00:00Z",
+      "markets": [
+        {
+          "key": "h2h",
+          "outcomes": [
+            {"name": "Boston Celtics", "price": 1.8},
+            {"name": "New York Knicks", "price": 2.1}
+          ]
+        }
+      ]
+    }
+  ]
+}
