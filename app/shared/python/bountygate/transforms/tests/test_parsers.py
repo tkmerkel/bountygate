@@ -63,3 +63,24 @@ def test_parse_polymarket_closed_status():
                "outcomes": ["Yes", "No"], "outcome_prices": [1.0, 0.0]}
     out = parse_polymarket(payload)
     assert out["market"]["status"] == "closed"
+
+
+from bountygate.transforms.parsers.odds import parse_odds_line
+
+
+def test_parse_odds_line_event_and_odds():
+    payload = {
+        "event_id": "evt1", "sport_key": "baseball_mlb",
+        "home_team": "San Diego Padres", "away_team": "New York Mets",
+        "commence_time": "2026-06-07T02:11:00Z", "market": "h2h", "bookmaker": "pinnacle",
+        "outcomes": [{"name": "New York Mets", "price": 1.82},
+                     {"name": "San Diego Padres", "price": 2.04}],
+    }
+    out = parse_odds_line(payload)
+    assert out["event"]["source_event_id"] == "evt1"
+    assert out["event"]["sport_key"] == "baseball_mlb"
+    assert out["event"]["home_team"] == "San Diego Padres"
+    assert len(out["odds"]) == 2
+    mets = next(o for o in out["odds"] if o["outcome_name"] == "New York Mets")
+    assert mets["bookmaker"] == "pinnacle" and mets["market_type"] == "h2h"
+    assert mets["decimal_price"] == 1.82
