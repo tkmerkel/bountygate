@@ -25,3 +25,39 @@ def test_normalize_event_emits_one_record_per_book_market():
         {"name": "Boston Celtics", "price": 1.8},
         {"name": "New York Knicks", "price": 2.1},
     ]
+
+
+import pytest
+import requests
+
+
+class _FakeResp:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+class _FakeSession:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def get(self, *a, **k):
+        raise self._exc
+
+
+def _http_error(status):
+    e = requests.HTTPError(f"{status} error")
+    e.response = _FakeResp(status)
+    return e
+
+
+def test_fetch_snapshots_raises_on_auth_error(monkeypatch):
+    conn = OddsApiConnector(sport_keys={"NBA": "basketball_nba"})
+    monkeypatch.setattr("bountygate.connectors.odds_api.requests.Session", lambda: _FakeSession(_http_error(401)))
+    with pytest.raises(requests.HTTPError):
+        conn.fetch_snapshots()
+
+
+def test_fetch_snapshots_degrades_on_transient_error(monkeypatch):
+    conn = OddsApiConnector(sport_keys={"NBA": "basketball_nba"})
+    monkeypatch.setattr("bountygate.connectors.odds_api.requests.Session", lambda: _FakeSession(_http_error(500)))
+    assert conn.fetch_snapshots() == []  # non-auth error degrades to empty, no raise

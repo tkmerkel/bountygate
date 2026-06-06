@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 
@@ -7,13 +8,20 @@ import requests
 
 from bountygate.connectors.base import Connector, RawRecord
 
+log = logging.getLogger(__name__)
+
+
+def _is_auth_error(exc) -> bool:
+    resp = getattr(exc, "response", None)
+    return resp is not None and getattr(resp, "status_code", None) in (401, 403)
+
 BASE_URL = "https://api.the-odds-api.com/v4/sports"
 SPORT_KEYS = {"NFL": "americanfootball_nfl", "NBA": "basketball_nba", "MLB": "baseball_mlb"}
 
 
 class OddsApiConnector(Connector):
-    """Read-only sportsbook odds via The Odds API v4. Credit-aware: list events in a
-    commence window first, then request odds per event. Key from ODDS_API_KEY env."""
+    """Read-only sportsbook odds via The Odds API v4. Credit-aware two-step: list events per sport,
+    then request odds per event (keeps credit use proportional to live events). Key from ODDS_API_KEY env."""
 
     source = "the_odds_api"
 
@@ -90,13 +98,17 @@ class OddsApiConnector(Connector):
             try:
                 events = self._list_events(session, sport_key)
             except Exception as e:
-                print(f"[odds] list events failed for {sport_key}: {e}")
+                if _is_auth_error(e):
+                    raise
+                log.warning("[odds] list events failed for %s: %s", sport_key, e)
                 continue
             for ev in events:
                 try:
                     odds = self._event_odds(session, sport_key, ev["id"])
                 except Exception as e:
-                    print(f"[odds] odds fetch failed for {ev.get('id')}: {e}")
+                    if _is_auth_error(e):
+                        raise
+                    log.warning("[odds] odds fetch failed for %s: %s", ev.get("id"), e)
                     continue
                 out.extend(self.normalize_event(odds, captured_at))
         return out

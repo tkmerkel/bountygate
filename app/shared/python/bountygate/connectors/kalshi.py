@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 
 from bountygate.connectors.base import Connector, RawRecord
+
+log = logging.getLogger(__name__)
+
+
+def _is_auth_error(exc) -> bool:
+    status = getattr(exc, "status", None)
+    resp = getattr(exc, "response", None)
+    resp_status = getattr(resp, "status_code", None) if resp is not None else None
+    return status in (401, 403) or resp_status in (401, 403)
 
 SERIES_BY_SPORT = {"NFL": "KXNFLGAME", "NBA": "KXNBAGAME", "MLB": "KXMLBGAME"}
 
@@ -52,7 +62,10 @@ class KalshiConnector(Connector):
                     "yes_ask": yes_ask,
                     "no_bid": no_bid,
                     "no_ask": no_ask,
-                    "open_interest": _to_float(m.get("open_interest_fp")) or m.get("open_interest"),
+                    "open_interest": (
+                        _oi if (_oi := _to_float(m.get("open_interest_fp"))) is not None
+                        else m.get("open_interest")
+                    ),
                     "liquidity_dollars": _to_float(m.get("liquidity_dollars")),
                     "status": m.get("status"),
                 }
@@ -93,8 +106,10 @@ class KalshiConnector(Connector):
         for series_ticker in self.series_by_sport.values():
             try:
                 raw = self._fetch_raw(client, series_ticker)
-            except Exception as e:  # one series failing shouldn't sink the run
-                print(f"[kalshi] fetch failed for {series_ticker}: {e}")
+            except Exception as e:
+                if _is_auth_error(e):
+                    raise
+                log.warning("[kalshi] fetch failed for %s: %s", series_ticker, e)
                 continue
             out.extend(self.normalize(raw, series_ticker, captured_at))
         return out
