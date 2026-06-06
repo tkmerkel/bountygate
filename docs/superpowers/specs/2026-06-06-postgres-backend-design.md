@@ -48,7 +48,7 @@ transforms target so the API and partitioning have concrete tables to build on.
 
 1. Extensions enabled (idempotent migration).
 2. `raw_market_snapshots` converted to a partitioned table (data preserved) + `price_history` and
-   `sportsbook_odds_history` created partitioned; `pg_partman` config + `pg_cron` maintenance job.
+   `sportsbook_odds_history` created partitioned; `pg_partman` config + a daily Airflow maintenance DAG.
 3. Normalized schema DDL (empty contract tables).
 4. Marts schema DDL (empty contract tables).
 5. Thin FastAPI read API serving the marts, on the Heroku web dyno.
