@@ -8,7 +8,7 @@ from airflow.sdk import Asset, dag, task
 from bountygate.connectors.landing import RAW_TABLE, land_raw
 from bountygate.connectors.registry import get_connector
 
-RAW_ASSET = Asset(f"postgres://{RAW_TABLE}")
+RAW_ASSET = Asset(name=RAW_TABLE)
 
 
 @dag(
