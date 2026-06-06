@@ -14,6 +14,7 @@ psycopg2-binary
 # Data processing
 pandas
 numpy
+polars
 openpyxl
 gspread
 gspread-dataframe
@@ -25,3 +26,6 @@ requests_toolbelt
 # Utilities
 rich
 python-dateutil
+
+# Testing (transform pipeline unit/integration tests run in-container)
+pytest
