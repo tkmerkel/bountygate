@@ -34,3 +34,20 @@ def list_markets(
     with engine.connect() as conn:
         rows = conn.execute(text(sql), params).mappings().all()
     return [dict(r) for r in rows]
+
+
+_PRICE_COLS = "market_id, outcome_id, captured_at, price, bid, ask, volume, liquidity"
+
+
+@router.get("/markets/{market_id}/history")
+def market_price_history(
+    market_id: str,
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    engine: Engine = Depends(get_engine),
+):
+    sql = (f"SELECT {_PRICE_COLS} FROM price_history WHERE market_id = :mid "
+           "ORDER BY captured_at DESC LIMIT :lim OFFSET :off")
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"mid": market_id, "lim": limit, "off": offset}).mappings().all()
+    return [dict(r) for r in rows]
