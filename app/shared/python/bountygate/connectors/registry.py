@@ -8,7 +8,7 @@ from bountygate.connectors.polymarket import PolymarketConnector
 CONNECTORS: dict[str, Connector] = {
     KalshiConnector.source: KalshiConnector(),
     PolymarketConnector.source: PolymarketConnector(),
-    OddsApiConnector.source: OddsApiConnector(),
+    OddsApiConnector.source: OddsApiConnector(regions="us,eu"),
 }
 
 
