@@ -50,3 +50,4 @@ wiki/.done/
 # OS
 .DS_Store
 Thumbs.db
+private_key.pem

@@ -103,6 +103,8 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/data:/data:/opt/airflow/data
     # Live-mount shared package for local iteration
     - ../app/shared/python:/opt/bountygate-shared/python:ro
+    # Kalshi private key (read-only) for the read-only Kalshi connector
+    - ../private_key.pem:/opt/airflow/private_key.pem:ro
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
