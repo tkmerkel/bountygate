@@ -33,3 +33,33 @@ def test_parse_kalshi_missing_quote_yields_none_price():
     out = parse_kalshi(payload)
     yes = next(o for o in out["outcomes"] if o["outcome_name"] == "Yes")
     assert yes["last_price"] is None
+
+
+from bountygate.transforms.parsers.polymarket import parse_polymarket
+
+
+def test_parse_polymarket_zips_outcomes_and_prices():
+    payload = {
+        "condition_id": "0xabc", "question": "New Rihanna Album before GTA VI?",
+        "slug": "rihanna", "active": True, "closed": False,
+        "volume": 818640.13, "liquidity": 19582.37, "end_date": "2026-07-31T12:00:00Z",
+        "outcomes": ["Yes", "No"], "outcome_prices": [0.545, 0.455],
+    }
+    out = parse_polymarket(payload)
+    assert out["market"]["venue_key"] == "polymarket"
+    assert out["market"]["external_id"] == "0xabc"
+    assert out["market"]["title"] == "New Rihanna Album before GTA VI?"
+    assert out["market"]["status"] == "active"
+    assert out["market"]["close_time"] == "2026-07-31T12:00:00Z"
+    yes = next(o for o in out["outcomes"] if o["outcome_name"] == "Yes")
+    assert yes["outcome_index"] == 0 and yes["last_price"] == 0.545
+    yes_price = next(p for p in out["prices"] if p["outcome_name"] == "Yes")
+    assert yes_price["price"] == 0.545 and yes_price["volume"] == 818640.13
+    assert yes_price["liquidity"] == 19582.37
+
+
+def test_parse_polymarket_closed_status():
+    payload = {"condition_id": "0xd", "question": "q", "active": False, "closed": True,
+               "outcomes": ["Yes", "No"], "outcome_prices": [1.0, 0.0]}
+    out = parse_polymarket(payload)
+    assert out["market"]["status"] == "closed"
