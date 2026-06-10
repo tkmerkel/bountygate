@@ -93,3 +93,106 @@ def build_market_history() -> int:
         return len(rows)
     finally:
         engine.dispose()
+
+
+def build_cross_market() -> int:
+    from bountygate.transforms.matching.aliases import canonical_team, sport_for_odds
+    from bountygate.transforms.matching.event_key import parse_kalshi_external_id
+    from bountygate.transforms.matching.match import polymarket_teams
+    from bountygate.transforms.marts.cross_market import assemble_rows, sportsbook_side_probs
+
+    engine = _engine()
+    try:
+        with engine.begin() as conn:
+            # events -> game scaffolds keyed by event_id, canonical home/away
+            games = {}
+            for e in conn.execute(text(
+                "SELECT event_id::text AS event_id, sport_key, commence_time, "
+                "       home_team, away_team FROM sports_events")).mappings().all():
+                sport = sport_for_odds(e["sport_key"])
+                if not sport:
+                    continue
+                home = canonical_team(e["home_team"], sport)
+                away = canonical_team(e["away_team"], sport)
+                if not (home and away and e["commence_time"]):
+                    continue
+                games[e["event_id"]] = {
+                    "sport": sport, "date": e["commence_time"], "home": home, "away": away,
+                    "sportsbook": {}, "kalshi": {}, "polymarket": {},
+                }
+
+            # sportsbook consensus: latest h2h decimal price per (event, book, side)
+            by_event_book = {}      # event_id -> {book: {side: price}}
+            latest_at = {}          # (event_id, book, side) -> captured_at
+            for o in conn.execute(text(
+                "SELECT event_id::text AS event_id, bookmaker, outcome_name, "
+                "       decimal_price, captured_at FROM sportsbook_odds_history "
+                "WHERE market_type = 'h2h'")).mappings().all():
+                g = games.get(o["event_id"])
+                if not g:
+                    continue
+                side = canonical_team(o["outcome_name"], g["sport"])
+                if side is None:
+                    continue
+                key = (o["event_id"], o["bookmaker"], side)
+                if key in latest_at and o["captured_at"] <= latest_at[key]:
+                    continue
+                latest_at[key] = o["captured_at"]
+                by_event_book.setdefault(o["event_id"], {}).setdefault(
+                    o["bookmaker"], {})[side] = float(o["decimal_price"])
+            for eid, by_book in by_event_book.items():
+                probs = sportsbook_side_probs(by_book, games[eid]["home"], games[eid]["away"])
+                if probs:
+                    games[eid]["sportsbook"] = probs
+
+            # linked prediction markets -> venue prob per side
+            for ln in conn.execute(text(
+                "SELECT l.event_id::text AS event_id, m.venue_key, m.external_id, m.title, "
+                "       m.category, m.market_id::text AS market_id "
+                "FROM market_event_links l JOIN markets m ON m.market_id = l.market_id")).mappings().all():
+                g = games.get(ln["event_id"])
+                if not g:
+                    continue
+                if ln["venue_key"] == "kalshi":
+                    p = parse_kalshi_external_id(ln["external_id"], ln["category"])
+                    if not p or p["team"] not in (g["home"], g["away"]):
+                        continue
+                    yes = conn.execute(text(
+                        "SELECT last_price FROM market_outcomes "
+                        "WHERE market_id = cast(:mid AS uuid) AND outcome_name = 'Yes'"),
+                        {"mid": ln["market_id"]}).scalar()
+                    if yes is not None:
+                        g["kalshi"][p["team"]] = float(yes)
+                elif ln["venue_key"] == "polymarket":
+                    r = polymarket_teams(ln["title"])
+                    if not r:
+                        continue
+                    _sport, teams, subject = r
+                    opponent = next(iter(teams - {subject})) if subject in teams else None
+                    for o in conn.execute(text(
+                        "SELECT outcome_name, last_price FROM market_outcomes "
+                        "WHERE market_id = cast(:mid AS uuid)"),
+                        {"mid": ln["market_id"]}).mappings().all():
+                        if o["last_price"] is None:
+                            continue
+                        nm = str(o["outcome_name"]).strip().lower()
+                        named = canonical_team(o["outcome_name"], g["sport"])
+                        if named in (g["home"], g["away"]):
+                            g["polymarket"][named] = float(o["last_price"])
+                        elif nm == "yes" and subject in (g["home"], g["away"]):
+                            g["polymarket"][subject] = float(o["last_price"])
+                        elif nm == "no" and opponent in (g["home"], g["away"]):
+                            g["polymarket"][opponent] = float(o["last_price"])
+
+            rows = assemble_rows(list(games.values()))
+            conn.execute(text("TRUNCATE mart_cross_market_prices"))
+            for r in rows:
+                conn.execute(text(
+                    "INSERT INTO mart_cross_market_prices "
+                    "  (question_key, captured_at, kalshi_prob, polymarket_prob, "
+                    "   sportsbook_consensus_prob, max_spread) "
+                    "VALUES (:question_key, now(), :kalshi_prob, :polymarket_prob, "
+                    "        :sportsbook_consensus_prob, :max_spread)"), r)
+        return len(rows)
+    finally:
+        engine.dispose()
