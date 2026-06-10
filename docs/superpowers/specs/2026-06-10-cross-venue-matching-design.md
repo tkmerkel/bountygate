@@ -163,12 +163,18 @@ accepted only when the set is exactly two same-league teams. The Polymarket ques
 A Kalshi or Polymarket market links to a `sports_event` when **both** hold:
 1. The market's two canonical teams equal the event's two canonical teams (order-independent), in the
    same sport.
-2. The market's time (`close_time` / `end_date`) falls within a **±36-hour window** of the event's
-   `commence_time`. A window, not exact-date equality — a 00:40 UTC game is the prior US evening, so a
-   naive date compare would miss.
+2. The market's time falls within a same-game window of the event's `commence_time`. We reuse the
+   frozen Kalshi repo's `dags/utils/event_match.py` windowing — **6h** when the Kalshi ticker carries an
+   explicit time, **30h** for date-only tickers (Polymarket uses the date-only 30h window against
+   `close_time`/`end_date`). A window, not exact-date equality — a 00:40 UTC game is the prior US
+   evening — but tight enough to reject back-to-back games in a series (the bug that windowing was
+   written to fix). The Kalshi time comes from the ticker (the normalized market's `close_time` is
+   null); Polymarket's comes from `end_date`.
 
-A Kalshi market carries only one team in its ticker suffix; its opponent is taken from the
-`event_ticker` pairing (e.g. `…-DALNYG` → {DAL, NYG}) so it still presents two teams for rule 1.
+A Kalshi market's `external_id` is the full market ticker (`{series}-{YYMMMDD[HHMM]}{TEAMS}-{TEAM}`,
+e.g. `KXMLBGAME-26MAY031415LADSTL-LAD`): the suffix is the subject team and the preceding `{TEAMS}`
+pairing minus the suffix gives the opponent, so it still presents two teams for rule 1. Sport comes
+from the market's `category` (= `series_ticker`).
 
 `market_event_links` is written with:
 - `confidence` = `1.0` for these exact matches (the column is retained for a future fuzzy tier).
