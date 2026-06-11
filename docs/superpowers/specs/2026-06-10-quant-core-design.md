@@ -71,6 +71,11 @@ fair_prices (
 ) PARTITION BY RANGE (captured_at);
 ```
 
+011 also creates **`mart_fair_odds`** — a truncate-and-rebuild serving table (one row per
+event/market/outcome: consensus prob, best price + bookmaker, edge, event metadata) maintained by
+`build_fair_odds`, so `GET /fair-odds` is a plain SELECT (no cross-dialect latest-row SQL in the
+router; matches the existing mart pattern).
+
 **012 — `closing_lines`** (regular table; one row per event/market/book/outcome):
 
 ```sql
@@ -118,16 +123,17 @@ prediction shape all later tiers write to.
 game_results (
   event_id     uuid PRIMARY KEY REFERENCES sports_events(event_id),
   home_score   int, away_score int,
-  winner       text,                    -- team name, matches outcome_name convention
+  winner       text,                    -- 'home' | 'away' (resolved against the event's teams;
+                                        --  avoids feed-vs-odds team-name mismatches)
   completed_at timestamptz,
   source       text                     -- 'espn' | 'mlb_statsapi' | 'nhl_api'
 )
 venue_sharpness (
   venue_key text NOT NULL, sport_key text NOT NULL,
-  window    text NOT NULL,              -- 'all' | 'last_90d'
+  score_window text NOT NULL,           -- 'all' | 'last_90d' ('window' is a reserved word)
   n_games   int, brier numeric, logloss numeric, avg_clv numeric,
   computed_at timestamptz,
-  UNIQUE (venue_key, sport_key, window)
+  UNIQUE (venue_key, sport_key, score_window)
 )
 mart_calibration (
   source      text NOT NULL,            -- venue_key or model_key
@@ -143,9 +149,9 @@ mart_calibration (
 
 | DAG | Trigger | Work |
 |---|---|---|
-| `build_fair_odds` | asset: `sportsbook_odds_history` | Latest snapshot per event/market/book → per-method `fair_prices` rows + weighted-consensus rows (bookmaker='consensus', method='weighted') + `model_predictions` rows as `consensus_v1`. |
-| `derive_closing_lines` | hourly | Events with `commence_time < now()` and no `closing_lines` rows → derive from history via `models/closing.py`. Idempotent (`ON CONFLICT DO NOTHING`). |
-| `ingest_results` | hourly (sport-aware: only when games could be final) | ESPN scoreboard primary; MLB StatsAPI / NHL API fallback per sport. Match to `sports_events` by team-name + date → upsert `game_results`. |
+| `build_fair_odds` | asset: `sportsbook_odds_history` | Latest snapshot per event/market/book → per-method `fair_prices` rows + weighted-consensus rows (bookmaker='consensus', method='weighted') + `model_predictions` rows as `consensus_v1` (inserted only when the prob moved > 0.001 vs the last stored row, to keep the table lean) + truncate-rebuild of `mart_fair_odds`. |
+| `derive_closing_lines` | hourly | Events with `commence_time < now()` and no `closing_lines` rows → derive from history via `models/closing.py`; also writes a `bookmaker='consensus'` closing row (weighted consensus of the per-book closing fair probs) used as the CLV reference. Idempotent (`ON CONFLICT DO NOTHING`). |
+| `ingest_results` | hourly | ESPN scoreboard (one parser covers all three sports). Match to `sports_events` by team-name + date → upsert `game_results`. The MLB StatsAPI / NHL API clients already exist in `enrichment/clients.py` as a fallback, wired in only if ESPN proves unreliable — not built speculatively. |
 | `score_results` | asset: `game_results` | For newly resolved events: score each venue's closing fair prob and each `model_predictions` row against the result → recompute `venue_sharpness` (full + 90d windows) and `mart_calibration`; per-venue CLV vs consensus close. Full-recompute of the two small output tables (idempotent by construction). |
 
 **Gap detection:** a task in `derive_closing_lines` flags events whose closing
@@ -156,8 +162,9 @@ mart_calibration (
 
 New routers under `app/web/routers/`, same TestClient-tested pattern:
 
-- `GET /fair-odds?sport&date` — per event/outcome: weighted-consensus prob, each venue's latest
-  price + implied prob, edge vs consensus. The fair-odds screen's data source.
+- `GET /fair-odds?sport&market_type` — per event/outcome from `mart_fair_odds`:
+  weighted-consensus prob, best venue price + bookmaker, edge vs consensus. The fair-odds
+  screen's data source.
 - `GET /closing-lines?event_id` — closing rows for an event.
 - `GET /sharpness` — `venue_sharpness` rows (the leaderboard source).
 - `GET /calibration?source` — `mart_calibration` rows (reliability-curve source).
