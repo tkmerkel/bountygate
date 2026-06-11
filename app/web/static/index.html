@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BountyGate — market data</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>BountyGate</h1>
+    <nav class="tabs">
+      <button class="tab" data-view="cross">Cross-venue</button>
+      <button class="tab" data-view="markets">Markets</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-cross" class="view">
+      <div class="toolbar">
+        <button class="refresh" data-view="cross">Refresh</button>
+        <span class="meta" id="meta-cross"></span>
+      </div>
+      <div id="body-cross" class="view-body"></div>
+    </section>
+
+    <section id="view-markets" class="view" hidden>
+      <div class="toolbar">
+        <label>Venue
+          <select id="filter-venue">
+            <option value="">All</option>
+            <option value="kalshi">kalshi</option>
+            <option value="polymarket">polymarket</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="filter-status"><option value="">All</option></select>
+        </label>
+        <input id="search-markets" type="search" placeholder="Search title…">
+        <button class="refresh" data-view="markets">Refresh</button>
+        <span class="meta" id="meta-markets"></span>
+      </div>
+      <div id="body-markets" class="view-body"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
