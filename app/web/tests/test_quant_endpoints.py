@@ -78,3 +78,40 @@ def test_calibration_filters_by_source():
         assert len(only) == 1 and only[0]["source"] == "consensus_v1"
     finally:
         app.dependency_overrides.clear()
+
+
+_EID = "11111111-1111-1111-1111-111111111111"
+
+
+def test_movement_series_and_uuid_guard():
+    engine = _engine_with(
+        "CREATE TABLE sportsbook_odds_history (event_id text, market_type text, "
+        "bookmaker text, outcome_name text, captured_at text, decimal_price real)",
+        [f"INSERT INTO sportsbook_odds_history VALUES ('{_EID}','h2h','fanduel','A',"
+         f"'2026-06-10T0{i}:00:00',1.9{i})" for i in range(3)],
+    )
+    try:
+        client = _use(engine)
+        body = client.get(f"/movement/{_EID}").json()
+        assert len(body) == 3
+        assert body[0]["captured_at"] < body[-1]["captured_at"]   # ascending
+        assert client.get("/movement/not-a-uuid").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_closing_lines_by_event():
+    engine = _engine_with(
+        "CREATE TABLE closing_lines (event_id text, market_type text, bookmaker text, "
+        "outcome_name text, decimal_price real, fair_prob real, captured_at text, "
+        "staleness_minutes real)",
+        [f"INSERT INTO closing_lines VALUES ('{_EID}','h2h','consensus','A',NULL,0.55,"
+         "'2026-06-10T18:55:00',5.0)"],
+    )
+    try:
+        client = _use(engine)
+        body = client.get("/closing-lines", params={"event_id": _EID}).json()
+        assert len(body) == 1 and body[0]["fair_prob"] == 0.55
+        assert client.get("/closing-lines", params={"event_id": "not-a-uuid"}).json() == []
+    finally:
+        app.dependency_overrides.clear()

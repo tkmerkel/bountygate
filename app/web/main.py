@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.web.routers import cross_market, edges, fair_odds, history, markets, scoring
+from app.web.routers import cross_market, edges, fair_odds, history, markets, movement, scoring
 
 app = FastAPI(title="bountygate read API", description="Read-only prediction-market analytics")
 app.add_middleware(
@@ -29,6 +29,7 @@ app.include_router(cross_market.router)
 app.include_router(history.router)
 app.include_router(fair_odds.router)
 app.include_router(scoring.router)
+app.include_router(movement.router)
 
 
 STATIC_DIR = Path(__file__).parent / "static"
