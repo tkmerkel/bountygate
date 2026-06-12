@@ -25,7 +25,10 @@ def _window_params(window_hours: int, now: datetime) -> dict[str, str]:
     """Pure: build {commenceTimeFrom, commenceTimeTo} from a window in hours.
 
     from = now (UTC), to = now + window_hours. Both formatted YYYY-MM-DDTHH:MM:SSZ
-    (the only format The Odds API accepts — no microseconds, no offset)."""
+    (the only format The Odds API accepts — no microseconds, no offset).
+
+    # commenceTimeFrom=now deliberately excludes in-play games (pre-game only, archive convention).
+    """
     start = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
     end = start + timedelta(hours=window_hours)
     return {
@@ -139,6 +142,7 @@ class OddsApiConnector(Connector):
         out: list[RawRecord] = []
         session = requests.Session()
         for sport_key in self.sport_keys.values():
+            self._last_headers = None  # reset so credit log never prints a stale previous sport's numbers
             if self.markets_by_sport is not None and sport_key not in self.markets_by_sport:
                 continue
             try:

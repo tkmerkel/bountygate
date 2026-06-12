@@ -145,6 +145,66 @@ def test_event_odds_uses_joined_markets_for_present_sport(monkeypatch):
     assert captured["params"]["markets"] == "player_points,player_assists"
 
 
+# ---------------------------------------------------------------------------
+# _list_events window plumbing: window_hours params actually reach the GET call
+# ---------------------------------------------------------------------------
+
+def test_list_events_passes_window_params_when_window_hours_set():
+    """_list_events must include commenceTimeFrom/commenceTimeTo in the GET params
+    when window_hours is configured (params.update plumbing test)."""
+    conn = OddsApiConnector(
+        sport_keys={"NBA": "basketball_nba"},
+        window_hours=48,
+    )
+    captured = {}
+
+    class _RecordingResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    class _RecordingSession:
+        def get(self, url, params=None, timeout=None):
+            captured["params"] = dict(params or {})
+            return _RecordingResp()
+
+    conn._list_events(_RecordingSession(), "basketball_nba")
+
+    assert "commenceTimeFrom" in captured["params"]
+    assert "commenceTimeTo" in captured["params"]
+    # Sanity: format is YYYY-MM-DDTHH:MM:SSZ (no microseconds, no offset)
+    from_ts = captured["params"]["commenceTimeFrom"]
+    assert from_ts.endswith("Z") and "+" not in from_ts and "." not in from_ts
+
+
+def test_list_events_omits_window_params_when_window_hours_is_none():
+    """Without window_hours, no commence-time filter should be sent."""
+    conn = OddsApiConnector(
+        sport_keys={"NBA": "basketball_nba"},
+        window_hours=None,
+    )
+    captured = {}
+
+    class _RecordingResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    class _RecordingSession:
+        def get(self, url, params=None, timeout=None):
+            captured["params"] = dict(params or {})
+            return _RecordingResp()
+
+    conn._list_events(_RecordingSession(), "basketball_nba")
+
+    assert "commenceTimeFrom" not in captured["params"]
+    assert "commenceTimeTo" not in captured["params"]
+
+
 def test_fetch_snapshots_skips_sports_absent_from_markets_by_sport(monkeypatch):
     # Two sports in sport_keys; only one has markets_by_sport coverage.
     conn = OddsApiConnector(
