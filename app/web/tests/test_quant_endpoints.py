@@ -45,3 +45,36 @@ def test_fair_odds_filters_and_orders_by_edge():
         assert client.get("/fair-odds", params={"market_type": "totals"}).json() == []
     finally:
         app.dependency_overrides.clear()
+
+
+def test_sharpness_rows():
+    engine = _engine_with(
+        "CREATE TABLE venue_sharpness (venue_key text, sport_key text, score_window text, "
+        "n_games integer, brier real, logloss real, avg_clv real, computed_at text)",
+        ["INSERT INTO venue_sharpness (venue_key, sport_key, score_window, n_games, brier) "
+         "VALUES ('pinnacle','baseball_mlb','all',250,0.21)"],
+    )
+    try:
+        client = _use(engine)
+        body = client.get("/sharpness").json()
+        assert len(body) == 1 and body[0]["venue_key"] == "pinnacle"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_calibration_filters_by_source():
+    engine = _engine_with(
+        "CREATE TABLE mart_calibration (source text, sport_key text, prob_bucket real, "
+        "n integer, predicted_mean real, realized_rate real, computed_at text)",
+        ["INSERT INTO mart_calibration (source, sport_key, prob_bucket, n) "
+         "VALUES ('consensus_v1','baseball_mlb',0.7,42)",
+         "INSERT INTO mart_calibration (source, sport_key, prob_bucket, n) "
+         "VALUES ('fanduel','baseball_mlb',0.7,42)"],
+    )
+    try:
+        client = _use(engine)
+        assert len(client.get("/calibration").json()) == 2
+        only = client.get("/calibration", params={"source": "consensus_v1"}).json()
+        assert len(only) == 1 and only[0]["source"] == "consensus_v1"
+    finally:
+        app.dependency_overrides.clear()
