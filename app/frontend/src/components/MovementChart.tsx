@@ -61,7 +61,7 @@ export function MovementChart({ points, closing }: { points: MovementPoint[]; cl
           />
           <Tooltip
             labelFormatter={(t) => fmtTick(Number(t))}
-            formatter={(value) => [value == null ? "—" : Number(value).toFixed(3), "price"]}
+            formatter={(value, name) => [value == null ? "—" : Number(value).toFixed(3), name]}
           />
           {series.length <= 10 && <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />}
           {series.map((s, i) => (

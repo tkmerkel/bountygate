@@ -2,6 +2,12 @@
 
 Next.js (App Router, TS, Tailwind v4) public product shell. Pixel Augusta theme.
 
+## Setup (once, after clone)
+
+    cd app/frontend
+    npm install
+    npx playwright install chromium     # for npm run e2e
+
 ## Develop
 
     # API (repo root; needs DATABASE_URL in env)
