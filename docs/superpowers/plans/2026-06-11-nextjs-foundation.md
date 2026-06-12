@@ -6,7 +6,7 @@
 
 **Architecture:** Next.js App Router + TypeScript + Tailwind v4; tokens live as CSS custom properties with Tailwind mapped onto them; `/api/*` rewrites to `API_BASE_URL` (no CORS dependency); client components fetch through one `useApi` hook; Playwright boots the real FastAPI against a seeded sqlite file.
 
-**Tech Stack:** Next.js (latest via create-next-app), TypeScript, Tailwind CSS v4, Recharts ^2.15, @playwright/test, Python 3.12 (seed API), Node 22/npm 10.
+**Tech Stack:** Next.js (latest via create-next-app), TypeScript, Tailwind CSS v4, Recharts ^3, @playwright/test, Python 3.12 (seed API), Node 22/npm 10.
 
 **Spec:** `docs/superpowers/specs/2026-06-11-nextjs-foundation-design.md`
 
@@ -36,8 +36,10 @@ If prompted anyway (older npx cache), answer: TypeScript yes, ESLint no, Tailwin
 - [ ] **Step 2: Add recharts**
 
 ```powershell
-cd app/frontend; npm install recharts@^2.15.0
+cd app/frontend; npm install recharts@^3
 ```
+
+(recharts 2.x is end-of-life and renders unreliably under React 19; v3 required.)
 
 - [ ] **Step 3: Verify the scaffold builds**
 
@@ -755,9 +757,9 @@ export function MovementChart({ points, closing }: { points: MovementPoint[]; cl
           />
           <Tooltip
             labelFormatter={(t) => fmtTick(Number(t))}
-            formatter={(value: number | string) => [Number(value).toFixed(3), "price"]}
+            formatter={(value) => [value == null ? "—" : Number(value).toFixed(3), "price"]}
           />
-          <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />
+          {series.length <= 10 && <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />}
           {series.map((s, i) => (
             <Line
               key={s.name}
@@ -765,7 +767,8 @@ export function MovementChart({ points, closing }: { points: MovementPoint[]; cl
               dataKey="price"
               name={s.name}
               stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-              dot={false}
+              // single-snapshot series are invisible without a dot
+              dot={s.points.length < 2 ? { r: 3, fill: SERIES_COLORS[i % SERIES_COLORS.length] } : false}
               strokeWidth={1.5}
               isAnimationActive={false}
             />
@@ -1096,10 +1099,12 @@ INSERTS = [
     f"'2026-06-10T1{i}:00:00Z',1.{70 + i})"
     for i in range(5)
 ] + [
+    # closing captured_at matches the last snapshot (mirrors derive_closing, and
+    # keeps the chart's ReferenceDot inside the x-domain)
     f"INSERT INTO closing_lines VALUES ('{EID}','h2h','fanduel','New York Yankees',1.74,0.605,"
-    "'2026-06-10T18:55:00Z',5.0)",
+    "'2026-06-10T14:00:00Z',300.0)",
     f"INSERT INTO closing_lines VALUES ('{EID}','h2h','consensus','New York Yankees',NULL,0.61,"
-    "'2026-06-10T18:55:00Z',5.0)",
+    "'2026-06-10T14:00:00Z',300.0)",
     "INSERT INTO mart_cross_market_prices VALUES ('mlb:2026-06-10:BOS@NYY:NYY',"
     "'2026-06-10T18:00:00Z',0.60,0.59,0.62,0.03)",
     "INSERT INTO markets VALUES ('22222222-2222-2222-2222-222222222222','kalshi','KX1',"
@@ -1165,7 +1170,10 @@ test("fair odds page renders rows and filters", async ({ page }) => {
 test("movement page renders chart and closing lines", async ({ page }) => {
   await page.goto(`/events/${EID}`);
   await expect(page.getByTestId("movement-chart")).toBeVisible();
-  await expect(page.locator("svg.recharts-surface").first()).toBeVisible();
+  // a drawn price line, not just a mounted svg (blank-chart regression guard)
+  await expect(page.locator("path.recharts-curve").first()).toBeVisible();
+  // the closing-line marker dot from the seeded fanduel close
+  await expect(page.locator(".recharts-reference-dot").first()).toBeVisible();
   await expect(page.getByRole("cell", { name: "consensus" })).toBeVisible();
 });
 

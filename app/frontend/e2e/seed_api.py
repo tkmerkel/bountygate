@@ -44,10 +44,12 @@ INSERTS = [
     f"'2026-06-10T1{i}:00:00Z',1.{70 + i})"
     for i in range(5)
 ] + [
+    # closing captured_at matches the last snapshot (mirrors derive_closing, and
+    # keeps the chart's ReferenceDot inside the x-domain)
     f"INSERT INTO closing_lines VALUES ('{EID}','h2h','fanduel','New York Yankees',1.74,0.605,"
-    "'2026-06-10T18:55:00Z',5.0)",
+    "'2026-06-10T14:00:00Z',300.0)",
     f"INSERT INTO closing_lines VALUES ('{EID}','h2h','consensus','New York Yankees',NULL,0.61,"
-    "'2026-06-10T18:55:00Z',5.0)",
+    "'2026-06-10T14:00:00Z',300.0)",
     "INSERT INTO mart_cross_market_prices VALUES ('mlb:2026-06-10:BOS@NYY:NYY',"
     "'2026-06-10T18:00:00Z',0.60,0.59,0.62,0.03)",
     "INSERT INTO markets VALUES ('22222222-2222-2222-2222-222222222222','kalshi','KX1',"

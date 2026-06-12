@@ -12,7 +12,10 @@ test("fair odds page renders rows and filters", async ({ page }) => {
 test("movement page renders chart and closing lines", async ({ page }) => {
   await page.goto(`/events/${EID}`);
   await expect(page.getByTestId("movement-chart")).toBeVisible();
-  await expect(page.locator("svg.recharts-surface").first()).toBeVisible();
+  // a drawn price line, not just a mounted svg (blank-chart regression guard)
+  await expect(page.locator("path.recharts-curve").first()).toBeVisible();
+  // the closing-line marker dot from the seeded fanduel close
+  await expect(page.locator(".recharts-reference-dot").first()).toBeVisible();
   await expect(page.getByRole("cell", { name: "consensus" })).toBeVisible();
 });
 

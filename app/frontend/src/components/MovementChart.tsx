@@ -61,9 +61,9 @@ export function MovementChart({ points, closing }: { points: MovementPoint[]; cl
           />
           <Tooltip
             labelFormatter={(t) => fmtTick(Number(t))}
-            formatter={(value: number | string) => [Number(value).toFixed(3), "price"]}
+            formatter={(value) => [value == null ? "—" : Number(value).toFixed(3), "price"]}
           />
-          <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />
+          {series.length <= 10 && <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />}
           {series.map((s, i) => (
             <Line
               key={s.name}
@@ -71,7 +71,8 @@ export function MovementChart({ points, closing }: { points: MovementPoint[]; cl
               dataKey="price"
               name={s.name}
               stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-              dot={false}
+              // single-snapshot series are invisible without a dot
+              dot={s.points.length < 2 ? { r: 3, fill: SERIES_COLORS[i % SERIES_COLORS.length] } : false}
               strokeWidth={1.5}
               isAnimationActive={false}
             />
