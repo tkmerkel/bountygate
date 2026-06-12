@@ -59,6 +59,41 @@ export type MarketRow = {
   updated_at: string | null;
 };
 
+export type ArbRow = {
+  opportunity_hash: string;
+  first_detected_at: string | null;
+  last_seen_at: string | null;
+  kind: string;
+  pairing: string;
+  event_id: string | null;
+  sport_key: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  commence_time: string | null;
+  market_segment: string | null;
+  player_name: string | null;
+  line: number | null;
+  pairing_type: string | null;
+  leg_a_kind: string | null;
+  leg_a_source: string | null;
+  leg_a_outcome: string | null;
+  leg_a_point: number | null;
+  leg_a_price: number;
+  leg_a_stake: number | null;
+  leg_b_kind: string | null;
+  leg_b_source: string | null;
+  leg_b_outcome: string | null;
+  leg_b_point: number | null;
+  leg_b_price: number;
+  leg_b_stake: number | null;
+  payout: number | null;
+  arb_ev: number | null;
+  roi: number;
+  fee_adjusted_roi: number;
+  hours_until_commence: number | null;
+  details: Record<string, unknown> | null;
+};
+
 export type ApiState<T> = {
   data: T | null;
   error: string | null;

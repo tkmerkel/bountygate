@@ -9,6 +9,29 @@ const NAV = [
   { href: "/markets", label: "MARKETS" },
 ];
 
+const EXPERIMENTAL_NAV = [
+  { href: "/arbitrage", label: "ARBITRAGE" },
+  { href: "/props", label: "PROPS" },
+  { href: "/sharpness", label: "SHARPNESS" },
+  { href: "/edges", label: "EDGES" },
+];
+
+function NavLink({ href, label, pathname }: { href: string; label: string; pathname: string }) {
+  const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+  return (
+    <Link
+      href={href}
+      className={`pixel px-3 py-0.5 ${
+        active
+          ? "bg-augusta-green text-crisp shadow-[inset_0_-2px_0_var(--masters-yellow)]"
+          : "text-ink hover:bg-inset"
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
+
 export function Masthead() {
   const pathname = usePathname();
   const today = new Date().toLocaleDateString("en-US", {
@@ -32,24 +55,17 @@ export function Masthead() {
           PRICE FREE TO PATRONS
         </div>
       </div>
-      <nav className="mt-3 flex items-center gap-1 border-y border-ink py-1">
-        {NAV.map(({ href, label }) => {
-          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`pixel px-3 py-0.5 ${
-                active
-                  ? "bg-augusta-green text-crisp shadow-[inset_0_-2px_0_var(--masters-yellow)]"
-                  : "text-ink hover:bg-inset"
-              }`}
-            >
-              {label}
-            </Link>
-          );
-        })}
+      <nav className="mt-3 flex items-center gap-1 border-t border-ink py-1">
+        {NAV.map(({ href, label }) => (
+          <NavLink key={href} href={href} label={label} pathname={pathname} />
+        ))}
         <span className="kicker ml-auto hidden sm:inline">PAIRED · HEDGED · BOOKED</span>
+      </nav>
+      <nav className="flex items-center gap-1 border-b border-ink py-0.5 text-[0.85em]">
+        <span className="kicker mr-2 text-augusta-green">EXPERIMENTAL</span>
+        {EXPERIMENTAL_NAV.map(({ href, label }) => (
+          <NavLink key={href} href={href} label={label} pathname={pathname} />
+        ))}
       </nav>
     </header>
   );
