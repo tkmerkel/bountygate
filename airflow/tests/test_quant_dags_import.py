@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("airflow.sdk", reason="DAG import smoke runs in the Airflow 3 container; host has Airflow 2.10")
+
 DAGS = Path(__file__).parent.parent / "dags"
 QUANT_DAGS = [
     "build_fair_odds.py",
