@@ -1,26 +1,85 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --augusta-green:   #0B5B40;
+  --augusta-green-2: #106B4D;
+  --augusta-green-3: #084632;
+  --augusta-green-4: #C9DBD2;
+  --newsprint-white: #F4F1EA;
+  --crisp-white:     #FFFFFF;
+  --masters-yellow:  #F1C40F;
+  --masters-yellow-2:#FFD84A;
+  --ink-black:       #1A1A1A;
+  --rule-gray:       #6B6B66;
+  --ledger-red:      #B0211A;
+
+  --bg-page:   var(--newsprint-white);
+  --bg-card:   var(--crisp-white);
+  --bg-inset:  #EEEAE0;
+  --fg-1:      var(--ink-black);
+  --fg-2:      #3A3A36;
+  --fg-3:      var(--rule-gray);
+  --fg-positive: #1F7A4D;
+
+  --bevel-light: rgba(255, 255, 255, 0.40);
+  --bevel-dark:  rgba(0, 0, 0, 0.40);
+  --bevel-out: inset 1px 1px 0 var(--bevel-light), inset -1px -1px 0 var(--bevel-dark);
+  --bevel-in:  inset 1px 1px 0 var(--bevel-dark),  inset -1px -1px 0 var(--bevel-light);
+  --shadow-card: 2px 2px 0 var(--ink-black);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-augusta-green: var(--augusta-green);
+  --color-augusta-green-2: var(--augusta-green-2);
+  --color-augusta-green-3: var(--augusta-green-3);
+  --color-augusta-green-4: var(--augusta-green-4);
+  --color-newsprint: var(--newsprint-white);
+  --color-crisp: var(--crisp-white);
+  --color-masters-yellow: var(--masters-yellow);
+  --color-ink: var(--ink-black);
+  --color-rule-gray: var(--rule-gray);
+  --color-ledger-red: var(--ledger-red);
+  --color-positive: var(--fg-positive);
+  --color-inset: var(--bg-inset);
+  --font-serif: var(--font-playfair);
+  --font-body: var(--font-merriweather);
+  --font-pixel: var(--font-vt323);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html, body {
+  background: var(--bg-page);
+  color: var(--fg-1);
+  font-family: var(--font-merriweather), Georgia, serif;
+  font-size: 16px;
+  line-height: 1.55;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+h1, h2, h3, h4 {
+  font-family: var(--font-playfair), "Times New Roman", serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+/* WSJ double rule */
+.wsj-rule { border-bottom: 3px double var(--ink-black); }
+
+/* SC3K bevel chrome — crisp, no radius, no blur */
+.bevel-out { border: 1px solid var(--ink-black); box-shadow: var(--bevel-out); }
+.bevel-in  { border: 1px solid var(--ink-black); box-shadow: var(--bevel-in); background: var(--bg-inset); }
+.card-hard { border: 1px solid var(--ink-black); box-shadow: var(--shadow-card); background: var(--bg-card); }
+
+/* Ledger figures */
+.ledger-pos { color: var(--fg-positive); font-family: var(--font-vt323), monospace; font-size: 1.15em; }
+.ledger-neg { color: var(--ledger-red);  font-family: var(--font-vt323), monospace; font-size: 1.15em; }
+
+/* Pixel figures (VT323 reads small — bump it) */
+.pixel { font-family: var(--font-vt323), monospace; font-size: 1.15em; letter-spacing: 0; }
+
+.kicker {
+  font-family: var(--font-vt323), monospace;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
