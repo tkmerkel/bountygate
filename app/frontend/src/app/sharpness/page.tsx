@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ReferenceLine,
@@ -15,6 +16,9 @@ import { CalibrationRow, SharpnessRow, useApi } from "@/lib/api";
 import { formatPct } from "@/lib/format";
 import { Column, DataTable } from "@/components/DataTable";
 import { Empty, ErrorState, Loading } from "@/components/states";
+
+// Copied from src/components/MovementChart.tsx (not exported there)
+const SERIES_COLORS = ["#0B5B40", "#B0211A", "#1A1A1A", "#106B4D", "#F1C40F", "#6B6B66", "#084632", "#FFD84A"];
 
 const EMPTY_NOTE = "ACCUMULATING — SCORING BEGINS AFTER FIRST SETTLED GAMES.";
 
@@ -153,13 +157,26 @@ function CalibrationSection() {
     return ["", ...vals];
   }, [rows]);
 
-  // Filtered + sorted points for the chart and the table.
+  // Filtered + null-safe points for the chart and the table.
   const points = useMemo(() => {
     return rows
       .filter((r) => (!source || r.source === source) && (!sport || r.sport_key === sport))
       .filter((r) => r.predicted_mean !== null && r.realized_rate !== null)
       .sort((a, b) => (a.predicted_mean ?? 0) - (b.predicted_mean ?? 0));
   }, [rows, source, sport]);
+
+  // Group points by source; each group sorted by predicted_mean (already sorted above).
+  const series = useMemo(() => {
+    const bySource = new Map<string, CalibrationRow[]>();
+    for (const r of points) {
+      const key = r.source ?? "(unknown)";
+      if (!bySource.has(key)) bySource.set(key, []);
+      bySource.get(key)!.push(r);
+    }
+    return [...bySource.entries()]
+      .map(([src, pts]) => ({ source: src, points: pts }))
+      .sort((a, b) => a.source.localeCompare(b.source));
+  }, [points]);
 
   const fmtTick = (v: number) => `${Math.round(v * 100)}%`;
 
@@ -226,6 +243,9 @@ function CalibrationSection() {
                 formatter={(value) => [value == null ? "—" : fmtTick(Number(value)), "REALIZED"]}
               />
               {/* y=x ideal calibration line, segment (0,0) -> (1,1) */}
+              {series.length >= 2 && series.length <= 10 && (
+                <Legend wrapperStyle={{ fontFamily: "var(--font-vt323)", fontSize: 14 }} />
+              )}
               <ReferenceLine
                 segment={[
                   { x: 0, y: 0 },
@@ -235,16 +255,18 @@ function CalibrationSection() {
                 strokeDasharray="4 4"
                 ifOverflow="extendDomain"
               />
-              <Line
-                data={points}
-                dataKey="realized_rate"
-                name="REALIZED"
-                stroke="#0B5B40"
-                strokeWidth={1.5}
-                // buckets are few — always show dots (single point is invisible without)
-                dot={{ r: 3, fill: "#0B5B40" }}
-                isAnimationActive={false}
-              />
+              {series.map((s, i) => (
+                <Line
+                  key={s.source}
+                  data={s.points}
+                  dataKey="realized_rate"
+                  name={s.source}
+                  stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                  dot={{ r: 3, fill: SERIES_COLORS[i % SERIES_COLORS.length] }}
+                  strokeWidth={1.5}
+                  isAnimationActive={false}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
           <div className="kicker mb-3 mt-1">DASHED · IDEAL (PREDICTED = REALIZED)</div>
