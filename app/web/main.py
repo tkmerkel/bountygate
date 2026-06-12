@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.web.routers import cross_market, edges, fair_odds, history, markets, movement, scoring
+from app.web.routers import arb, cross_market, edges, fair_odds, history, markets, movement, props, scoring
 
 app = FastAPI(title="bountygate read API", description="Read-only prediction-market analytics")
 app.add_middleware(
@@ -26,6 +26,8 @@ app.include_router(history.router)
 app.include_router(fair_odds.router)
 app.include_router(scoring.router)
 app.include_router(movement.router)
+app.include_router(arb.router)
+app.include_router(props.router)
 
 
 @app.get("/")
