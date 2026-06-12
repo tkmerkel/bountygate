@@ -109,6 +109,40 @@ export type PropRow = {
   captured_at: string | null;
 };
 
+export type SharpnessRow = {
+  venue_key: string | null;
+  sport_key: string | null;
+  score_window: string | null;
+  n_games: number | null;
+  brier: number | null;
+  logloss: number | null;
+  avg_clv: number | null;
+  computed_at: string | null;
+};
+
+export type CalibrationRow = {
+  source: string | null;
+  sport_key: string | null;
+  prob_bucket: number | null;
+  n: number | null;
+  predicted_mean: number | null;
+  realized_rate: number | null;
+  computed_at: string | null;
+};
+
+export type EdgeRow = {
+  signal_id: string;
+  detected_at: string | null;
+  venue_key: string | null;
+  market_id: string | null;
+  outcome_id: string | null;
+  signal_type: string | null;
+  fair_prob: number | null;
+  venue_price: number | null;
+  edge: number | null;
+  kelly_fraction: number | null;
+};
+
 export type ApiState<T> = {
   data: T | null;
   error: string | null;
