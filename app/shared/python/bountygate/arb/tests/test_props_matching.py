@@ -93,6 +93,36 @@ def test_parse_mlb_empty_dict_returns_none():
     assert parse_prop_title("Will Aaron Judge hit a home run?", "baseball_mlb") is None
 
 
+def test_parse_first_half_qualifier_returns_none():
+    # Trailing "in the first half" is NOT a full-game prop -> must not parse.
+    assert parse_prop_title(
+        "Will LeBron James score 30+ points in the first half?", "basketball_nba"
+    ) is None
+
+
+def test_parse_quarter_qualifier_returns_none():
+    # Trailing "in Q1" is a partial-game scope -> must not parse.
+    assert parse_prop_title(
+        "Will Jayson Tatum record 10+ rebounds in Q1?", "basketball_nba"
+    ) is None
+
+
+def test_parse_tonight_tail_allowed():
+    # "tonight" is a harmless whitelisted tail -> still parses.
+    r = parse_prop_title(
+        "Will LeBron James score 30+ points tonight?", "basketball_nba"
+    )
+    assert r == {"player_name": "lebron james", "market_segment": "player_points",
+                 "line": 29.5}
+
+
+def test_parse_team_total_leading_the_returns_none():
+    # Team totals like "Will the Lakers score 110+ points?" -> leading-the guard.
+    assert parse_prop_title(
+        "Will the Lakers score 110+ points?", "basketball_nba"
+    ) is None
+
+
 # ---------------------------------------------------------------------------
 # pair_book_venue_props
 # ---------------------------------------------------------------------------

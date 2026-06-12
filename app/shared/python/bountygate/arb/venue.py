@@ -63,6 +63,8 @@ def _book_venue_economics(
     stake_book = base_wager * cost_book / t
     stake_venue = base_wager * cost_venue / t
     arb_ev = payout - base_wager
+    # payout and arb_ev are fee-inclusive: payout/base - 1 == fee_adjusted_roi,
+    # NOT roi (pre-fee, kept for comparability with book_book rows).
     return stake_book, stake_venue, payout, arb_ev, roi_pre, roi_fee
 
 

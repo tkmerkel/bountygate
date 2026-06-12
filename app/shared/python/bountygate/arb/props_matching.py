@@ -42,7 +42,7 @@ STAT_PATTERNS: dict[str, dict[str, str]] = {
         "player_points": r"(?:scores?\s+)?(\d+)\+\s+points",
         "player_assists": r"(\d+)\+\s+assists",
         "player_rebounds": r"(\d+)\+\s+rebounds",
-        "player_threes": r"(\d+)\+\s+(?:three|3)-?point",
+        "player_threes": r"(\d+)\+\s+(?:three|3)-?pointers?(?:\s+made)?",
     },
     "icehockey_nhl": {
         "player_shots_on_goal": r"(\d+)\+\s+shots\s+on\s+goal",
@@ -65,7 +65,12 @@ def _patterns_for(sport_key: str) -> dict[str, str]:
 
 
 def normalize_player(name: str) -> str:
-    """Casefold, strip accents (NFKD->ascii), strip punctuation, collapse whitespace."""
+    """Casefold, strip accents (NFKD->ascii), strip punctuation, collapse whitespace.
+
+    Known v1 limitation: name suffixes (Jr./Sr./II/III) are NOT stripped — a
+    suffix mismatch between book and venue names fails precision-first to
+    unmatched (drops real arbs, never creates false ones).
+    """
     if not name:
         return ""
     s = unicodedata.normalize("NFKD", str(name))
@@ -77,6 +82,12 @@ def normalize_player(name: str) -> str:
 
 
 _WILL_PREFIX = re.compile(r"^\s*will\s+", re.IGNORECASE)
+
+# Whitelist of allowed trailing text after the matched stat pattern. Anything
+# else (e.g. "in the first half", "in Q1", "vs the Celtics") indicates a
+# partial-game / conditional scope the full-game book lines do NOT cover, so we
+# reject it precision-first rather than emit a phantom arb.
+_ALLOWED_TAIL = re.compile(r"^\s*(?:tonight|today)?\s*[?.!]*\s*$", re.IGNORECASE)
 
 
 def parse_prop_title(title: str, sport_key: str) -> Optional[dict]:
@@ -118,6 +129,14 @@ def parse_prop_title(title: str, sport_key: str) -> Optional[dict]:
     m2 = re.search(patterns[market_segment], after_will, re.IGNORECASE)
     if not m2:
         return None
+
+    # TAIL WHITELIST: text after the matched stat must be empty / punctuation /
+    # an allowed "tonight"/"today" word. Anything else is a partial-game or
+    # conditional scope (e.g. "in the first half", "in Q1") -> reject.
+    tail = after_will[m2.end():]
+    if not _ALLOWED_TAIL.match(tail):
+        return None
+
     player_segment = after_will[: m2.start()]
 
     # Strip common filler verbs that sit between the name and the stat phrase.
@@ -129,6 +148,10 @@ def parse_prop_title(title: str, sport_key: str) -> Optional[dict]:
     )
     raw = player_segment.strip()
     if not raw:
+        return None
+    # Leading-"the " guard: rejects team totals ("the Lakers score 110+ points")
+    # at parse time rather than relying on downstream unmatched_player.
+    if raw.casefold().startswith("the "):
         return None
     # Conservative guards: reject conjunctions / lists / over-long segments.
     if "," in raw or re.search(r"\bor\b", raw, re.IGNORECASE):
