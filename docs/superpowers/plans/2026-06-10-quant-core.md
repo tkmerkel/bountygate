@@ -743,11 +743,17 @@ def _engine():
 
 
 def _sharpness_stats(conn) -> dict:
+    # venue_sharpness is per (venue, sport); blend weights are global, so
+    # aggregate: game-count-weighted mean brier + total games per venue.
     return {
         r["venue_key"]: {"brier": float(r["brier"]), "n_games": r["n_games"]}
         for r in conn.execute(text(
-            "SELECT venue_key, brier, n_games FROM venue_sharpness "
-            "WHERE score_window = 'all' AND brier IS NOT NULL")).mappings()
+            "SELECT venue_key, "
+            "       sum(brier * n_games) / sum(n_games) AS brier, "
+            "       sum(n_games) AS n_games "
+            "FROM venue_sharpness "
+            "WHERE score_window = 'all' AND brier IS NOT NULL AND n_games > 0 "
+            "GROUP BY venue_key")).mappings()
     }
 
 
