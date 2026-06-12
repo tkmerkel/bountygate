@@ -11,6 +11,7 @@ from sqlalchemy import create_engine, text
 from bountygate.transforms.parsers.kalshi import parse_kalshi
 from bountygate.transforms.parsers.polymarket import parse_polymarket
 from bountygate.transforms.parsers.odds import parse_odds_line
+from bountygate.transforms.parsers.props import parse_player_prop
 
 WATERMARK_NAME = "normalize"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -33,10 +34,10 @@ def run_normalize() -> dict:
                 {"n": WATERMARK_NAME},
             ).scalar() or _EPOCH
             raw = conn.execute(text(
-                "SELECT source, captured_at, payload FROM raw_market_snapshots "
+                "SELECT source, captured_at, payload, record_type FROM raw_market_snapshots "
                 "WHERE captured_at > :wm ORDER BY captured_at"), {"wm": wm}).mappings().all()
 
-            counts = {"markets": 0, "outcomes": 0, "prices": 0, "events": 0, "odds": 0}
+            counts = {"markets": 0, "outcomes": 0, "prices": 0, "events": 0, "odds": 0, "props": 0}
             max_ts = wm
             for row in raw:
                 src, captured_at, payload = row["source"], row["captured_at"], row["payload"]
@@ -49,10 +50,16 @@ def run_normalize() -> dict:
                     counts["outcomes"] += len(oid_map)
                     counts["prices"] += _append_prices(conn, oid_map, parsed["prices"], captured_at)
                 elif src == "the_odds_api":
-                    parsed = parse_odds_line(payload)
-                    eid = _upsert_event(conn, parsed["event"])
-                    counts["events"] += 1
-                    counts["odds"] += _append_odds(conn, eid, parsed["odds"], captured_at)
+                    if row["record_type"] == "player_prop":
+                        parsed = parse_player_prop(payload)
+                        eid = _upsert_event(conn, parsed["event"])
+                        counts["events"] += 1
+                        counts["props"] += _append_props(conn, eid, parsed["props"], captured_at)
+                    else:
+                        parsed = parse_odds_line(payload)
+                        eid = _upsert_event(conn, parsed["event"])
+                        counts["events"] += 1
+                        counts["odds"] += _append_odds(conn, eid, parsed["odds"], captured_at)
 
             if raw:
                 conn.execute(text(
@@ -135,5 +142,20 @@ def _append_odds(conn, event_id, odds: list[dict], captured_at) -> int:
             "ON CONFLICT (event_id, market_type, bookmaker, outcome_name, point, captured_at) "
             "DO NOTHING"),
             {"event_id": event_id, "captured_at": captured_at, **o})
+        n += res.rowcount or 0
+    return n
+
+
+def _append_props(conn, event_id, props: list[dict], captured_at) -> int:
+    n = 0
+    for p in props:
+        res = conn.execute(text(
+            "INSERT INTO player_props_odds_history "
+            "  (event_id, market_key, player_name, line, side, bookmaker, decimal_price, captured_at) "
+            "VALUES (:event_id, :market_key, :player_name, :line, :side, :bookmaker, "
+            "        :decimal_price, :captured_at) "
+            "ON CONFLICT (event_id, market_key, player_name, line, side, bookmaker, captured_at) "
+            "DO NOTHING"),
+            {"event_id": event_id, "captured_at": captured_at, **p})
         n += res.rowcount or 0
     return n
