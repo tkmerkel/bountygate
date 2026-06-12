@@ -231,6 +231,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Column,
+    Integer,
     MetaData,
     Table,
     Text,
@@ -252,7 +253,8 @@ def raw_table(metadata: MetaData) -> Table:
     return Table(
         RAW_TABLE,
         metadata,
-        Column("id", BigInteger, primary_key=True, autoincrement=True),
+        # with_variant: BIGINT on Postgres; INTEGER on SQLite so its rowid autoincrement fires in tests
+        Column("id", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
         Column("source", Text, nullable=False),
         Column("source_key", Text, nullable=False),
         Column("record_type", Text, nullable=False),
@@ -1222,7 +1224,7 @@ from airflow.sdk import Asset, dag, task
 from bountygate.connectors.landing import RAW_TABLE, land_raw
 from bountygate.connectors.registry import get_connector
 
-RAW_ASSET = Asset(f"postgres://{RAW_TABLE}")
+RAW_ASSET = Asset(name=RAW_TABLE)  # named asset; postgres:// URI trips Airflow 3.2's asset normalizer
 
 
 @dag(
@@ -1260,7 +1262,7 @@ from airflow.sdk import Asset, dag, task
 from bountygate.connectors.landing import RAW_TABLE, land_raw
 from bountygate.connectors.registry import get_connector
 
-RAW_ASSET = Asset(f"postgres://{RAW_TABLE}")
+RAW_ASSET = Asset(name=RAW_TABLE)  # named asset; postgres:// URI trips Airflow 3.2's asset normalizer
 
 
 @dag(
@@ -1298,7 +1300,7 @@ from airflow.sdk import Asset, dag, task
 from bountygate.connectors.landing import RAW_TABLE, land_raw
 from bountygate.connectors.registry import get_connector
 
-RAW_ASSET = Asset(f"postgres://{RAW_TABLE}")
+RAW_ASSET = Asset(name=RAW_TABLE)  # named asset; postgres:// URI trips Airflow 3.2's asset normalizer
 
 
 @dag(
