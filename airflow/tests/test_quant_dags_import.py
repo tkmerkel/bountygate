@@ -8,6 +8,7 @@ QUANT_DAGS = [
     "build_fair_odds.py",
     "derive_closing_lines.py",
     "ingest_results.py",
+    "ingest_props.py",
     "score_results.py",
 ]
 

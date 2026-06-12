@@ -124,6 +124,20 @@ def test_event_dict_has_five_keys_matching_parse_odds_line():
         assert prop_event[k] == odds_event[k], f"mismatch on key {k!r}"
 
 
+def test_zero_point_outcome_kept():
+    """point=0.0 must NOT be dropped — guards against a `if not point` truthiness regression."""
+    payload = {
+        **_STD_PAYLOAD,
+        "outcomes": [
+            {"name": "Over",  "description": "Jayson Tatum", "point": 0.0, "price": 1.91},
+            {"name": "Under", "description": "Jayson Tatum", "point": 0.0, "price": 1.91},
+        ],
+    }
+    out = parse_player_prop(payload)
+    assert len(out["props"]) == 2
+    assert all(p["line"] == 0.0 for p in out["props"])
+
+
 def test_case_insensitive_over_under():
     """Over/Under matching is case-insensitive."""
     payload = {

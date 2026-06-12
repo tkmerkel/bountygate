@@ -10,6 +10,7 @@ RAW_ASSET = Asset(name="raw_market_snapshots")
 NORMALIZED_ASSETS = [
     Asset(name="markets"), Asset(name="market_outcomes"), Asset(name="price_history"),
     Asset(name="sports_events"), Asset(name="sportsbook_odds_history"),
+    Asset(name="player_props_odds_history"),
 ]
 
 
