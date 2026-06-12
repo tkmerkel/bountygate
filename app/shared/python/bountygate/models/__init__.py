@@ -71,9 +71,7 @@ def build_fair_prices() -> int:
 
             groups: dict = {}
             for r in _latest_odds_rows(conn):
-                # h2h only: totals/spreads need per-line grouping the two-way
-                # consensus below doesn't do (MARKET_TYPES still lists 'totals' for
-                # the day that grouping exists; until then the snapshot read is gated).
+                # Redundant with _latest_odds_rows' SQL filter; kept as a local invariant.
                 if r["market_type"] != "h2h":
                     continue
                 if r["event_id"] not in events or r["market_type"] not in MARKET_TYPES:

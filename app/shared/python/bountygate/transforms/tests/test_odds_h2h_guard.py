@@ -7,9 +7,12 @@ function against sqlite (its SELECT uses Postgres `event_id::text`), so this tes
 seeds an in-memory sqlite table and exercises the same filter the guard applies,
 proving a totals row is excluded while the h2h rows survive.
 """
+import inspect
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 
+import bountygate.transforms.marts as marts
 from bountygate.transforms.marts.edge_signals import compute_edge_signals
 
 _DDL = (
@@ -24,14 +27,22 @@ def _seed():
     with engine.begin() as conn:
         conn.execute(text(_DDL))
         rows = [
-            # h2h pair (should feed consensus/edges)
+            # h2h pair from the sharp anchor (pinnacle) -> fair prob ~0.5 each
             ("e1", "h2h", "pinnacle", "Mets", "2026-06-10T18:00:00Z", 1.91, None),
             ("e1", "h2h", "pinnacle", "Padres", "2026-06-10T18:00:00Z", 1.91, None),
+            # h2h pair from a soft book (fanduel) priced off-fair so the EV guard
+            # fires: edge(Mets) = 0.5 * 2.10 - 1 = 0.05 >= 0.025 threshold.
+            ("e1", "h2h", "fanduel", "Mets", "2026-06-10T18:00:00Z", 2.10, None),
+            ("e1", "h2h", "fanduel", "Padres", "2026-06-10T18:00:00Z", 1.80, None),
             # totals lines on the SAME event (must be excluded; same Over/Under names
-            # at different points would otherwise collapse into a bogus two-way pair)
-            ("e1", "totals", "fanduel", "Over", "2026-06-10T18:00:00Z", 1.91, 8.5),
-            ("e1", "totals", "fanduel", "Under", "2026-06-10T18:00:00Z", 1.91, 8.5),
-            ("e1", "totals", "fanduel", "Over", "2026-06-10T18:00:00Z", 1.95, 9.5),
+            # at different points would otherwise collapse into a bogus two-way pair).
+            # Priced as a fake arb (1/2.10 + 1/2.10 < 1) so that IF these rows leaked
+            # past the guard, compute_edge_signals would emit a totals signal -- which
+            # is exactly what test_totals_excluded_means_no_corrupt_edge_signals asserts
+            # against, making that test bite when the guard is removed.
+            ("e1", "totals", "fanduel", "Over", "2026-06-10T18:00:00Z", 2.10, 8.5),
+            ("e1", "totals", "fanduel", "Under", "2026-06-10T18:00:00Z", 2.10, 8.5),
+            ("e1", "totals", "fanduel", "Over", "2026-06-10T18:00:00Z", 2.10, 9.5),
         ]
         for r in rows:
             conn.execute(text(
@@ -49,6 +60,14 @@ _GUARD_SQL = (
 )
 
 
+def test_guard_lives_in_latest_odds_rows_source():
+    # The guard is only meaningful if it actually lives in the real read path.
+    # If someone deletes the WHERE clause (or renames the table), this bites.
+    src = inspect.getsource(marts._latest_odds_rows)
+    assert "market_type = 'h2h'" in src
+    assert "FROM sportsbook_odds_history" in src
+
+
 def test_guard_excludes_totals_rows():
     engine = _seed()
     try:
@@ -57,21 +76,25 @@ def test_guard_excludes_totals_rows():
     finally:
         engine.dispose()
     assert {r["market_type"] for r in rows} == {"h2h"}
-    assert len(rows) == 2          # totals rows dropped, h2h pair kept
+    assert len(rows) == 4          # totals rows dropped, two h2h books kept
     assert all(r["outcome_name"] not in ("Over", "Under") for r in rows)
 
 
 def test_totals_excluded_means_no_corrupt_edge_signals():
-    # If the totals rows had leaked through, compute_edge_signals would see THREE
-    # outcome names (Mets/Padres + Over/Under) for the event or a duplicated Over,
-    # corrupting the two-way pairing. With the guard, only the clean h2h pair feeds it.
+    # With the guard, only the clean h2h pair (pinnacle anchor + fanduel soft book)
+    # feeds compute_edge_signals, yielding a genuine EV signal. If the totals rows
+    # leaked through, the shared (event, market, book, outcome) grouping would
+    # collapse distinct Over lines / mix in Over+Under names and corrupt the pairing.
     engine = _seed()
     try:
         with engine.begin() as conn:
             guarded = [dict(r) for r in conn.execute(text(_GUARD_SQL)).mappings()]
     finally:
         engine.dispose()
-    signals = compute_edge_signals(guarded, threshold=0.0)
-    # all signals come from the h2h market only
+    signals = compute_edge_signals(guarded, threshold=0.025)
+    # (a) the h2h pair really does produce a signal (not a vacuous pass)
+    assert len(signals) >= 1
+    # (b) no signal originates from a totals row
+    assert all(s["market_type"] != "totals" for s in signals)
     assert all(s["market_type"] == "h2h" for s in signals)
     assert {s["outcome_name"] for s in signals} <= {"Mets", "Padres"}
