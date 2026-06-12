@@ -281,3 +281,113 @@ def ingest_game_results() -> int:
             return n
     finally:
         engine.dispose()
+
+
+def score_results_db() -> dict:
+    """Score venue closing lines and model predictions against game_results.
+
+    Full recompute of venue_sharpness (windows: all, last_90d) and mart_calibration.
+    h2h only (totals scoring needs a line column; see spec scope guards).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from bountygate.analytics.clv import clv_from_fair
+    from bountygate.models.scoring import brier_score, calibration_buckets, log_loss_score
+
+    engine = _engine()
+    try:
+        with engine.begin() as conn:
+            closing = [dict(r) for r in conn.execute(text(
+                "SELECT c.event_id::text AS event_id, c.bookmaker, c.outcome_name, "
+                "       c.fair_prob, e.sport_key, e.home_team, e.away_team, "
+                "       e.commence_time, r.winner "
+                "FROM closing_lines c "
+                "JOIN sports_events e ON e.event_id = c.event_id "
+                "JOIN game_results  r ON r.event_id = c.event_id "
+                "WHERE c.market_type = 'h2h' AND c.fair_prob IS NOT NULL "
+                "  AND r.winner IN ('home', 'away')")).mappings()]
+            preds = [dict(r) for r in conn.execute(text(
+                "SELECT p.model_key, p.event_id::text AS event_id, p.outcome_name, "
+                "       p.prob, e.sport_key, e.home_team, e.away_team, "
+                "       e.commence_time, r.winner "
+                "FROM model_predictions p "
+                "JOIN sports_events e ON e.event_id = p.event_id "
+                "JOIN game_results  r ON r.event_id = p.event_id "
+                "JOIN (SELECT model_key, version, event_id, market_type, outcome_name, "
+                "             max(predicted_at) AS mx "
+                "      FROM model_predictions pp "
+                "      JOIN sports_events ee ON ee.event_id = pp.event_id "
+                "      WHERE pp.predicted_at <= ee.commence_time "
+                "      GROUP BY 1, 2, 3, 4, 5) last "
+                "  ON last.model_key = p.model_key AND last.version = p.version "
+                " AND last.event_id = p.event_id AND last.market_type = p.market_type "
+                " AND last.outcome_name = p.outcome_name AND last.mx = p.predicted_at "
+                "WHERE p.market_type = 'h2h' AND r.winner IN ('home', 'away')")).mappings()]
+
+            def realized(row):
+                if row["outcome_name"] == row["home_team"]:
+                    return 1 if row["winner"] == "home" else 0
+                if row["outcome_name"] == row["away_team"]:
+                    return 1 if row["winner"] == "away" else 0
+                return None
+
+            cutoff_90d = datetime.now(timezone.utc) - timedelta(days=90)
+            cons_close = {
+                (c["event_id"], c["outcome_name"]): float(c["fair_prob"])
+                for c in closing if c["bookmaker"] == "consensus"
+            }
+
+            # venue_sharpness: per (venue, sport, window); consensus excluded
+            # (it is scored as a model in mart_calibration instead).
+            sharp: dict = {}
+            for c in closing:
+                y = realized(c)
+                if y is None or c["bookmaker"] == "consensus":
+                    continue
+                windows = ["all"] + (["last_90d"] if c["commence_time"] >= cutoff_90d else [])
+                ref = cons_close.get((c["event_id"], c["outcome_name"]))
+                for w in windows:
+                    s = sharp.setdefault((c["bookmaker"], c["sport_key"], w),
+                                         {"pairs": [], "clv": [], "events": set()})
+                    s["pairs"].append((float(c["fair_prob"]), y))
+                    s["events"].add(c["event_id"])
+                    if ref is not None:
+                        s["clv"].append(clv_from_fair(float(c["fair_prob"]), ref))
+
+            conn.execute(text("DELETE FROM venue_sharpness"))
+            for (venue, sport, w), s in sorted(sharp.items()):
+                conn.execute(text(
+                    "INSERT INTO venue_sharpness (venue_key, sport_key, score_window, "
+                    "  n_games, brier, logloss, avg_clv, computed_at) "
+                    "VALUES (:v, :sp, :w, :n, :b, :ll, :clv, now())"),
+                    {"v": venue, "sp": sport, "w": w, "n": len(s["events"]),
+                     "b": brier_score(s["pairs"]), "ll": log_loss_score(s["pairs"]),
+                     "clv": (sum(s["clv"]) / len(s["clv"])) if s["clv"] else None})
+
+            # mart_calibration: venues (closing) + models (pre-commence preds), per sport
+            cal: dict = {}
+            for c in closing:
+                y = realized(c)
+                if y is not None:
+                    cal.setdefault((c["bookmaker"], c["sport_key"]), []).append(
+                        (float(c["fair_prob"]), y))
+            for p in preds:
+                y = realized(p)
+                if y is not None:
+                    cal.setdefault((p["model_key"], p["sport_key"]), []).append(
+                        (float(p["prob"]), y))
+
+            conn.execute(text("DELETE FROM mart_calibration"))
+            n_buckets = 0
+            for (source, sport), pairs in sorted(cal.items()):
+                for b in calibration_buckets(pairs):
+                    conn.execute(text(
+                        "INSERT INTO mart_calibration (source, sport_key, prob_bucket, "
+                        "  n, predicted_mean, realized_rate, computed_at) "
+                        "VALUES (:s, :sp, :pb, :n, :pm, :rr, now())"),
+                        {"s": source, "sp": sport, "pb": b["prob_bucket"], "n": b["n"],
+                         "pm": b["predicted_mean"], "rr": b["realized_rate"]})
+                    n_buckets += 1
+        return {"sharpness_rows": len(sharp), "calibration_rows": n_buckets}
+    finally:
+        engine.dispose()
