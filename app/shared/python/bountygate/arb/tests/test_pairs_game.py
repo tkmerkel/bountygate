@@ -224,6 +224,25 @@ def test_empty_input():
     assert pair_game_lines([]) == []
 
 
+def test_spreads_pickem_zero_vs_neg_zero():
+    """Pick'em spread: point 0.0 (book A) vs -0.0 (book B).
+
+    0.0 == -0.0 in Python floats, and -(-0.0) == 0.0, so the mirroring check
+    ``a.point == -b.point`` should pass and exactly one opportunity is produced.
+    """
+    rows = [
+        _row(market_type="spreads", bookmaker="betmgm", outcome_name="Home",
+             point=0.0, decimal_price=2.10),
+        _row(market_type="spreads", bookmaker="fanduel", outcome_name="Away",
+             point=-0.0, decimal_price=2.10),
+    ]
+    opps = pair_game_lines(rows)
+    assert len(opps) == 1
+    o = opps[0]
+    assert o["market_segment"] == "spreads"
+    assert o["roi"] == pytest.approx(0.05)
+
+
 def test_hours_until_commence_uses_latest_capture():
     later_capture = CAPTURED + timedelta(hours=6)
     rows = [

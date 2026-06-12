@@ -27,7 +27,10 @@ Standard arb math (overround formulation, identical across game + props):
 
 An arb exists iff overround < 1 (equivalently roi > 0).
 
-Two DELIBERATE deviations from the archive (both documented here):
+Precondition: all commence_time/captured_at datetimes must be tz-aware UTC;
+mixing naive and aware raises TypeError.
+
+Three DELIBERATE deviations from the archive (all documented here):
 
   1. **Overround stake normalization for props.** The archive props builder used
      a different stake split (wager_under = base, payout = base * under_price,
@@ -38,6 +41,12 @@ Two DELIBERATE deviations from the archive (both documented here):
 
   2. **Dict rows instead of pandas DataFrames.** Pure-python list-of-dict
      processing, no pandas dependency.
+
+  3. **Per-leg freshness for hours_until_commence.** ``_hours_until_commence``
+     uses ``max(captured_at_a, captured_at_b)`` as the reference timestamp
+     rather than a single frame-wide fetch timestamp from the archive. This
+     ensures the time-to-commence reflects how stale the most recently captured
+     leg is, not a batch-level snapshot time.
 
 Prop hash & schema note: the unified `arb_opportunities` schema has no per-leg
 market_key column, so std/alt-ness of each prop leg is carried two ways. For the
@@ -290,7 +299,7 @@ def pair_props(
          bookmaker, decimal_price (float|None), captured_at (tz-aware)}
 
     Faithful port of bg_arb_pipeline_lib/builder.py. See module docstring for
-    the economics and the two deliberate deviations.
+    the economics and the three deliberate deviations.
     """
     if not rows:
         return []

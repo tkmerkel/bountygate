@@ -199,3 +199,31 @@ def test_hash_stable_across_input_order():
 
 def test_empty_input():
     assert pair_props([]) == []
+
+
+# ---------------------------------------------------------------------------
+# asymmetric-price stake split
+# ---------------------------------------------------------------------------
+def test_asymmetric_stake_split():
+    """under@1.55 fanduel / over@3.10 betmgm: stake_under should be ~2x stake_over.
+
+    Computed values:
+      implied_under = 1/1.55 = 0.645161
+      implied_over  = 1/3.10 = 0.322581
+      overround     = 0.967742
+      payout        = 100 / 0.967742 = 103.333...
+      stake_under   = payout * implied_under = 66.666...
+      stake_over    = payout * implied_over  = 33.333...
+      roi           = (payout - 100) / 100  = 0.0333...
+    """
+    rows = [
+        _row(side="under", bookmaker="fanduel", decimal_price=1.55),
+        _row(side="over", bookmaker="betmgm", decimal_price=3.10),
+    ]
+    opps = pair_props(rows)
+    assert len(opps) == 1
+    o = opps[0]
+    assert o["leg_a_stake"] == pytest.approx(66.6667, rel=1e-4)
+    assert o["leg_b_stake"] == pytest.approx(33.3333, rel=1e-4)
+    assert o["leg_a_stake"] + o["leg_b_stake"] == pytest.approx(100.0, rel=1e-6)
+    assert o["roi"] == pytest.approx(0.03333, rel=1e-3)
