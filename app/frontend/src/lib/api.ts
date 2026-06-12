@@ -94,6 +94,21 @@ export type ArbRow = {
   details: Record<string, unknown> | null;
 };
 
+export type PropRow = {
+  event_id: string;
+  sport_key: string | null;
+  commence_time: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  market_key: string;
+  player_name: string | null;
+  line: number | null;
+  side: string | null;
+  bookmaker: string | null;
+  decimal_price: number | null;
+  captured_at: string | null;
+};
+
 export type ApiState<T> = {
   data: T | null;
   error: string | null;
