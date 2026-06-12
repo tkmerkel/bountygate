@@ -1764,7 +1764,7 @@ def movement(
         series.setdefault((r["market_type"], r["bookmaker"], r["outcome_name"]), []).append(r)
     out = []
     for pts in series.values():
-        stride = max(1, len(pts) // _MAX_POINTS_PER_SERIES)
+        stride = -(-len(pts) // _MAX_POINTS_PER_SERIES)   # ceil: enforces the cap
         kept = pts[::stride]
         if kept[-1] is not pts[-1]:
             kept.append(pts[-1])      # always keep the latest point
