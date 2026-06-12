@@ -198,8 +198,10 @@ def derive_closing_lines_db(*, lookback_days: int = 7) -> tuple[int, list]:
                                 c["outcome_name"]] = c["fair_prob"]
                     cons = weighted_consensus(probs_by_book, weights)
                     if cons:
-                        worst = max(c["staleness_minutes"] for c in closing)
-                        latest = max(c["captured_at"] for c in closing)
+                        # staleness/captured_at reflect only books that fed the consensus
+                        contributing = [c for c in closing if c["bookmaker"] in probs_by_book]
+                        worst = max(c["staleness_minutes"] for c in contributing)
+                        latest = max(c["captured_at"] for c in contributing)
                         for name, prob in cons.items():
                             conn.execute(text(
                                 "INSERT INTO closing_lines (event_id, market_type, "
