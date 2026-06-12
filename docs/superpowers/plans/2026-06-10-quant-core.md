@@ -998,11 +998,20 @@ def ingest_game_results() -> int:
     winner is 'home'/'away', resolved by matching the feed game to sports_events
     via team-name+date (enrichment.match), so odds-vs-feed naming never matters.
     """
-    from datetime import date, timedelta
+    from datetime import datetime, timedelta, timezone
 
     from bountygate.enrichment.clients import build_espn_scoreboard_url, fetch_json
     from bountygate.enrichment.match import match_game_to_event
     from bountygate.enrichment.results import parse_espn_scoreboard
+
+    # all network I/O happens before the transaction opens
+    today_utc = datetime.now(timezone.utc).date()
+    feed_games = []
+    for sport in SPORTS:
+        for d in (today_utc, today_utc - timedelta(days=1)):
+            payload = fetch_json(build_espn_scoreboard_url(sport, d))
+            for g in parse_espn_scoreboard(payload or {}, sport):
+                feed_games.append((sport, g))
 
     engine = _engine()
     try:
@@ -1016,32 +1025,29 @@ def ingest_game_results() -> int:
                 "  AND commence_time > now() - interval '3 days'"),
                 {"sports": list(SPORTS)}).mappings()]
             n = 0
-            for sport in SPORTS:
-                for d in (date.today(), date.today() - timedelta(days=1)):
-                    payload = fetch_json(build_espn_scoreboard_url(sport, d))
-                    for g in parse_espn_scoreboard(payload or {}, sport):
-                        if not g.get("completed"):
-                            continue
-                        hs, as_ = g.get("home_score"), g.get("away_score")
-                        if hs is None or as_ is None or hs == as_:
-                            continue
-                        eid = match_game_to_event(
-                            sport, g["home_team_name"], g["away_team_name"],
-                            g["commence_at_utc"], events)
-                        if not eid or eid == "None":
-                            continue
-                        conn.execute(text(
-                            "INSERT INTO game_results (event_id, home_score, away_score, "
-                            "  winner, completed_at, source) "
-                            "VALUES (cast(:eid AS uuid), :hs, :as_, :w, now(), 'espn') "
-                            "ON CONFLICT (event_id) DO UPDATE SET "
-                            "  home_score = EXCLUDED.home_score, "
-                            "  away_score = EXCLUDED.away_score, "
-                            "  winner = EXCLUDED.winner, "
-                            "  completed_at = EXCLUDED.completed_at"),
-                            {"eid": eid, "hs": hs, "as_": as_,
-                             "w": "home" if hs > as_ else "away"})
-                        n += 1
+            for sport, g in feed_games:
+                if not g.get("completed"):
+                    continue
+                hs, as_ = g.get("home_score"), g.get("away_score")
+                if hs is None or as_ is None or hs == as_:
+                    continue
+                eid = match_game_to_event(
+                    sport, g["home_team_name"], g["away_team_name"],
+                    g["commence_at_utc"], events)
+                if not eid or eid == "None":
+                    continue
+                conn.execute(text(
+                    "INSERT INTO game_results (event_id, home_score, away_score, "
+                    "  winner, completed_at, source) "
+                    "VALUES (cast(:eid AS uuid), :hs, :as_, :w, now(), 'espn') "
+                    "ON CONFLICT (event_id) DO UPDATE SET "
+                    "  home_score = EXCLUDED.home_score, "
+                    "  away_score = EXCLUDED.away_score, "
+                    "  winner = EXCLUDED.winner, "
+                    "  completed_at = EXCLUDED.completed_at"),
+                    {"eid": eid, "hs": hs, "as_": as_,
+                     "w": "home" if hs > as_ else "away"})
+                n += 1
             return n
     finally:
         engine.dispose()
