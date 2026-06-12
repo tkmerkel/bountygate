@@ -84,3 +84,20 @@ def test_parse_odds_line_event_and_odds():
     mets = next(o for o in out["odds"] if o["outcome_name"] == "New York Mets")
     assert mets["bookmaker"] == "pinnacle" and mets["market_type"] == "h2h"
     assert mets["decimal_price"] == 1.82
+    assert mets["point"] is None   # h2h has no line value
+
+
+def test_parse_odds_line_totals_carry_point():
+    payload = {
+        "event_id": "evt2", "sport_key": "baseball_mlb",
+        "home_team": "San Diego Padres", "away_team": "New York Mets",
+        "commence_time": "2026-06-07T02:11:00Z", "market": "totals", "bookmaker": "fanduel",
+        "outcomes": [{"name": "Over", "price": 1.91, "point": 45.5},
+                     {"name": "Under", "price": 1.91, "point": 45.5}],
+    }
+    out = parse_odds_line(payload)
+    assert len(out["odds"]) == 2
+    over = next(o for o in out["odds"] if o["outcome_name"] == "Over")
+    assert over["market_type"] == "totals"
+    assert over["decimal_price"] == 1.91
+    assert over["point"] == 45.5

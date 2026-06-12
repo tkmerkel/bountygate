@@ -20,5 +20,6 @@ def parse_odds_line(payload: dict) -> dict:
             "bookmaker": bookmaker,
             "outcome_name": o.get("name"),
             "decimal_price": o.get("price"),
+            "point": o.get("point"),   # line value for spreads/totals; None for h2h
         })
     return {"event": event, "odds": odds}

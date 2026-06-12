@@ -18,10 +18,14 @@ def _engine():
 
 
 def _latest_odds_rows(conn) -> list[dict]:
+    # h2h only: feeds both fair-price consensus and edge signals, which group by
+    # (event, market, book, outcome) with no per-line key. Spreads/totals carry a
+    # point value that those consumers don't group on, so including them would
+    # collapse distinct lines (e.g. Over 8.5 vs Over 9.5) into one bogus pair.
     rows = conn.execute(text(
         "SELECT event_id::text AS event_id, market_type, bookmaker, outcome_name, "
         "       decimal_price, captured_at "
-        "FROM sportsbook_odds_history")).mappings().all()
+        "FROM sportsbook_odds_history WHERE market_type = 'h2h'")).mappings().all()
     if not rows:
         return []
     df = pl.DataFrame([dict(r) for r in rows])

@@ -129,9 +129,11 @@ def _append_odds(conn, event_id, odds: list[dict], captured_at) -> int:
     for o in odds:
         res = conn.execute(text(
             "INSERT INTO sportsbook_odds_history "
-            "  (event_id, market_type, bookmaker, outcome_name, captured_at, decimal_price) "
-            "VALUES (:event_id, :market_type, :bookmaker, :outcome_name, :captured_at, :decimal_price) "
-            "ON CONFLICT (event_id, market_type, bookmaker, outcome_name, captured_at) DO NOTHING"),
+            "  (event_id, market_type, bookmaker, outcome_name, captured_at, decimal_price, point) "
+            "VALUES (:event_id, :market_type, :bookmaker, :outcome_name, :captured_at, "
+            "        :decimal_price, :point) "
+            "ON CONFLICT (event_id, market_type, bookmaker, outcome_name, point, captured_at) "
+            "DO NOTHING"),
             {"event_id": event_id, "captured_at": captured_at, **o})
         n += res.rowcount or 0
     return n
