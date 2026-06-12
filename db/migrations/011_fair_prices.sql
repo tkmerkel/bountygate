@@ -1,3 +1,4 @@
+-- Per-method fair probabilities per snapshot (time-series, partitioned like 004).
 CREATE TABLE fair_prices (
   event_id     uuid        NOT NULL,
   market_type  text        NOT NULL,
@@ -16,6 +17,7 @@ SELECT partman.create_parent(p_parent_table := 'public.fair_prices',
 UPDATE partman.part_config SET retention = '2 years', retention_keep_table = false
 WHERE parent_table = 'public.fair_prices';
 
+-- Serving table for GET /fair-odds, truncate-rebuilt by build_fair_odds.
 CREATE TABLE mart_fair_odds (
   event_id       uuid NOT NULL,
   sport_key      text,
