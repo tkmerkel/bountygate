@@ -1,0 +1,22 @@
+{
+  "id": "evt_999",
+  "sport_key": "basketball_nba",
+  "commence_time": "2026-06-06T23:40:00Z",
+  "home_team": "Los Angeles Lakers",
+  "away_team": "Boston Celtics",
+  "bookmakers": [
+    {
+      "key": "fanduel",
+      "last_update": "2026-06-05T12:00:00Z",
+      "markets": [
+        {
+          "key": "player_points",
+          "outcomes": [
+            {"name": "Over", "description": "LeBron James", "price": 1.9, "point": 28.5},
+            {"name": "Under", "description": "LeBron James", "price": 1.9, "point": 28.5}
+          ]
+        }
+      ]
+    }
+  ]
+}
