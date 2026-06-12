@@ -137,3 +137,84 @@ def build_fair_prices() -> int:
         return n_rows
     finally:
         engine.dispose()
+
+
+def derive_closing_lines_db(*, lookback_days: int = 7) -> tuple[int, list]:
+    """Derive closing lines for commenced events that have none yet.
+
+    Returns (events_processed, stale) where stale is [(event_id, staleness_minutes)]
+    for h2h consensus rows with staleness > 60 (the ingest-gap signal).
+    """
+    from bountygate.models.closing import derive_closing
+    from bountygate.models.fair import weighted_consensus
+    from bountygate.models.weights import sharpness_weights
+
+    engine = _engine()
+    stale: list = []
+    n_events = 0
+    try:
+        with engine.begin() as conn:
+            weights = sharpness_weights(_sharpness_stats(conn))
+            pending = conn.execute(text(
+                "SELECT e.event_id::text AS event_id, e.commence_time "
+                "FROM sports_events e "
+                "WHERE e.sport_key = ANY(:sports) AND e.commence_time < now() "
+                "  AND e.commence_time > now() - make_interval(days => :days) "
+                "  AND NOT EXISTS (SELECT 1 FROM closing_lines c "
+                "                  WHERE c.event_id = e.event_id)"),
+                {"sports": list(SPORTS), "days": lookback_days}).mappings().all()
+            for ev in pending:
+                wrote_any = False
+                for mtype in MARKET_TYPES:
+                    rows = [dict(r) for r in conn.execute(text(
+                        "SELECT bookmaker, outcome_name, decimal_price, captured_at "
+                        "FROM sportsbook_odds_history "
+                        "WHERE event_id = cast(:eid AS uuid) AND market_type = :mt "
+                        "  AND captured_at <= :ct"),
+                        {"eid": ev["event_id"], "mt": mtype,
+                         "ct": ev["commence_time"]}).mappings()]
+                    closing = derive_closing(rows, ev["commence_time"])
+                    if not closing:
+                        continue
+                    for c in closing:
+                        conn.execute(text(
+                            "INSERT INTO closing_lines (event_id, market_type, bookmaker, "
+                            "  outcome_name, decimal_price, fair_prob, captured_at, "
+                            "  staleness_minutes) "
+                            "VALUES (cast(:eid AS uuid), :mt, :book, :name, :price, :fair, "
+                            "        :cat, :stale) "
+                            "ON CONFLICT (event_id, market_type, bookmaker, outcome_name) "
+                            "DO NOTHING"),
+                            {"eid": ev["event_id"], "mt": mtype, "book": c["bookmaker"],
+                             "name": c["outcome_name"], "price": c["decimal_price"],
+                             "fair": c["fair_prob"], "cat": c["captured_at"],
+                             "stale": c["staleness_minutes"]})
+                    wrote_any = True
+                    # consensus closing row (the CLV reference)
+                    probs_by_book: dict = {}
+                    for c in closing:
+                        if c["fair_prob"] is not None:
+                            probs_by_book.setdefault(c["bookmaker"], {})[
+                                c["outcome_name"]] = c["fair_prob"]
+                    cons = weighted_consensus(probs_by_book, weights)
+                    if cons:
+                        worst = max(c["staleness_minutes"] for c in closing)
+                        latest = max(c["captured_at"] for c in closing)
+                        for name, prob in cons.items():
+                            conn.execute(text(
+                                "INSERT INTO closing_lines (event_id, market_type, "
+                                "  bookmaker, outcome_name, decimal_price, fair_prob, "
+                                "  captured_at, staleness_minutes) "
+                                "VALUES (cast(:eid AS uuid), :mt, 'consensus', :name, "
+                                "        NULL, :prob, :cat, :stale) "
+                                "ON CONFLICT (event_id, market_type, bookmaker, "
+                                "  outcome_name) DO NOTHING"),
+                                {"eid": ev["event_id"], "mt": mtype, "name": name,
+                                 "prob": prob, "cat": latest, "stale": worst})
+                        if mtype == "h2h" and worst > 60:
+                            stale.append((ev["event_id"], round(worst, 1)))
+                if wrote_any:
+                    n_events += 1
+        return n_events, stale
+    finally:
+        engine.dispose()
