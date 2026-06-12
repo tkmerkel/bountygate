@@ -26,7 +26,7 @@ def derive_closing_lines():
             lines = ", ".join(f"{eid[:8]}…({mins}m)" for eid, mins in stale[:10])
             notify(
                 f"closing-line staleness >60m on {len(stale)} event(s): {lines}",
-                level="warn", source="derive_closing_lines",
+                level="warning", source="derive_closing_lines",
             )
         return n_events
 

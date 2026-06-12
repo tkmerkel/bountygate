@@ -1244,7 +1244,7 @@ def test_quant_dag_imports(filename):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `py -3.12 -m pytest airflow/tests/test_quant_dags_import.py -v`
+Run: `py -3.12 -m pytest airflow/tests/test_quant_dags_import.py -v` (container-only: host py -3.12 has Airflow 2.10 without airflow.sdk; verify via docker exec airflow-airflow-scheduler-1 airflow dags list-import-errors instead)
 Expected: 4 FAIL — `FileNotFoundError` (dag files don't exist)
 
 - [ ] **Step 3: Write `airflow/dags/build_fair_odds.py`**
@@ -1314,7 +1314,7 @@ def derive_closing_lines():
             lines = ", ".join(f"{eid[:8]}…({mins}m)" for eid, mins in stale[:10])
             notify(
                 f"closing-line staleness >60m on {len(stale)} event(s): {lines}",
-                level="warn", source="derive_closing_lines",
+                level="warning", source="derive_closing_lines",
             )
         return n_events
 
@@ -1396,7 +1396,7 @@ dag = score_results()
 
 - [ ] **Step 7: Run smoke tests to verify they pass**
 
-Run: `py -3.12 -m pytest airflow/tests/test_quant_dags_import.py -v`
+Run: `py -3.12 -m pytest airflow/tests/test_quant_dags_import.py -v` (container-only: host py -3.12 has Airflow 2.10 without airflow.sdk; verify via docker exec airflow-airflow-scheduler-1 airflow dags list-import-errors instead)
 Expected: 4 passed
 Also: `py -3.12 -m pytest airflow/tests/test_transform_dags_import.py airflow/tests/test_ingest_dags_import.py -v` → still green.
 
