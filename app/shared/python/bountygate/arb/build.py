@@ -386,11 +386,13 @@ def run_build_arbs(engine=None) -> dict:
             inserted = len(new_opps)
             refreshed = len(candidates) - inserted
 
-            # Discord alert for NEW opps clearing the threshold.
+            # Collect alert candidates inside the transaction; fire after commit.
             alert_opps = [o for o in new_opps if o["fee_adjusted_roi"] >= alert_min_roi]
-            alerts = len(alert_opps)
-            if alert_opps:
-                notify(_format_alert(alert_opps), level="warning", source="airflow:build_arbs")
+
+        # webhook fires after commit: keeps the 10s HTTP timeout out of the DB critical section
+        alerts = len(alert_opps)
+        if alert_opps:
+            notify(_format_alert(alert_opps), level="warning", source="airflow:build_arbs")
 
         result = {
             "game_bb": len(game_bb),
