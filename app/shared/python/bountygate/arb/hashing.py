@@ -56,13 +56,21 @@ def opportunity_hash(
     """Stable SHA-256 hash identifying an arbitrage opportunity.
 
     `legs` is an iterable of two tuples ``(source, outcome, point, price)``.
-    Legs are sorted by ``(source, outcome)`` so symmetric pairs (the same two
-    legs in either order) collapse to one identity. Floats are formatted with
-    the pipeline's fixed precision (line/point ``.3f``, price ``.6f``); a None
-    point or line serializes to the literal ``"none"`` (distinct from ``0.0``,
-    which renders as ``"0.000"``). All parts are joined with ``"|"``.
+    Legs are sorted by the full tuple ``(source, outcome, point_fmt, price_fmt)``
+    where None-safe formatting is applied before comparison, so symmetric pairs
+    (the same two legs in either order) collapse to one identity. Floats are
+    formatted with the pipeline's fixed precision (line/point ``.3f``, price
+    ``.6f``); a None point or line serializes to the literal ``"none"``
+    (distinct from ``0.0``, which renders as ``"0.000"``). All parts are joined
+    with ``"|"``.
+
+    Callers must pre-normalize source/outcome casing — hashing is case-sensitive
+    (archive convention).
     """
-    sorted_legs = sorted(legs, key=lambda leg: (leg[0], leg[1]))
+    sorted_legs = sorted(
+        legs,
+        key=lambda leg: (leg[0], leg[1], _fmt_point(leg[2]), f"{float(leg[3]):.6f}"),
+    )
 
     parts = [
         kind,

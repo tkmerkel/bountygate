@@ -44,6 +44,21 @@ def test_fee_exact_cent_multiple_no_overshoot():
     assert math.isclose(raw, 0.70)
 
 
+def test_fee_exact_cent_c4_p05_no_overshoot():
+    # C=4, p=0.5: raw = 0.07 * 4 * 0.5 * 0.5 = 0.07 exactly in math,
+    # but binary float gives 0.07 * 4 * 0.25 = 7.000000000000001e-2 ->
+    # raw*100 = 7.000000000000001 -> unguarded ceil overshoots to 0.08.
+    # The float-safe implementation must return 0.07.
+    fee = kalshi_taker_fee(0.50, contracts=4)
+    assert fee == 0.07, f"expected 0.07, got {fee!r}"
+
+
+def test_fee_exact_cent_c100_p05():
+    # C=100, p=0.5: raw = 0.07 * 100 * 0.25 = 1.75 -> fee should be 1.75.
+    fee = kalshi_taker_fee(0.50, contracts=100)
+    assert fee == 1.75, f"expected 1.75, got {fee!r}"
+
+
 def test_fee_scales_with_contracts_then_ceils_once():
     # 0.07 * 10 * 0.5 * 0.5 = 0.175 -> ceil to cent = 0.18 (0.175 ceils up)
     assert kalshi_taker_fee(0.50, contracts=10) == pytest.approx(0.18)

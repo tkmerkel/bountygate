@@ -30,7 +30,8 @@ def kalshi_taker_fee(price: float, contracts: int = 1, rate: float | None = None
     """Taker fee in dollars, ceiling-rounded to the cent (conservative for detection)."""
     r = rate if rate is not None else float(os.getenv("BG_KALSHI_FEE_RATE", "0.07"))
     raw = r * contracts * price * (1.0 - price)
-    return math.ceil(raw * 100.0) / 100.0
+    # round() guards binary-float epsilon above exact cents (e.g. C=4, p=0.5 -> 7.000000000000001)
+    return math.ceil(round(raw * 100.0, 9)) / 100.0
 
 
 def venue_effective_cost(price: float, venue_key: str) -> float:
@@ -44,6 +45,9 @@ def book_venue_roi(book_decimal: float, venue_ask: float, venue_key: str) -> tup
     """(roi_pre_fee, fee_adjusted_roi) with both legs normalized to $1 payout.
 
     Book leg cost = 1/decimal. Venue leg cost = ask + fee(ask). Arb iff fee_adjusted_roi > 0.
+
+    Fee is computed per-contract (C=1) and ceil-rounded, so near-margin arbs are detected
+    pessimistically — the true multi-contract fee per contract is lower.
     """
     t_pre = 1.0 / book_decimal + venue_ask
     t_fee = 1.0 / book_decimal + venue_effective_cost(venue_ask, venue_key)
