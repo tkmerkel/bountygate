@@ -51,3 +51,5 @@ wiki/.done/
 .DS_Store
 Thumbs.db
 private_key.pem
+
+.vercel
