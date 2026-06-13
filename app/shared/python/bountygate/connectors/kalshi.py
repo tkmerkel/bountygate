@@ -19,6 +19,12 @@ def _is_auth_error(exc) -> bool:
 SERIES_BY_SPORT = {"NFL": "KXNFLGAME", "NBA": "KXNBAGAME", "MLB": "KXMLBGAME"}
 
 
+def _prop_series() -> list[str]:
+    """Read BG_KALSHI_PROP_SERIES (comma-separated) at call time; return list of non-blank tickers."""
+    raw = os.getenv("BG_KALSHI_PROP_SERIES", "")
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
 def _to_float(x):
     if x is None:
         return None
@@ -99,11 +105,18 @@ class KalshiConnector(Connector):
         )
         return json.loads(resp.data)
 
+    def _series_to_fetch(self) -> list[str]:
+        """Union of default series (from series_by_sport) and BG_KALSHI_PROP_SERIES env var.
+        Reads env at call time for testability. Duplicate tickers are deduplicated."""
+        base = list(self.series_by_sport.values())
+        extras = [t for t in _prop_series() if t not in self.series_by_sport.values()]
+        return base + extras
+
     def fetch_snapshots(self) -> list[RawRecord]:
         client = self._client()
         out: list[RawRecord] = []
         captured_at = datetime.now(timezone.utc)
-        for series_ticker in self.series_by_sport.values():
+        for series_ticker in self._series_to_fetch():
             try:
                 raw = self._fetch_raw(client, series_ticker)
             except Exception as e:
