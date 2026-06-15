@@ -38,10 +38,41 @@ test("arbitrage page renders ledger and filters by kind", async ({ page }) => {
   // seeded game book×book matchup + its 5.0% ROI cell
   await expect(page.getByRole("cell", { name: /Boston Red Sox @ New York Yankees/ })).toBeVisible();
   await expect(page.getByRole("cell", { name: "5.0%" }).first()).toBeVisible();
+  // seeded arbs have a fresh last_seen_at → no stale banner
+  await expect(page.getByTestId("stale-banner")).toHaveCount(0);
   // PROP filter → only the prop row survives (player visible, game matchup gone)
   await page.getByRole("button", { name: "PROP", exact: true }).click();
   await expect(page.getByText("Jayson Tatum")).toBeVisible();
   await expect(page.getByRole("cell", { name: /Boston Red Sox @ New York Yankees/ })).toHaveCount(0);
+});
+
+test("arbitrage page shows stale banner when the freshest arb is old", async ({ page }) => {
+  // last_seen_at 90 minutes old → past the 30-min cutoff
+  const old = new Date(Date.now() - 90 * 60_000).toISOString();
+  await page.route("**/api/arbs*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          opportunity_hash: "stale-arb-1", first_detected_at: old, last_seen_at: old,
+          kind: "game", pairing: "book_book", event_id: EID, sport_key: "baseball_mlb",
+          home_team: "New York Yankees", away_team: "Boston Red Sox", commence_time: old,
+          market_segment: "h2h", player_name: null, line: null, pairing_type: "book_book",
+          leg_a_kind: "book", leg_a_source: "betmgm", leg_a_outcome: "Boston Red Sox",
+          leg_a_point: null, leg_a_price: 2.1, leg_a_stake: 50,
+          leg_b_kind: "book", leg_b_source: "draftkings", leg_b_outcome: "New York Yankees",
+          leg_b_point: null, leg_b_price: 2.1, leg_b_stake: 50,
+          payout: 105, arb_ev: 5, roi: 0.05, fee_adjusted_roi: 0.05,
+          hours_until_commence: 2, details: null,
+        },
+      ]),
+    }),
+  );
+  await page.goto("/arbitrage");
+  const banner = page.getByTestId("stale-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("DATA MAY BE STALE");
+  await expect(banner).toContainText(/1h.*ago/);
 });
 
 test("props page renders and filters by search", async ({ page }) => {

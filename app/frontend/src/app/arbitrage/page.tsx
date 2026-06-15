@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { ArbRow, useApi } from "@/lib/api";
-import { formatPct, formatPrice, formatTime } from "@/lib/format";
+import { formatPct, formatPrice, formatTime, minutesSince, newestTimestamp, relativeAge as ageLabel } from "@/lib/format";
 import { Column, DataTable } from "@/components/DataTable";
-import { Empty, ErrorState, Loading } from "@/components/states";
+import { Empty, ErrorState, Loading, StaleBanner } from "@/components/states";
 
 type KindFilter = "" | "game" | "prop";
 type PairingFilter = "" | "book_book" | "book_venue";
@@ -21,7 +21,9 @@ const PAIRING_PILLS: { value: PairingFilter; label: string }[] = [
   { value: "book_venue", label: "BOOK×VENUE" },
 ];
 
-const STALE_CUTOFF_MS = 30 * 60 * 1000;
+// An arb's last_seen_at older than this counts as stale (matches the API's live cutoff).
+const STALE_AFTER_MIN = 30;
+const STALE_CUTOFF_MS = STALE_AFTER_MIN * 60 * 1000;
 
 function pillClass(active: boolean): string {
   return `pixel bevel-out cursor-pointer px-3 py-0.5 ${
@@ -144,6 +146,15 @@ export default function ArbitragePage() {
   const { data, error, loading, reload } = useApi<ArbRow[]>(path);
   const rows = data ?? [];
 
+  // Freshest arb on the tape. If even that is older than the live cutoff, the
+  // build_arbs pipeline (or its inputs) has stalled — flag it so aged-out arbs
+  // (typically the STALE-ON view) don't read as actionable.
+  const staleAgeLabel = useMemo(() => {
+    const newest = newestTimestamp(rows.map((r) => r.last_seen_at));
+    const mins = minutesSince(newest);
+    return mins !== null && mins > STALE_AFTER_MIN ? ageLabel(newest) : null;
+  }, [rows]);
+
   return (
     <section>
       <div className="wsj-rule mb-4 flex flex-wrap items-end justify-between gap-3 pb-2">
@@ -188,12 +199,15 @@ export default function ArbitragePage() {
       ) : rows.length === 0 ? (
         <Empty note="NO DISLOCATIONS ON THE TAPE." />
       ) : (
-        <DataTable
-          columns={COLUMNS}
-          rows={rows}
-          initialSort={{ key: "fee_adjusted_roi", dir: -1 }}
-          rowKey={(r, i) => `${r.opportunity_hash}-${i}`}
-        />
+        <>
+          {staleAgeLabel ? <StaleBanner ageLabel={staleAgeLabel} /> : null}
+          <DataTable
+            columns={COLUMNS}
+            rows={rows}
+            initialSort={{ key: "fee_adjusted_roi", dir: -1 }}
+            rowKey={(r, i) => `${r.opportunity_hash}-${i}`}
+          />
+        </>
       )}
     </section>
   );
