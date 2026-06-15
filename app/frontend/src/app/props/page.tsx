@@ -2,9 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { PropRow, useApi } from "@/lib/api";
-import { formatPrice, formatTime } from "@/lib/format";
+import { formatPrice, formatTime, minutesSince, newestTimestamp, relativeAge } from "@/lib/format";
 import { Column, DataTable } from "@/components/DataTable";
-import { Empty, ErrorState, Loading } from "@/components/states";
+import { Empty, ErrorState, Loading, StaleBanner } from "@/components/states";
+
+// Feed runs every 15 min; flag the table once its freshest line is older than
+// this many minutes (one fully-missed cycle plus normalize lag).
+const STALE_AFTER_MIN = 30;
 
 // Sport options for the filter select
 const SPORT_OPTIONS: { value: string; label: string }[] = [
@@ -89,6 +93,15 @@ export default function PropsPage() {
     }
     return options;
   }, [rows, marketKey]);
+
+  // Freshness: the newest captured_at across the shown rows. If that is older
+  // than the expected feed cadence, the prices on screen are stale (ingestion
+  // outage) — surface a banner so aging lines don't read as live.
+  const newestIso = useMemo(() => newestTimestamp(rows.map((r) => r.captured_at)), [rows]);
+  const staleAgeLabel = useMemo(() => {
+    const mins = minutesSince(newestIso);
+    return mins !== null && mins > STALE_AFTER_MIN ? relativeAge(newestIso) : null;
+  }, [newestIso]);
 
   // Best-price map for highlight logic
   const bestPriceMap = useMemo(() => buildBestPriceMap(rows), [rows]);
@@ -225,14 +238,17 @@ export default function PropsPage() {
       ) : error ? (
         <ErrorState message={error} onRetry={reload} />
       ) : rows.length === 0 ? (
-        <Empty note="NO PROP LINES INSIDE 24 HOURS." />
+        <Empty note="NO PROP LINES INSIDE 24 HOURS — FEED MAY BE DOWN." />
       ) : (
-        <DataTable
-          columns={COLUMNS}
-          rows={rows}
-          initialSort={{ key: "player", dir: 1 }}
-          rowKey={(r, i) => `${r.event_id}-${r.market_key}-${r.player_name}-${r.bookmaker}-${r.side}-${i}`}
-        />
+        <>
+          {staleAgeLabel ? <StaleBanner ageLabel={staleAgeLabel} /> : null}
+          <DataTable
+            columns={COLUMNS}
+            rows={rows}
+            initialSort={{ key: "player", dir: 1 }}
+            rowKey={(r, i) => `${r.event_id}-${r.market_key}-${r.player_name}-${r.bookmaker}-${r.side}-${i}`}
+          />
+        </>
       )}
     </section>
   );

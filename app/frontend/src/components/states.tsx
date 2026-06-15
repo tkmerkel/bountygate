@@ -17,3 +17,16 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
 export function Empty({ note }: { note: string }) {
   return <div className="kicker py-8 text-center">{note}</div>;
 }
+
+// Shown above a table when its freshest row is older than expected — surfaces an
+// ingestion outage instead of letting aging prices read as live.
+export function StaleBanner({ ageLabel }: { ageLabel: string }) {
+  return (
+    <div className="bevel-in my-3 px-3 py-2 text-center" data-testid="stale-banner">
+      <span className="ledger-neg">⚠ DATA MAY BE STALE</span>
+      <span className="px-2 text-rule-gray">
+        latest update {ageLabel} ago · feed refreshes every 15 min
+      </span>
+    </div>
+  );
+}

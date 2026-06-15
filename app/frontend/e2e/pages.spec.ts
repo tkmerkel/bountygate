@@ -48,12 +48,38 @@ test("props page renders and filters by search", async ({ page }) => {
   await page.goto("/props");
   await expect(page.locator("h2")).toContainText("The Props Counter");
   await expect(page.getByText("Jayson Tatum").first()).toBeVisible();
+  // seeds are timestamped at runtime → fresh → no stale banner
+  await expect(page.getByTestId("stale-banner")).toHaveCount(0);
   // search is debounced 300ms; an unmatched term empties the table
   await page.getByPlaceholder("search…").fill("zzz-no-match");
-  await expect(page.getByText("NO PROP LINES INSIDE 24 HOURS.")).toBeVisible();
+  await expect(page.getByText(/NO PROP LINES INSIDE 24 HOURS/)).toBeVisible();
   // clearing restores the rows
   await page.getByPlaceholder("search…").fill("");
   await expect(page.getByText("Jayson Tatum").first()).toBeVisible();
+});
+
+test("props page shows stale banner when the freshest line is old", async ({ page }) => {
+  // 90 minutes old → past the 30-min staleness threshold
+  const old = new Date(Date.now() - 90 * 60_000).toISOString();
+  await page.route("**/api/props*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          event_id: EID, sport_key: "baseball_mlb", commence_time: old,
+          home_team: "Home", away_team: "Away", market_key: "batter_hits",
+          player_name: "Stale Player", line: 1.5, side: "over",
+          bookmaker: "betmgm", decimal_price: 2.1, captured_at: old,
+        },
+      ]),
+    }),
+  );
+  await page.goto("/props");
+  await expect(page.getByText("Stale Player").first()).toBeVisible();
+  const banner = page.getByTestId("stale-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("DATA MAY BE STALE");
+  await expect(banner).toContainText(/1h.*ago/);
 });
 
 test("sharpness page renders ledger and calibration chart", async ({ page }) => {
