@@ -16,6 +16,20 @@ from bountygate.transforms.parsers.props import parse_player_prop
 WATERMARK_NAME = "normalize"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
+# Rows per multi-row INSERT statement. Postgres caps a statement at 65535 bind
+# params; the widest row here (player props) has 8 columns, so 1000 rows/stmt
+# (8000 params) stays well clear while collapsing a whole event's lines into one
+# round-trip instead of one per row.
+_BATCH_ROWS = 1000
+
+_ODDS_COLUMNS = ["event_id", "market_type", "bookmaker", "outcome_name",
+                 "captured_at", "decimal_price", "point"]
+_ODDS_CONFLICT = ["event_id", "market_type", "bookmaker", "outcome_name", "point", "captured_at"]
+
+_PROPS_COLUMNS = ["event_id", "market_key", "player_name", "line", "side",
+                  "bookmaker", "decimal_price", "captured_at"]
+_PROPS_CONFLICT = ["event_id", "market_key", "player_name", "line", "side", "bookmaker", "captured_at"]
+
 
 def _engine():
     url = os.environ["DATABASE_URL"]
@@ -131,31 +145,40 @@ def _upsert_event(conn, e: dict):
         "RETURNING event_id"), e).scalar()
 
 
+def _build_bulk_insert(table, columns, conflict_cols, rows, batch_rows=_BATCH_ROWS):
+    """Yield (sql, params) for chunked multi-row INSERT ... ON CONFLICT DO NOTHING
+    RETURNING 1. Each statement holds up to ``batch_rows`` rows; placeholders are
+    re-indexed from 0 within each chunk. RETURNING lets the caller count only the
+    rows actually inserted (conflicts return nothing), preserving the row-at-a-time
+    inserted-count semantics. DO NOTHING also tolerates in-batch duplicate keys."""
+    collist = ", ".join(columns)
+    conflictlist = ", ".join(conflict_cols)
+    for start in range(0, len(rows), batch_rows):
+        chunk = rows[start:start + batch_rows]
+        value_groups = []
+        params = {}
+        for i, r in enumerate(chunk):
+            value_groups.append("(" + ", ".join(f":{c}_{i}" for c in columns) + ")")
+            for c in columns:
+                params[f"{c}_{i}"] = r[c]
+        sql = (f"INSERT INTO {table} ({collist}) VALUES " + ", ".join(value_groups)
+               + f" ON CONFLICT ({conflictlist}) DO NOTHING RETURNING 1")
+        yield sql, params
+
+
+def _bulk_append(conn, table, columns, conflict_cols, rows) -> int:
+    """Execute the chunked inserts and return the count actually inserted."""
+    inserted = 0
+    for sql, params in _build_bulk_insert(table, columns, conflict_cols, rows):
+        inserted += len(conn.execute(text(sql), params).fetchall())
+    return inserted
+
+
 def _append_odds(conn, event_id, odds: list[dict], captured_at) -> int:
-    n = 0
-    for o in odds:
-        res = conn.execute(text(
-            "INSERT INTO sportsbook_odds_history "
-            "  (event_id, market_type, bookmaker, outcome_name, captured_at, decimal_price, point) "
-            "VALUES (:event_id, :market_type, :bookmaker, :outcome_name, :captured_at, "
-            "        :decimal_price, :point) "
-            "ON CONFLICT (event_id, market_type, bookmaker, outcome_name, point, captured_at) "
-            "DO NOTHING"),
-            {"event_id": event_id, "captured_at": captured_at, **o})
-        n += res.rowcount or 0
-    return n
+    rows = [{"event_id": event_id, "captured_at": captured_at, **o} for o in odds]
+    return _bulk_append(conn, "sportsbook_odds_history", _ODDS_COLUMNS, _ODDS_CONFLICT, rows)
 
 
 def _append_props(conn, event_id, props: list[dict], captured_at) -> int:
-    n = 0
-    for p in props:
-        res = conn.execute(text(
-            "INSERT INTO player_props_odds_history "
-            "  (event_id, market_key, player_name, line, side, bookmaker, decimal_price, captured_at) "
-            "VALUES (:event_id, :market_key, :player_name, :line, :side, :bookmaker, "
-            "        :decimal_price, :captured_at) "
-            "ON CONFLICT (event_id, market_key, player_name, line, side, bookmaker, captured_at) "
-            "DO NOTHING"),
-            {"event_id": event_id, "captured_at": captured_at, **p})
-        n += res.rowcount or 0
-    return n
+    rows = [{"event_id": event_id, "captured_at": captured_at, **p} for p in props]
+    return _bulk_append(conn, "player_props_odds_history", _PROPS_COLUMNS, _PROPS_CONFLICT, rows)
